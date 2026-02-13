@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Skill {
+  id          String   @id @default(cuid())
+  name        String
+  category    String   @default("Other")
+  description String?
+  tags        String?  // JSON string
+  visibility  String   @default("private") // public, team, private
+  author      String?
+  user        String?  // Added for user isolation
+  
+  // Relations
+  versions    SkillVersion[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  activeVersion Int?   @default(0)
+  isUploaded    Boolean  @default(false)
+
+  @@unique([name, user]) // Skill names are unique per user
+}
+
+model SkillVersion {
+  id        String   @id @default(cuid())
+  skillId   String
+  version   Int
+  content   String
+  assetPath String?
+  files     String?
+  changeLog String?
+  createdAt DateTime @default(now())
+  Skill     Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([skillId, version])
+}
+
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  apiKey    String   @unique
+  createdAt DateTime @default(now())
+}
+
+model Execution {
+  id              String   @id @default(cuid()) // upload_id
+  taskId          String?
+  query           String?
+  framework       String?
+  tokens          Int?
+  cost            Float?
+  latency         Float?
+  timestamp       DateTime @default(now())
+  model           String?
+  finalResult     String?
+  skill           String?
+  skills          String?  // JSON array of strings
+  isSkillCorrect  Boolean? @default(false)
+  isAnswerCorrect Boolean? @default(false)
+  answerScore     Float?
+  skillScore      Float?
+  judgmentReason  String?
+  failures        String?  // JSON array of failures objects
+  skillIssues     String?  // JSON array of skill issue analysis
+  skillVersion    Int?
+  label           String?
+  user            String?
+}
+
+model Config {
+  id             String @id @default(cuid())
+  query          String
+  skill          String
+  standardAnswer String
+  rootCauses     String? // JSON array
+  keyActions     String? // JSON array
+  user           String? // Added for user isolation
+
+  @@unique([query, user]) // Queries are unique per user
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  taskId       String   @unique
+  label        String?
+  query        String?
+  startTime    DateTime @default(now())
+  endTime      DateTime?
+  interactions String?  // JSON array of interactions
+  user         String?
+  model        String?
+}
+
+model UserSettings {
+  id             String @id @default(cuid())
+  user           String @unique
+  settingsJson   String // Store ServerSettingsV2 as JSON string
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
