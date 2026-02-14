@@ -651,7 +651,7 @@ export function extractSkillsFromClaudeSession(interactions: any[]): string[] {
 }
 
 
-export async function analyzeSession(input: any[]): Promise<AnalysisResult> {
+export async function analyzeSession(input: any[], user?: string | null): Promise<AnalysisResult> {
     const messages = normalizeInteractions(input);
     if (!messages || messages.length === 0) {
         return { query: "", skill: "", final_result: "" };
@@ -720,6 +720,8 @@ export async function analyzeSession(input: any[]): Promise<AnalysisResult> {
         const resMsg = interaction.responseMessage;
         
         // Reconstruct content from debug_raw_stream if main content is empty
+
+        // Reconstruct content from debug_raw_stream if main content is empty
         let contentText = "";
         
         if (resMsg && resMsg.content && typeof resMsg.content === 'string') {
@@ -746,14 +748,81 @@ export async function analyzeSession(input: any[]): Promise<AnalysisResult> {
              } catch(e) {}
         }
 
-        if (contentText && contentText.trim()) {
-            const trimmed = contentText.trim();
-            // Ignore if JSON (likely title generation or control)
-            if (!isJsonString(trimmed)) {
-                final_result = trimmed;
-                break;
-            }
+        // --- NEW LOGIC: Accumulate preceding assistant messages ---
+        let contentCandidates: string[] = [];
+        let stopBacktracking = false; // Flag to stop outer loop if needed (though we only process last interaction logic currently)
+
+        // 1. Check preceding assistant messages in requestMessages
+        if (interaction.requestMessages && interaction.requestMessages.length > 0) {
+             for (let j = interaction.requestMessages.length - 1; j >= 0; j--) {
+                 const msg = interaction.requestMessages[j];
+                 // We only concatenate continuous block of assistant messages
+                 if (msg.role === 'assistant') {
+                      let msgContent = "";
+                      if (typeof msg.content === 'string') msgContent = msg.content;
+                      else if (Array.isArray(msg.content)) {
+                          const textPart = msg.content.find((c:any) => c.type === 'text');
+                          if (textPart) msgContent = textPart.text;
+                      }
+
+                      if (msgContent && msgContent.trim()) {
+                           const trimmed = msgContent.trim();
+                           if (!isJsonString(trimmed)) {
+                               contentCandidates.unshift(trimmed);
+                               
+                               // HEURISTIC: Stop if Header found
+                               // This prevents grabbing previous "noise" messages if the answer starts with a structural header here.
+                               if (trimmed.startsWith('#') || trimmed.startsWith('##') || trimmed.startsWith('###')) {
+                                   stopBacktracking = true;
+                                   break;
+                               }
+                           }
+                      } else {
+                           // Stop if we hit an assistant message with no content (pure tool call)
+                           // This separate the final contiguous text block from previous execution steps
+                           break;
+                      }
+                 } else {
+                     // Stop at non-assistant message
+                     break;
+                 }
+             }
         }
+
+        // 2. Add the response message content
+        if (contentText && contentText.trim()) {
+             const trimmed = contentText.trim();
+             // Ignore if JSON (likely title generation or control)
+             if (!isJsonString(trimmed)) {
+                 contentCandidates.push(trimmed);
+                 
+                 // HEURISTIC: Check if this block itself starts with a Header (e.g. single message report)
+                  if (trimmed.startsWith('#') || trimmed.startsWith('##') || trimmed.startsWith('###')) {
+                      // If the response itself is the start of the report, we don't need to look back at requestMessages?
+                      // Wait, we ALREADY looked back above.
+                      // If `contentCandidates` has items from requestMessages, and we push this,
+                      // we effectively appended. 
+                      // If the *Response* starts with Header, it implies it might be the start *unless* previous messages were also part of it.
+                      // But usually if Response starts with Header, it's a new section.
+                      // However, we already processed requestMessages. 
+                      // If requestMessages resulted in content, and then Response starts with Header...
+                      // E.g. Request: "Here is report:" (No header)
+                      // Response: "## Analysis" (Header)
+                      // Result: "Here is report:\n\n## Analysis". This is fine.
+                      //
+                      // The heuristic is mainly to STOP going further BACK.
+                      // Since we are at the end of the chain for this interaction, there's nowhere further back in *this* interaction.
+                      // So we don't need to set stopBacktracking here for *this* interaction loop context.
+                  }
+             }
+        }
+
+        if (contentCandidates.length > 0) {
+            final_result = contentCandidates.join('\n\n');
+            break;
+        }
+
+
     }
 
     // 3. Extract Skill: Scan ALL interactions
@@ -836,10 +905,76 @@ export async function analyzeSession(input: any[]): Promise<AnalysisResult> {
        notes: "Scanned full history"
     }, { query, skill, final_result });
 
+
+    // Extract Result using LLM if possible
+    let llmExtractedResult = "";
+    try {
+         // Should we use 'user' context? 
+         // analyzeSession signature doesn't currently accept 'user'.
+         // We might need to guess or pass 'null' if we don't change the signature everywhere.
+         // Let's check callers. 'src/app/api/end/route.ts' calls it.
+         // For now, let's try to get client with null user (default config) or modify signature.
+         
+         const { client, model } = await getLlmClient(user); // Use default config if user not passed
+         if (client && client.apiKey) {
+             // Construct History for LLM
+             let history = "";
+             messages.forEach((interaction: any) => {
+                 const reqMsgs = interaction.requestMessages || [];
+                 reqMsgs.forEach((m: any) => {
+                      let content = "";
+                      if (typeof m.content === 'string') content = m.content;
+                      else if (Array.isArray(m.content)) {
+                          const textPart = m.content.find((c:any) => c.type === 'text');
+                          if (textPart) content = textPart.text;
+                      }
+                      history += `[${(m.role || 'UNKNOWN').toUpperCase()}]: ${content}\n`;
+                 });
+
+                 const resMsg = interaction.responseMessage;
+                 if (resMsg) {
+                      let content = "";
+                      if (typeof resMsg.content === 'string') content = resMsg.content;
+                      else if (Array.isArray(resMsg.content)) {
+                          const textPart = resMsg.content.find((c:any) => c.type === 'text');
+                          if (textPart) content = textPart.text;
+                      }
+                      history += `[ASSISTANT]: ${content}\n`;
+                 }
+             });
+
+             const { generateExtractionPrompt } = require('../prompts/extraction-prompt');
+             const prompt = generateExtractionPrompt(history);
+
+             const response = await client.chat.completions.create({
+                 messages: [{ role: "user", content: prompt }],
+                 model: model, 
+                 temperature: 0.1 // Low temperature for extraction
+             });
+
+             const content = response.choices[0].message.content;
+             if (content) {
+                 llmExtractedResult = content.trim();
+                 appendLog('result_extraction_llm', { history_length: history.length }, { extracted: llmExtractedResult });
+             }
+         }
+    } catch (e) {
+        console.error("LLM Extraction Failed", e);
+    }
+
+    // Use LLM result if available and valid length, otherwise fallback to Rule-Based
+    if (llmExtractedResult && llmExtractedResult.length > 20) {
+        console.log(`[Judge] LLM extraction preferred (Length: ${llmExtractedResult.length} vs Rule: ${final_result.length})`);
+        final_result = llmExtractedResult;
+    } else if (final_result) {
+        console.log(`[Judge] Rule-Based extraction used (Length: ${final_result.length})`);
+    }
+
     return {
         query,
         skill,
         final_result
     };
+
 }
 

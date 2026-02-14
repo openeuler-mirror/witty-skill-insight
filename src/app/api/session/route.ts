@@ -25,7 +25,7 @@ export async function GET(request: Request) {
         if (!query && interactions.length > 0) {
             try {
                 // Background extraction if missing
-                const analysis = await analyzeSession(interactions);
+                const analysis = await analyzeSession(interactions, session.user);
                 if (analysis.query) {
                     query = analysis.query;
                     // Async update DB

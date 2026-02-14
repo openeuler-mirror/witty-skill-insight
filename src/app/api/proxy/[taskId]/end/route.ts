@@ -274,13 +274,28 @@ export async function POST(
 
     let totalTokens = 0;
     for (const interaction of session.interactions) {
-      if (interaction.usage) totalTokens += interaction.usage.total_tokens || 0;
+      const usage = interaction.usage || interaction.responseMessage?.usage;
+      if (usage) {
+        // Handle case where usage is a JSON string (sometimes happens with DB storage)
+        let parsedUsage = usage;
+        if (typeof usage === 'string') {
+             try { parsedUsage = JSON.parse(usage); } catch(e) {}
+        }
+        
+        const anyUsage = parsedUsage as any;
+        const t = (anyUsage.total_tokens || anyUsage.total || 0);
+        
+        // Log found tokens for debug
+        // console.log(`[Proxy-End] Found tokens: ${t} in interaction`);
+        
+        totalTokens += Number(t);
+      }
     }
 
     let framework = taskId.split('-')[0] || 'unknown';
     if (framework === 'claude') framework = 'claudecode';
 
-    const analysis = await analyzeSession(session.interactions);
+    const analysis = await analyzeSession(session.interactions, session.user);
     
     // If session doesn't have a query but we extracted one, update the session
     if (!session.query && analysis.query) {

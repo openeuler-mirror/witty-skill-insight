@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     });
 
     // If it's a flat message list (which OpenCode/Claude report), analyze it
-    const analysis = await analyzeSession(normalized);
+    const analysis = await analyzeSession(normalized, username);
     
     // Merge extracted data if not provided
     if (!data.query && analysis.query) data.query = analysis.query;
@@ -85,7 +85,6 @@ export async function POST(request: Request) {
     // 2. Fetch Skill Definition & SOP
     let skillDef = undefined;
     const primarySkillName = data.skill;
-    require('fs').appendFileSync('upload_debug.log', `[${new Date().toISOString()}] Task: ${data.task_id}, Norm Count: ${normalized.length}, Skills: ${JSON.stringify(skills)}, Primary Skill: ${primarySkillName}\n`);
     if (primarySkillName) {
          // Find skill belonging to this user
          const skillRecord = await prisma.skill.findFirst({
