@@ -36,7 +36,8 @@ export async function POST(request: Request) {
     }
     const skillName = skills[0] || (existingRecord.skill || '').trim();
 
-    // 4. Re-judgment Logic (Same as upload logic)
+        // 4. Re-judgment Logic (Same as upload logic)
+    const actionUser = data.currentUser || existingRecord.user || null;
     let skillDef = undefined;
     let skillVersion = existingRecord.skillVersion || undefined;
 
@@ -47,7 +48,8 @@ export async function POST(request: Request) {
                  where: { 
                      name: skillName,
                      OR: [
-                         { user: existingRecord.user || null },
+                         { user: actionUser },
+                         { user: null },
                          { visibility: 'public' }
                      ]
                  },
@@ -64,7 +66,7 @@ export async function POST(request: Request) {
     }
 
     let criteria: any = { skill_definition: skillDef };
-    const configs = await readConfig(existingRecord.user);
+    const configs = await readConfig(actionUser);
     const query = existingRecord.query || '';
     const cfg = configs.find((c: any) => c.query && query && c.query.trim() === query.trim());
     
@@ -81,7 +83,7 @@ export async function POST(request: Request) {
          criteria.standard_answer_example = cfg.standard_answer;
     }
 
-    const judgment = await judgeAnswer(query, criteria, existingRecord.finalResult || '', existingRecord.user);
+    const judgment = await judgeAnswer(query, criteria, existingRecord.finalResult || '', actionUser);
     
     // Critical Fix: If judgment failed due to API error or missing model, do not save 0 score
     if (judgment.score === 0 && (judgment.reason?.includes('failed') || judgment.reason?.includes('disabled') || judgment.reason?.includes('禁用'))) {
@@ -99,7 +101,7 @@ export async function POST(request: Request) {
         judgment.reason || '',
         query,
         existingRecord.finalResult || '',
-        existingRecord.user
+        actionUser
     );
 
     // 6. Save back to Execution table

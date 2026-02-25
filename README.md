@@ -37,7 +37,6 @@ Witty-Skill-Insight 是一个开源的 **Agent Skill 生成、优化、评估与
 **不用写一行代码**即可开始采集运行期数据。当前已支持主流 Agent 框架：
 
 - **OpenCode** ✅ — 通过原生 Plugin 系统，毫秒级实时上报
-- **OpenHands** ✅ — 透明代理模式，无侵入接入
 - **Claude Code** ✅ — 通过底层本地日志旁路 Watcher 与 Alias Hook，无感实时上报能力与自动同步
 
 ### 📊 4. 多维对比

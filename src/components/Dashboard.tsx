@@ -550,7 +550,7 @@ export default function Dashboard() {
             const res = await fetch('/api/rejudge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(record)
+                body: JSON.stringify({ ...record, currentUser: user })
             });
             if (res.ok) {
                 const data = await res.json();
