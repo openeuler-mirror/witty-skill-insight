@@ -92,6 +92,7 @@ export async function POST(request: Request) {
                  name: primarySkillName,
                  OR: [
                      { user: username || null },
+                     { user: null },
                      { visibility: 'public' }
                  ]
              },

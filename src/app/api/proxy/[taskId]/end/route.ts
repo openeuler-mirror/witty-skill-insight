@@ -346,6 +346,7 @@ export async function POST(
                  name: primarySkillName,
                  OR: [
                      { user: session.user || null },
+                     { user: null },
                      { visibility: 'public' }
                  ]
              },

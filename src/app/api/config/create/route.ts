@@ -35,6 +35,7 @@ export async function POST(request: Request) {
           name: skillName,
           OR: [
               { user: user || null },
+              { user: null },
               { visibility: 'public' }
           ]
       },

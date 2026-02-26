@@ -64,8 +64,9 @@ interface AvgComparison {
 const COLORS = ['#38bdf8', '#f472b6', '#4ade80', '#fbbf24', '#818cf8', '#f87171'];
 
 // --- Helpers ---
-const formatLatency = (seconds: number) => {
-    if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`;
+const formatLatency = (ms: number) => {
+    if (ms < 1000) return `${ms.toFixed(0)}ms`;
+    const seconds = ms / 1000;
     if (seconds >= 60) {
         const m = Math.floor(seconds / 60);
         const s = Math.round(seconds % 60);
@@ -410,16 +411,25 @@ export default function Dashboard() {
             const d = await res.json();
             const cleanData = d
                 .filter((x: any) => x.query && x.query.trim() !== '') // 4. Filter empty queries
-                .map((x: any) => ({
-                    ...x,
-                    tokens: Number(x.tokens || x.Token || 0),
-                    latency: Number(x.latency || 0),
-                    // 1. Rename framework
-                    framework: (x.framework === 'claude' ? 'claudecode' : x.framework) || 'Unknown',
-                    model: x.model || 'Unknown',
-                    skill_score: x.skill_score !== undefined ? Number(x.skill_score) : undefined,
-                    answer_score: x.answer_score !== undefined ? Number(x.answer_score) : (x.is_answer_correct ? 1.0 : 0.0)
-                }));
+                .map((x: any) => {
+                    let rawLat = Number(x.latency || 0);
+                    // Legacy frameworks (opencode, openhands, or old proxy 'claude') saved as Seconds.
+                    // The new local parser correctly saves 'claudecode' as Milliseconds.
+                    if (x.framework === 'opencode' || x.framework === 'openhands' || x.framework === 'claude') {
+                        rawLat = rawLat * 1000;
+                    }
+
+                    return {
+                        ...x,
+                        tokens: Number(x.tokens || x.Token || 0),
+                        latency: rawLat,
+                        // 1. Rename framework
+                        framework: (x.framework === 'claude' ? 'claudecode' : x.framework) || 'Unknown',
+                        model: x.model || 'Unknown',
+                        skill_score: x.skill_score !== undefined ? Number(x.skill_score) : undefined,
+                        answer_score: x.answer_score !== undefined ? Number(x.answer_score) : (x.is_answer_correct ? 1.0 : 0.0)
+                    };
+                });
             setRawData(cleanData);
         } catch (e) {
             console.error("Failed to fetch data", e);
@@ -540,7 +550,7 @@ export default function Dashboard() {
             const res = await fetch('/api/rejudge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(record)
+                body: JSON.stringify({ ...record, currentUser: user })
             });
             if (res.ok) {
                 const data = await res.json();

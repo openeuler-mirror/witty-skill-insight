@@ -37,8 +37,7 @@ Witty-Skill-Insight 是一个开源的 **Agent Skill 生成、优化、评估与
 **不用写一行代码**即可开始采集运行期数据。当前已支持主流 Agent 框架：
 
 - **OpenCode** ✅ — 通过原生 Plugin 系统，毫秒级实时上报
-- **OpenHands** ✅ — 透明代理模式，无侵入接入
-- **Claude Code** 🚧 — 计划通过 hooks 钩子自动采集（即将支持）
+- **Claude Code** ✅ — 通过底层本地日志旁路 Watcher 与 Alias Hook，无感实时上报能力与自动同步
 
 ### 📊 4. 多维对比
 
@@ -122,7 +121,7 @@ cp .env.example .env
 
 ### 方式一：一键配置（推荐）
 
-无需克隆代码，在任意终端运行以下命令即可自动完成 OpenCode 插件安装与配置：
+无需克隆代码，在任意终端运行以下命令即可自动完成 **OpenCode** 和 **Claude Code** 的自动采集装载与配置：
 
 ```bash
 curl -sSf http://<DASHBOARD_IP>:3000/api/setup | bash
@@ -187,8 +186,7 @@ opencode
 │       └── prisma.ts             # 数据库客户端
 ├── prisma/schema.prisma          # 数据库模型定义
 ├── scripts/                      # 核心采集脚本
-│   ├── opencode_plugin.ts        # OpenCode 原生插件
-│   └── capture_claude.js         # Claude Code 采集脚本（WIP）
+│   └── opencode_plugin.ts        # OpenCode 原生插件
 ├── public/sync_skills.ts         # 客户端 Skill 同步工具
 ├── skill/                        # 预置 Skill 示例库
 ├── docs/                         # 文档与架构图
@@ -215,7 +213,7 @@ opencode
 
 ### 当前已实现 ✅
 
-- [x] 透明代理无感采集（OpenCode / OpenHands）
+- [x] 无感采集（OpenCode / ClaueCode）
 - [x] 多维指标监测与对比（Latency / Token / Accuracy）
 - [x] LLM 自动评分与 Skill 深度归因
 - [x] Skill 版本管理与跨框架同步
@@ -226,7 +224,6 @@ opencode
 - [ ] **Skill 自动生成** — 从文档（PDF/Markdown）自动提取并生成 Skill，自动聚类合并相似 Skill
 - [ ] **Skill 自动评估与优化** — 基于动静态评估与反思，自优化为高质量 Skill
 - [ ] **Skill 流程可视化** — 独立展示 Skill 的执行流程
-- [ ] **Claude Code 采集接入** — 通过 hooks 机制实现自动数据上报
 
 更多愿景请参阅 [VISION.md](docs/VISION.md)。
 

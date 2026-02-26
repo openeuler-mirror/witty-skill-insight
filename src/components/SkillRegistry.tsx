@@ -302,13 +302,6 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
     }
   };
 
-  const copySyncCommand = () => {
-    const cmd = "python agent_runner.py --sync";
-    navigator.clipboard.writeText(cmd).then(() => {
-      alert("Command copied!");
-    });
-  };
-
   return (
     <div className="modal-overlay" onClick={handleClose}>
       <div className="modal-window-lg" onClick={e => e.stopPropagation()}>
@@ -347,21 +340,6 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
             style={{ display: 'none' }}
             onChange={handleVersionFolderSelect}
           />
-        </div>
-
-        {/* Sync Banner */}
-        <div className="modal-sync-banner">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <span style={{ fontSize: '1.25rem' }}>🔄</span>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 'bold', letterSpacing: '0.05em' }}>Synchronization Required</span>
-              <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>Run this command to apply active version changes:</span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(0,0,0,0.3)', padding: '0.5rem 1rem', borderRadius: '4px', border: '1px solid rgba(51,65,85,0.5)' }}>
-            <code style={{ fontSize: '0.85rem', fontFamily: 'monospace', color: '#4ade80' }}>python agent_runner.py --sync</code>
-            <button onClick={copySyncCommand} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>📋</button>
-          </div>
         </div>
 
         {/* Content Table */}

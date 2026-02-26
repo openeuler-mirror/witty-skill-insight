@@ -91,9 +91,32 @@ else
 fi
 
 echo ""
+echo "🔄 Configuring Claude Code Auto-Sync Wrapper..."
+CLAUDE_WRAPPER='
+# Witty Insight Claude Alliance
+witty-claude() {
+    if command -v npx &> /dev/null; then
+        npx -y tsx "$HOME/.witty/sync_skills.ts" --agent claude >/dev/null 2>&1
+    fi
+    command claude "$@"
+}
+alias claude="witty-claude"
+'
+
+for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    if [ -f "$rc_file" ]; then
+        if ! grep -q "witty-claude()" "$rc_file" 2>/dev/null; then
+            echo "$CLAUDE_WRAPPER" >> "$rc_file"
+            echo "✅ Installed Claude wrapper to $rc_file"
+        fi
+    fi
+done
+
+echo ""
 echo "🌟 Witty-Skill-Insight Telemetry: READY"
 echo "------------------------------------------------"
 echo "1. Run: opencode run 'hello'"
+echo "2. Run: claude (Please restart your terminal or run 'source ~/.zshrc' / '.bashrc' first to enable auto-sync)"
 echo "------------------------------------------------"
 `;
 

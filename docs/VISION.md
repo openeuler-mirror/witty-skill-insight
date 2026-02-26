@@ -63,7 +63,7 @@
 
 - **OpenCode** — 通过原生 Plugin 系统，毫秒级实时上报
 - **OpenHands** — 透明代理模式，配置 Base URL 即可接入
-- **Claude Code** — 计划通过 hooks 钩子自动采集（即将支持）
+- **Claude Code** — 通过底层日志监听与 Alias Hook 实现无感实时采集与同步
 
 任何支持 OpenAI SDK 的 Agent 只需简单配置 Base URL 即可接入。它像是一个"隐形观察者"，在不打扰 Agent 运行的同时，精准捕获每一次对话、思考流（Chain of Thought）和工具调用。
 
@@ -112,12 +112,13 @@
 | :--- | :--- | :--- |
 | **数据采集** | 透明代理 | 兼容 OpenAI 协议，无侵入式接入 |
 | | 原生插件 | OpenCode 原生 Plugin，毫秒级上报 |
+| | 日志旁路 | Claude Code 底层日志级旁路拦截无感采集 |
 | | 会话记录 | 完整记录 Agent 执行轨迹 |
 | | 指标追踪 | Token 消耗、延迟、成本实时统计 |
 | **Skill 管理** | Skill 仓库 | 集中式 Skill 存储与检索 |
 | | 版本控制 | 支持多版本管理与回滚 |
 | | 启用/禁用 | 一键控制 Skill 生效状态 |
-| | 跨框架同步 | 自动分发到 OpenCode / OpenHands 等 |
+| | 跨框架同步 | 自动分发到 OpenCode / ClaudeCode 等 |
 | **评估引擎** | 答案准确性 | 配置化评测，可信分析 |
 | | Skill 召回 | 验证 Agent 是否使用了正确的 Skill |
 | | 失败归因 | 逐项分析扣分原因，区分模型问题与 Skill 缺陷 |
@@ -134,4 +135,3 @@
 | **Skill 评估与优化** | 动静态评估 | 结合运行轨迹与质量标准进行全方位评估 |
 | | 自动优化 | 基于评估结果自优化为高质量 Skill |
 | **Skill 可视化** | 流程可视化 | 独立展示 Skill 的执行流程 |
-| **数据采集** | Claude Code | 通过 hooks 钩子实现自动采集 |

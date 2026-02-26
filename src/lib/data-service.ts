@@ -41,6 +41,7 @@ export interface ExecutionRecord {
   label?: string | null;
   user?: string | null; 
   model?: string | null;
+  skip_evaluation?: boolean;
   [key: string]: any;
 }
 
@@ -237,8 +238,8 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                    }
                }
 
-               // Re-judge if new result or explicitly requested
-               if (needsJudgment) {
+               // Re-judge if new result or explicitly requested, AND evaluation is not disabled
+               if (needsJudgment && !targetRecord.skip_evaluation) {
                     // 1. Fetch Skill Definition if valid skill name exists
                     let skillDefinition: string | undefined = undefined;
                     const skillName = (targetRecord.skill || matchedConfig.skill || '').trim();
