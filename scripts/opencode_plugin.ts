@@ -20,6 +20,42 @@ function logDebug(msg) {
 let sessionStore = new Map();
 let uploadedSessions = new Set();
 
+function toMsTimestamp(v) {
+    if (v == null) return null;
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string') {
+        const s = v.trim();
+        if (!s) return null;
+        // numeric string (ms)
+        if (/^\d+$/.test(s)) {
+            const n = Number(s);
+            return Number.isFinite(n) ? n : null;
+        }
+        // ISO-like
+        const t = Date.parse(s);
+        return Number.isFinite(t) ? t : null;
+    }
+    return null;
+}
+
+function buildTiming(startRaw, endRaw) {
+    const startMs = toMsTimestamp(startRaw);
+    const endMs = toMsTimestamp(endRaw);
+    let durationMs = null;
+    if (startMs != null && endMs != null) {
+        const d = endMs - startMs;
+        // guard against bogus clocks/units: ignore >= 1h spans for tool call
+        if (d >= 0 && d < 3600000) durationMs = d;
+    }
+    // Only attach timing if we have at least one bound
+    if (startRaw == null && endRaw == null) return undefined;
+    const timing = {};
+    if (startRaw != null) timing.started_at = startRaw;
+    if (endRaw != null) timing.completed_at = endRaw;
+    if (durationMs != null) timing.duration_ms = durationMs;
+    return timing;
+}
+
 // Helper: Check if host should skip proxy based on NO_PROXY
 function shouldSkipProxy(targetHostname) {
     const noProxy = process.env.no_proxy || process.env.NO_PROXY;
@@ -208,6 +244,31 @@ export default async function WittySkillInsightPlugin(input) {
                       const tool_calls = [];
                       for (const tp of entry.toolParts.values()) {
                           if (tp.tool && tp.state) {
+                              // Try to infer timing from common OpenCode shapes
+                              const startRaw =
+                                  tp.time?.start ??
+                                  tp.time?.created ??
+                                  tp.meta?.start ??
+                                  tp.meta?.created ??
+                                  tp.state?.time?.start ??
+                                  tp.state?.time?.created ??
+                                  tp.state?.started_at ??
+                                  tp.state?.startTime ??
+                                  tp.state?.start_time ??
+                                  null;
+                              const endRaw =
+                                  tp.time?.completed ??
+                                  tp.time?.end ??
+                                  tp.meta?.completed ??
+                                  tp.meta?.end ??
+                                  tp.state?.time?.completed ??
+                                  tp.state?.time?.end ??
+                                  tp.state?.completed_at ??
+                                  tp.state?.endTime ??
+                                  tp.state?.end_time ??
+                                  null;
+                              const timing = buildTiming(startRaw, endRaw);
+
                               tool_calls.push({
                                   id: tp.callID,
                                   type: 'function',
@@ -216,7 +277,8 @@ export default async function WittySkillInsightPlugin(input) {
                                       arguments: JSON.stringify(tp.state.input || {})
                                   },
                                   state: tp.state.status,
-                                  output: tp.state.output
+                                  output: tp.state.output,
+                                  timing: timing
                               });
                           }
                       }

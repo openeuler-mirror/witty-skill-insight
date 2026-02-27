@@ -59,6 +59,13 @@ Witty-Skill-Insight 是一个开源的 **Agent Skill 生成、优化、评估与
 </p>
 <p align="center"><em>执行详情：端到端对话轨迹回放 + 智能判题理由</em></p>
 
+### 耗时 & Token 分析
+
+<p align="center">
+  <img src="docs/images/execution_steps.png" width="80%" />
+</p>
+<p align="center"><em>逐步拆解 LLM & Tool token和耗时，并支持 Top5 高亮 / 排序与数据详情联动跳转/em></p>
+
 ### 多维度指标对比
 
 <p align="center">

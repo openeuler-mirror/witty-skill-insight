@@ -117,6 +117,352 @@ const CustomTooltip = ({ content }: { content: string }) => {
     );
 };
 
+const RenderInteractionList = ({ 
+    interactions, 
+    focusedStep, 
+    onStepClick 
+}: { 
+    interactions: any[], 
+    focusedStep: number | null, 
+    onStepClick: (index: number) => void 
+}) => {
+    if (!interactions || !Array.isArray(interactions) || interactions.length === 0) return null;
+    
+    // Sort state
+    const [sortMode, setSortMode] = useState<'default' | 'latency_desc' | 'tokens_desc'>('default');
+    
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(0);
+    const pageSize = 5;
+
+    // Prepare data with calculated metrics
+    const processedInteractions = useMemo(() => {
+        const rows: any[] = [];
+
+        const toMs = (v: any) => {
+            if (v == null) return null;
+            if (typeof v === 'number' && Number.isFinite(v)) return v;
+            if (typeof v === 'string') {
+                const s = v.trim();
+                if (!s) return null;
+                if (/^\d+$/.test(s)) {
+                    const n = Number(s);
+                    return Number.isFinite(n) ? n : null;
+                }
+                const t = Date.parse(s);
+                return Number.isFinite(t) ? t : null;
+            }
+            return null;
+        };
+
+        interactions.forEach((item, index) => {
+            // LLM 调用行
+            let lat = item.latency || 0;
+            if (!lat && item.timeInfo && item.timeInfo.completed && item.timeInfo.created) {
+                lat = item.timeInfo.completed - item.timeInfo.created;
+            }
+            
+            let tok = item.usage?.total_tokens || 0;
+            if (!tok && item.usage?.total) {
+                tok = item.usage.total;
+            }
+
+            rows.push({
+                kind: 'llm',
+                id: `llm-${index}`,
+                order: rows.length,
+                original: item,
+                parentIndex: index,
+                toolIndex: null,
+                latency: lat,
+                tokens: tok
+            });
+
+            // 工具调用行（与 LLM 同级展示）
+            const toolCalls = item.tool_calls || item.toolCalls || [];
+            if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+                toolCalls.forEach((tc: any, tIdx: number) => {
+                    let tLat = 0;
+                    const timing = tc.timing || tc.timeInfo || {};
+                    if (typeof timing.duration_ms === 'number') {
+                        tLat = timing.duration_ms;
+                    } else if (timing.started_at && timing.completed_at) {
+                        const s = toMs(timing.started_at);
+                        const e = toMs(timing.completed_at);
+                        if (s != null && e != null && e >= s && e - s < 3600000) {
+                            tLat = e - s;
+                        }
+                    }
+
+                    rows.push({
+                        kind: 'tool',
+                        id: `tool-${index}-${tIdx}`,
+                        order: rows.length,
+                        original: tc,
+                        parentIndex: index,
+                        toolIndex: tIdx,
+                        latency: tLat,
+                        tokens: 0
+                    });
+                });
+            }
+        });
+
+        return rows;
+    }, [interactions]);
+
+    // Calculate Top 5 Latency rows (LLM + Tool)
+    const topLatencyIndices = useMemo(() => {
+        const sorted = [...processedInteractions].sort((a, b) => b.latency - a.latency);
+        return new Set(sorted.slice(0, 5).filter(x => x.latency > 0).map(x => x.id));
+    }, [processedInteractions]);
+
+    // Calculate Top 5 Token Indices (based on original order)
+    const topTokenIndices = useMemo(() => {
+        const sorted = [...processedInteractions].sort((a, b) => b.tokens - a.tokens);
+        return new Set(sorted.slice(0, 5).filter(x => x.tokens > 0).map(x => x.id));
+    }, [processedInteractions]);
+
+    // Apply sorting for display
+    const displayedInteractions = useMemo(() => {
+        const data = [...processedInteractions];
+        if (sortMode === 'latency_desc') {
+            data.sort((a, b) => b.latency - a.latency);
+        } else if (sortMode === 'tokens_desc') {
+            data.sort((a, b) => b.tokens - a.tokens);
+        } else {
+            data.sort((a, b) => a.order - b.order);
+        }
+        return data;
+    }, [processedInteractions, sortMode]);
+
+    // Pagination Logic
+    const totalPages = Math.ceil(displayedInteractions.length / pageSize);
+    const paginatedInteractions = useMemo(() => {
+        const start = currentPage * pageSize;
+        return displayedInteractions.slice(start, start + pageSize);
+    }, [displayedInteractions, currentPage, pageSize]);
+
+    // Reset page when sort mode changes
+    useEffect(() => {
+        setCurrentPage(0);
+    }, [sortMode]);
+
+    const headerStyle: React.CSSProperties = {
+        color: '#38bdf8',
+        fontSize: '0.95rem',
+        margin: 0
+    };
+
+    return (
+        <div style={{ marginBottom: '2rem' }}>
+            <div style={{
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                marginBottom: '0.5rem', 
+                borderBottom: '1px solid #334155', 
+                paddingBottom: '4px',
+                minHeight: '34px'
+            }}>
+                <h4 style={headerStyle}>Execution Steps (Trace)</h4>
+                <div style={{display: 'flex', gap: '0.5rem', alignItems: 'center'}}>
+                    <span style={{fontSize: '0.8rem', color: '#94a3b8'}}>Sort by:</span>
+                    <select 
+                        value={sortMode} 
+                        onChange={(e) => setSortMode(e.target.value as any)}
+                        style={{
+                            background: '#1e293b',
+                            color: '#e2e8f0',
+                            border: '1px solid #334155',
+                            borderRadius: '4px',
+                            padding: '2px 8px',
+                            fontSize: '0.8rem',
+                            outline: 'none'
+                        }}
+                    >
+                        <option value="default">Default (Chronological)</option>
+                        <option value="latency_desc">Latency (High to Low)</option>
+                        <option value="tokens_desc">Tokens (High to Low)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {paginatedInteractions.map((wrapper) => {
+                    const { original, kind, parentIndex, toolIndex, latency: latencyVal, tokens } = wrapper;
+                    const isTopLatency = topLatencyIndices.has(wrapper.id);
+                    const isTopToken = topTokenIndices.has(wrapper.id);
+                    const isFocused = focusedStep === parentIndex;
+                    const isTool = kind === 'tool';
+                    
+                    const latencyStr = latencyVal < 1000 ? `${latencyVal.toFixed(0)}ms` : `${(latencyVal / 1000).toFixed(2)}s`;
+                    
+                    let role = 'unknown';
+                    let contentSummary = '';
+                    
+                    if (kind === 'tool') {
+                        const tc = original;
+                        role = `tool:${tc.function?.name || tc.name || 'unknown'}`;
+                        const out = tc.output ?? (tc.state && tc.state.output);
+                        if (typeof out === 'string') contentSummary = out;
+                        else if (out != null) contentSummary = JSON.stringify(out);
+                        else contentSummary = '';
+                    } else {
+                        const step = original;
+                        if (step.responseMessage) {
+                            role = step.responseMessage.role || 'assistant';
+                            const content = step.responseMessage.content;
+                            if (typeof content === 'string') contentSummary = content;
+                            else if (content) contentSummary = JSON.stringify(content);
+                        } 
+                        if (!contentSummary && step.content) {
+                            const content = step.content;
+                            if (typeof content === 'string') contentSummary = content;
+                            else contentSummary = JSON.stringify(content);
+                        }
+                        if (step.role && role === 'unknown') {
+                            role = step.role;
+                        }
+                    }
+
+                    const roleColor =
+                        isTool ? '#fbbf24' :
+                        role === 'user' ? '#a78bfa' :
+                        role === 'assistant' ? '#38bdf8' :
+                        '#e2e8f0';
+
+                    const toolAccentColor = isTopLatency ? '#fb923c' : '#fbbf24';
+                    const focusShadow = '0 0 0 2px rgba(96, 165, 250, 0.3)';
+                    const toolAccentShadow = `inset 3px 0 0 ${toolAccentColor}`;
+                    const combinedShadow = isTool
+                        ? (isFocused ? `${focusShadow}, ${toolAccentShadow}` : toolAccentShadow)
+                        : (isFocused ? focusShadow : 'none');
+
+                    // Truncate
+                    if (contentSummary.length > 150) contentSummary = contentSummary.slice(0, 150) + '...';
+
+                    return (
+                        <div 
+                            key={wrapper.id} 
+                            onClick={() => onStepClick(parentIndex)}
+                            style={{
+                                background: isFocused 
+                                    ? (isTool ? '#3730a3' : '#1e3a8a')
+                                    : (isTool ? '#111827' : '#1e293b'),
+                                border: isFocused ? '1px solid #60a5fa' : (isTool ? '1px solid #374151' : '1px solid #334155'),
+                                borderRadius: '6px',
+                                padding: '0.75rem',
+                                paddingLeft: isTool ? '1.25rem' : '0.75rem',
+                                marginLeft: isTool ? '16px' : 0,
+                                fontSize: '0.9rem',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                boxShadow: combinedShadow
+                            }}
+                        >
+                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem'}}>
+                                <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                    <span style={{
+                                        background: '#334155', color: '#94a3b8', 
+                                        padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold'
+                                    }}>
+                                        {kind === 'tool' ? `#${parentIndex}.${toolIndex}` : `#${parentIndex}`}
+                                    </span>
+                                    <span style={{fontWeight: 'bold', color: roleColor, textTransform: 'capitalize'}}>
+                                        {role}
+                                    </span>
+                                    {isTool && (
+                                        <span style={{
+                                            fontSize: '0.7rem',
+                                            color: '#0f172a',
+                                            background: '#fbbf24',
+                                            borderRadius: '999px',
+                                            padding: '1px 8px',
+                                            fontWeight: 'bold'
+                                        }}>
+                                            TOOL
+                                        </span>
+                                    )}
+                                </div>
+                                <div style={{display: 'flex', gap: '1rem', fontSize: '0.85rem'}}>
+                                    <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
+                                        <span style={{color: '#94a3b8'}}>Latency:</span>
+                                        <span style={{
+                                            color: isTopLatency ? '#fb923c' : '#cbd5e1',
+                                            fontWeight: isTopLatency ? 'bold' : 'normal',
+                                            borderBottom: isTopLatency ? '1px dashed #fb923c' : 'none'
+                                        }}>
+                                            {latencyStr}
+                                        </span>
+                                        {isTopLatency && <span style={{fontSize: '0.7rem', color: '#fb923c', border: '1px solid #fb923c', borderRadius: '4px', padding: '0 4px'}}>TOP 5</span>}
+                                    </div>
+                                    <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
+                                        <span style={{color: '#94a3b8'}}>Tokens:</span>
+                                        <span style={{
+                                            color: isTopToken ? '#f472b6' : '#cbd5e1',
+                                            fontWeight: isTopToken ? 'bold' : 'normal',
+                                            borderBottom: isTopToken ? '1px dashed #f472b6' : 'none'
+                                        }}>
+                                            {tokens}
+                                        </span>
+                                        {isTopToken && <span style={{fontSize: '0.7rem', color: '#f472b6', border: '1px solid #f472b6', borderRadius: '4px', padding: '0 4px'}}>TOP 5</span>}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style={{
+                                color: '#cbd5e1', 
+                                fontFamily: 'monospace',
+                                opacity: 0.9,
+                                wordBreak: 'break-all'
+                            }}>
+                                {contentSummary || <span style={{color:'#64748b', fontStyle:'italic'}}>(No Content)</span>}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+            
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', marginTop: '1rem'}}>
+                    <button 
+                        onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                        disabled={currentPage === 0}
+                        style={{
+                            padding: '4px 12px',
+                            background: currentPage === 0 ? '#334155' : '#38bdf8',
+                            color: currentPage === 0 ? '#94a3b8' : '#0f172a',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: currentPage === 0 ? 'not-allowed' : 'pointer'
+                        }}
+                    >
+                        Prev
+                    </button>
+                    <span style={{color: '#94a3b8', fontSize: '0.9rem'}}>
+                        Page {currentPage + 1} of {totalPages}
+                    </span>
+                    <button 
+                        onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+                        disabled={currentPage === totalPages - 1}
+                        style={{
+                            padding: '4px 12px',
+                            background: currentPage === totalPages - 1 ? '#334155' : '#38bdf8',
+                            color: currentPage === totalPages - 1 ? '#94a3b8' : '#0f172a',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: currentPage === totalPages - 1 ? 'not-allowed' : 'pointer'
+                        }}
+                    >
+                        Next
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
 // Ensure Suspense boundary for useSearchParams in Next.js App Router
 export default function DetailPageWrapper() {
     return (
@@ -143,6 +489,7 @@ function DetailPage() {
     const [editQueryValue, setEditQueryValue] = useState('');
     const [querySaveStatus, setQuerySaveStatus] = useState<{ id: string; status: 'saving' | 'ok' | 'error'; msg?: string } | null>(null);
     const [feedbackComments, setFeedbackComments] = useState<Record<string, string>>({});
+    const [focusedStep, setFocusedStep] = useState<number | null>(null);
     
     const submitDetailFeedback = async (item: Execution, type: 'like' | 'dislike' | null, comment?: string) => {
         const taskId = item.task_id || item.upload_id || '';
@@ -1325,22 +1672,67 @@ function DetailPage() {
                                         </div>
                                     </div>
 
-                                    <h4 style={sectionHeader}>Session Data (Raw JSON)</h4>
-                                    
                                     {session ? (
                                         session.error ? (
                                             <div style={{color: '#94a3b8', fontStyle: 'italic'}}>{session.error}</div>
                                         ) : (
-                                            <div style={{background: '#1e293b', padding: '1rem', borderRadius: '8px', overflow: 'hidden'}}>
-                                                <ReactJson 
-                                                src={session} 
-                                                theme="monokai" 
-                                                collapsed={2} 
-                                                displayDataTypes={false}
-                                                name={null}
-                                                style={{backgroundColor: 'transparent', fontSize: '0.85rem'}}
-                                                enableClipboard={true}
-                                            />
+                                            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem'}}>
+                                                <div style={{minWidth: 0}}>
+                                                    <div style={{
+                                                        display: 'flex', 
+                                                        justifyContent: 'space-between', 
+                                                        alignItems: 'center', 
+                                                        marginBottom: '0.5rem', 
+                                                        borderBottom: '1px solid #334155', 
+                                                        paddingBottom: '4px',
+                                                        minHeight: '34px'
+                                                    }}>
+                                                        <h4 style={sectionHeader}>Session Data (Raw JSON)</h4>
+                                                    </div>
+                                                    <div style={{background: '#1e293b', padding: '1rem', borderRadius: '8px', overflow: 'hidden'}}>
+                                                        <ReactJson 
+                                                            key={`json-${focusedStep !== null ? focusedStep : 'default'}`} 
+                                                            src={session} 
+                                                            theme="monokai" 
+                                                            shouldCollapse={(field) => {                                                                
+                                                                const path = [...(field.namespace || []), field.name]
+                                                                    .filter(key => key != null && String(key).trim() !== '')
+                                                                    .map(String);
+                                                                if (focusedStep === null) {
+                                                                    if (path[0] === 'interactions' && path.length >= 2) return true;
+                                                                    return false;
+                                                                }
+
+                                                                if (path[0] === 'interactions') {
+                                                                    const stepStr = path[1]; 
+                                                                                                                                        
+                                                                    if (stepStr !== undefined) {
+                                                                        const stepIndex = Number(stepStr);
+                                                                        if (!isNaN(stepIndex)) {                                                                            
+                                                                            if (stepIndex !== focusedStep) {
+                                                                                return true;
+                                                                            }                                                                            
+                                                                            return false;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                
+                                                                return false;
+                                                            }}
+                                                            displayDataTypes={false}
+                                                            name={null}
+                                                            style={{backgroundColor: 'transparent', fontSize: '0.85rem'}}
+                                                            enableClipboard={true}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div style={{minWidth: 0}}>
+                                                    <RenderInteractionList 
+                                                        interactions={session.interactions} 
+                                                        focusedStep={focusedStep}
+                                                        onStepClick={setFocusedStep}
+                                                    />
+                                                </div>
                                             </div>
                                         )
                                     ) : (
@@ -1375,10 +1767,8 @@ const chartTitleStyle: React.CSSProperties = {
 
 const sectionHeader: React.CSSProperties = {
     color: '#38bdf8',
-    marginBottom: '0.5rem',
-    fontSize: '0.95rem',
-    borderBottom: '1px solid #334155',
-    paddingBottom: '4px'
+    margin: 0,
+    fontSize: '0.95rem'
 };
 
 const codeBlock: React.CSSProperties = {
