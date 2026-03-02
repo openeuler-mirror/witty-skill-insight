@@ -87,31 +87,21 @@ Witty-Skill-Insight 是一个开源的 **Agent Skill 生成、优化、评估与
 
 ```bash
 # 克隆代码
-git clone https://gitee.com/gyctl/skill-agent-dashboard.git
-cd skill-agent-dashboard
+git clone https://gitcode.com/openeuler/witty-skill-insight.git
+cd witty-skill-insight
 
 # 安装依赖
 npm install
 
-# 初始化数据库
-npx prisma db push
-
-# 启动看板（默认 http://localhost:3000）
-npm run dev
+# 使用开发模式启动服务（内置环境初始化与数据库同步）
+bash scripts/restart_dev.sh
 ```
 
-### 2. 配置环境变量
+> `restart_dev.sh` 会自动从 `.env.example` 复制一份初始化的 `.env` 文件。您可以按需编辑 `.env`，设置以下核心配置：
 
-```bash
-cp .env.example .env
-```
-
-编辑 `.env`，设置以下核心配置：
-
-| 变量名 | 必填 | 说明 |
-| :--- | :--- | :--- |
-| `DATABASE_URL` | ✅ | SQLite 数据库路径，默认 `file:../data/witty_insight.db` |
-| `WITTY_INSIGHT_HOST` | 可选 | Dashboard 访问地址，默认 `localhost` |
+| 变量名               | 必填 | 说明                                                    |
+| :------------------- | :--- | :------------------------------------------------------ |
+| `DATABASE_URL`       | ✅   | SQLite 数据库路径，默认 `file:../data/witty_insight.db` |
 
 > 💡 **LLM 判题配置**：启动看板后，在「Settings」页面配置评分用的模型和 API Key（支持 DeepSeek、OpenAI 等）。
 
