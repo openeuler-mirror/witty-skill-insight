@@ -359,11 +359,15 @@ export default async function WittySkillInsightPlugin(input) {
                       // Token logic
                       const u = m.usage;
                       if (u) {
-                          totalTokens += (u.input_tokens || 0) + (u.output_tokens || 0);
-                          if (u.cache) {
-                              totalTokens += (u.cache.read || 0) + (u.cache.write || 0);
+                          if (u.total !== undefined) {
+                              totalTokens += Number(u.total);
+                          } else {
+                              totalTokens += Number(u.input_tokens || u.input || 0) + Number(u.output_tokens || u.output || 0);
+                              if (u.cache) {
+                                  totalTokens += Number(u.cache.read || 0) + Number(u.cache.write || 0);
+                              }
+                              totalTokens += Number(u.cache_creation_input_tokens || 0) + Number(u.cache_read_input_tokens || 0);
                           }
-                          totalTokens += (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
                       }
                       
                       // Latency Logic

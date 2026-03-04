@@ -46,6 +46,7 @@ interface ConfigItem {
     standard_answer: string;
     root_causes?: { content: string; weight: number }[];
     key_actions?: { content: string; weight: number }[];
+    parse_status?: 'parsing' | 'completed' | 'failed';
 }
 
 interface SkillOption {
@@ -179,6 +180,25 @@ export default function Dashboard() {
 
     const [activeTab, setActiveTab] = useState<'dashboard' | 'config' | 'skill'>('dashboard');
     const [showUserModal, setShowUserModal] = useState(false); // State for User Modal
+
+    // Fetch fresh API Key from DB when user modal opens to ensure accuracy
+    useEffect(() => {
+        if (showUserModal && user) {
+            fetch('/api/auth/apikey', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: user })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.apiKey) {
+                    setLocalApiKey(data.apiKey);
+                    localStorage.setItem('api_key', data.apiKey); // Keep cache in sync with DB
+                }
+            })
+            .catch(err => console.error("Failed to fetch fresh API key", err));
+        }
+    }, [showUserModal, user]);
 
     // Data States
     const [rawData, setRawData] = useState<Execution[]>([]);
@@ -427,7 +447,7 @@ export default function Dashboard() {
                         framework: (x.framework === 'claude' ? 'claudecode' : x.framework) || 'Unknown',
                         model: x.model || 'Unknown',
                         skill_score: x.skill_score !== undefined ? Number(x.skill_score) : undefined,
-                        answer_score: x.answer_score !== undefined ? Number(x.answer_score) : (x.is_answer_correct ? 1.0 : 0.0)
+                        answer_score: x.answer_score === null ? null : (x.answer_score !== undefined ? Number(x.answer_score) : (x.is_answer_correct ? 1.0 : 0.0))
                     };
                 });
             setRawData(cleanData);
@@ -631,56 +651,139 @@ export default function Dashboard() {
     const [editingConfig, setEditingConfig] = useState<Partial<ConfigItem> & { version?: number }>({});
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isSavingConfig, setIsSavingConfig] = useState(false);
+    const [configAnswerMode, setConfigAnswerMode] = useState<'manual' | 'document'>('manual');
+    const [configDocumentFile, setConfigDocumentFile] = useState<File | null>(null);
+    const pollingTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+    // Cleanup polling timers on unmount
+    useEffect(() => {
+        return () => {
+            pollingTimersRef.current.forEach(timer => clearTimeout(timer));
+        };
+    }, []);
+
+    // Poll for parsing status of config items
+    const pollConfigStatus = useCallback((configId: string) => {
+        const poll = async () => {
+            try {
+                const res = await fetch(`/api/config/status?id=${configId}`);
+                if (!res.ok) return;
+                const data = await res.json();
+
+                if (data.parse_status === 'completed' || data.parse_status === 'failed') {
+                    // Update the config in state (including standard_answer which may have been extracted from document)
+                    setConfigs(prev => prev.map(c => c.id === configId ? {
+                        ...c,
+                        standard_answer: data.standard_answer || c.standard_answer,
+                        root_causes: data.root_causes,
+                        key_actions: data.key_actions,
+                        parse_status: data.parse_status
+                    } : c));
+                    // Stop polling
+                    const timer = pollingTimersRef.current.get(configId);
+                    if (timer) clearTimeout(timer);
+                    pollingTimersRef.current.delete(configId);
+                } else {
+                    // Continue polling
+                    const timer = setTimeout(poll, 2000);
+                    pollingTimersRef.current.set(configId, timer);
+                }
+            } catch (e) {
+                console.error('Config status poll error:', e);
+                const timer = setTimeout(poll, 5000);
+                pollingTimersRef.current.set(configId, timer);
+            }
+        };
+        // Start first poll after 2s
+        const timer = setTimeout(poll, 2000);
+        pollingTimersRef.current.set(configId, timer);
+    }, []);
+
+    // Start polling for any configs in 'parsing' state on load
+    useEffect(() => {
+        configs.forEach(c => {
+            if (c.parse_status === 'parsing' && !pollingTimersRef.current.has(c.id)) {
+                pollConfigStatus(c.id);
+            }
+        });
+    }, [configs, pollConfigStatus]);
 
 
     const saveConfig = async () => {
-        if (!editingConfig.query) return alert('问题 (Query) 不能为空');
+        if (!editingConfig.query?.trim()) return alert('问题 (Query) 不能为空');
+
+        // 新增模式下校验问题是否已存在（trim 后比较，防止前后空格绕过）
+        if (!editingConfig.id) {
+            const trimmedQuery = editingConfig.query.trim();
+            const isDuplicate = configs.some(c => c.query.trim() === trimmedQuery);
+            if (isDuplicate) {
+                return alert('该问题已存在于数据集中，请修改后再保存');
+            }
+            // 自动 trim 问题
+            editingConfig.query = trimmedQuery;
+        }
+
         setIsSavingConfig(true);
 
         try {
             if (!editingConfig.id) {
                 // --- NEW CREATE MODE ---
-                if (!editingConfig.skill) return alert('请选择 Skill');
-                if (editingConfig.version === undefined) return alert('请选择 Skill Version');
+                // Validate: need standard answer OR document
+                if (configAnswerMode === 'manual' && !editingConfig.standard_answer?.trim()) {
+                    setIsSavingConfig(false);
+                    return alert('请填写标准答案');
+                }
+                if (configAnswerMode === 'document' && !configDocumentFile) {
+                    setIsSavingConfig(false);
+                    return alert('请上传案例文档');
+                }
 
-                const res = await fetch('/api/config/create', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        query: editingConfig.query,
-                        skillName: editingConfig.skill,
-                        version: editingConfig.version,
-                        user: user // Include user in the body for new config creation
-                    })
-                });
+                let res: Response;
+                if (configAnswerMode === 'document' && configDocumentFile) {
+                    // Use FormData for file upload
+                    const formData = new FormData();
+                    formData.append('query', editingConfig.query);
+                    formData.append('document', configDocumentFile);
+                    if (user) formData.append('user', user);
+                    res = await fetch('/api/config/create', { method: 'POST', body: formData });
+                } else {
+                    res = await fetch('/api/config/create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            query: editingConfig.query,
+                            standardAnswer: editingConfig.standard_answer,
+                            user
+                        })
+                    });
+                }
 
                 if (res.ok) {
                     const newConfig = await res.json();
                     if (newConfig && newConfig.id) {
-                        setConfigs([newConfig, ...configs]);
+                        setConfigs(prev => [newConfig, ...prev]);
+                        // Start polling for parsing status
+                        if (newConfig.parse_status === 'parsing') {
+                            pollConfigStatus(newConfig.id);
+                        }
                     }
                     setIsEditModalOpen(false);
                     setEditingConfig({});
-                    alert('保存成功，已自动提取关键点与动作');
+                    setConfigDocumentFile(null);
+                    setConfigAnswerMode('manual');
                 } else {
                     const err = await res.json();
                     alert(`保存失败: ${err.error || 'Unknown error'}`);
                 }
             } else {
                 // --- EDIT MODE ---
-                // Validation: Root Causes must have at least one item
-                if (!editingConfig.root_causes || editingConfig.root_causes.length === 0 || editingConfig.root_causes.every(rc => !rc.content.trim())) {
-                    setIsSavingConfig(false);
-                    return alert('根因要素 (Root Causes) 至少需要填写一条！');
-                }
-
                 let newConfigs = [...configs];
                 newConfigs = newConfigs.map(c => c.id === editingConfig.id ? { ...c, ...editingConfig } as ConfigItem : c);
                 
                 const res = await fetch('/api/config', { 
                     method: 'POST', 
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ configs: newConfigs, user }) // Include user in the body
+                    body: JSON.stringify({ configs: newConfigs, user })
                 });
                 if (res.ok) {
                     setConfigs(newConfigs);
@@ -849,7 +952,8 @@ export default function Dashboard() {
                          if (fwOrModelData.length > 0) {
                             const avgLat = fwOrModelData.reduce((s, x) => s + x.latency, 0) / fwOrModelData.length;
                             const avgTok = fwOrModelData.reduce((s, x) => s + x.tokens, 0) / fwOrModelData.length;
-                            const avgScore = fwOrModelData.reduce((s, x) => s + (x.answer_score || 0), 0) / fwOrModelData.length;
+                            const evaluatedDatas = fwOrModelData.filter(d => d.answer_score !== null);
+                            const avgScore = evaluatedDatas.length ? evaluatedDatas.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedDatas.length : 0;
 
                             qRecord[`${seriesName}_lat`] = parseFloat(avgLat.toFixed(2));
                             qRecord[`${seriesName}_tok`] = Math.round(avgTok);
@@ -890,7 +994,8 @@ export default function Dashboard() {
                         const avgLat = fwOrModelData.reduce((s, x) => s + x.latency, 0) / fwOrModelData.length;
                         const avgTok = fwOrModelData.reduce((s, x) => s + x.tokens, 0) / fwOrModelData.length;
                         const recall = (fwOrModelData.filter(d => d.is_skill_correct).length / fwOrModelData.length) * 100;
-                        const avgScore = fwOrModelData.reduce((s, x) => s + (x.answer_score || 0), 0) / fwOrModelData.length;
+                        const evaluatedDatas = fwOrModelData.filter(d => d.answer_score !== null);
+                        const avgScore = evaluatedDatas.length ? evaluatedDatas.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedDatas.length : 0;
 
                         row[`${seriesName}_lat`] = parseFloat(avgLat.toFixed(2));
                         row[`${seriesName}_tok`] = Math.round(avgTok);
@@ -934,7 +1039,7 @@ export default function Dashboard() {
             avgLatency: totalLat / relevant.length,
             avgTokens: Math.round(relevant.reduce((sum, d) => sum + d.tokens, 0) / relevant.length),
             skillRecall: (correctSkillCount / relevant.length) * 100,
-            avgAnsScore: (relevant.reduce((sum, d) => sum + (d.answer_score || 0), 0) / relevant.length),
+            avgAnsScore: relevant.filter(d => d.answer_score !== null).length ? (relevant.filter(d => d.answer_score !== null).reduce((sum, d) => sum + (d.answer_score || 0), 0) / relevant.filter(d => d.answer_score !== null).length) : 0,
             best: sorted[0], // Best by Latency
             worst: sorted[sorted.length - 1], // Worst by Latency
             avgSkillScore: (relevant.reduce((sum, d) => sum + (d.skill_score || 0), 0) / relevant.filter(d => d.skill_score !== undefined).length) || 0
@@ -1295,7 +1400,8 @@ export default function Dashboard() {
                             const avgLat = fwData.length ? (fwData.reduce((s, x) => s + x.latency, 0) / fwData.length) : 0;
                             const avgTok = fwData.length ? (fwData.reduce((s, x) => s + x.tokens, 0) / fwData.length) : 0;
                             const skillRecall = fwData.length ? (fwData.filter(d => d.is_skill_correct).length / fwData.length * 100) : 0;
-                            const avgScore = fwData.length ? (fwData.reduce((s, x) => s + (x.answer_score || 0), 0) / fwData.length) : 0;
+                            const evaluatedFwData = fwData.filter(d => d.answer_score !== null);
+                            const avgScore = evaluatedFwData.length ? (evaluatedFwData.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedFwData.length) : 0;
 
                             return (
                                 <div className="card" key={fw} style={{ borderLeft: `4px solid ${COLORS[idx % COLORS.length]}` }}>
@@ -1605,7 +1711,8 @@ export default function Dashboard() {
                                     const avgLat = relevant.reduce((sum, d) => sum + d.latency, 0) / counts;
                                     const avgTok = Math.round(relevant.reduce((sum, d) => sum + d.tokens, 0) / counts);
                                     const recall = (relevant.filter(d => d.is_skill_correct).length / counts) * 100;
-                                    const avgSc = (relevant.reduce((sum, d) => sum + (d.answer_score || 0), 0) / counts);
+                                    const evaluatedRelevant = relevant.filter(d => d.answer_score !== null);
+                                    const avgSc = evaluatedRelevant.length ? (evaluatedRelevant.reduce((sum, d) => sum + (d.answer_score || 0), 0) / evaluatedRelevant.length) : 0;
                                     const best = [...relevant].sort((a, b) => a.latency - b.latency)[0];
                                     const worst = [...relevant].sort((a, b) => b.latency - a.latency)[0];
 
@@ -1786,8 +1893,8 @@ export default function Dashboard() {
                                          <td className="p-2">{formatLatency(row.latency)}</td>
                                          <td className="p-2">{formatTokens(row.tokens)}</td>
                                          <td className="p-2">
-                                             <span style={{ color: (row.answer_score || 0) > 0.8 ? '#4ade80' : '#ef4444', fontWeight: 'bold' }}>
-                                                 {(row.answer_score || 0).toFixed(2)}
+                                             <span style={{ color: row.answer_score === null ? '#94a3b8' : ((row.answer_score || 0) > 0.8 ? '#4ade80' : '#ef4444'), fontWeight: 'bold' }}>
+                                                 {row.answer_score === null ? '评估中...' : (row.answer_score || 0).toFixed(2)}
                                              </span>
                                          </td>
                                          <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{row.model || '-'}</td>
@@ -1826,17 +1933,18 @@ export default function Dashboard() {
                                                  <button 
                                                      onClick={() => handleRejudge(row)} 
                                                      className="btn-sm" 
-                                                     disabled={rejudgingIds.has(recordId)}
+                                                     disabled={rejudgingIds.has(recordId) || row.answer_score === null}
                                                      style={{ 
-                                                         background: rejudgingIds.has(recordId) ? '#94a3b8' : '#fbbf24', 
+                                                         background: (rejudgingIds.has(recordId) || row.answer_score === null) ? '#94a3b8' : '#fbbf24', 
                                                          color: '#0f172a',
-                                                         cursor: rejudgingIds.has(recordId) ? 'not-allowed' : 'pointer',
+                                                         cursor: (rejudgingIds.has(recordId) || row.answer_score === null) ? 'not-allowed' : 'pointer',
                                                          display: 'inline-flex',
                                                          alignItems: 'center',
-                                                         gap: '4px'
+                                                         gap: '4px',
+                                                         opacity: (rejudgingIds.has(recordId) || row.answer_score === null) ? 0.7 : 1
                                                      }}
                                                  >
-                                                     {rejudgingIds.has(recordId) ? (
+                                                     {(rejudgingIds.has(recordId) || row.answer_score === null) ? (
                                                          <>
                                                              <span style={{
                                                                  width: '12px',
@@ -1897,65 +2005,143 @@ export default function Dashboard() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
                         <h2 className="section-title" style={{ marginBottom: 0 }}>数据集管理</h2>
                         <button
-                            onClick={() => { setEditingConfig({}); setIsEditModalOpen(true) }}
+                            onClick={() => { setEditingConfig({}); setConfigAnswerMode('manual'); setConfigDocumentFile(null); setIsEditModalOpen(true) }}
                             className="btn-primary"
-                            style={{ padding: '6px 16px', fontSize: '0.9rem' }}
+                            style={{ padding: '8px 20px', fontSize: '0.9rem', borderRadius: '6px' }}
                         >
                             + 新增数据项
                         </button>
                     </div>
-                    <div className="card">
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                                <tr style={{ color: '#94a3b8', textAlign: 'left', borderBottom: '1px solid #334155' }}>
-                                    <th className="p-2">问题 (Query)</th>
-                                    <th className="p-2">技能 (Skill)</th>
-                                    <th className="p-2">标准答案</th>
-                                    <th className="p-2" style={{ width: '140px' }}>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {Array.isArray(configs) && configs.map(c => (
-                                    <tr key={c.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                                        <td className="p-2">{c.query}</td>
-                                        <td className="p-2">{c.skill}</td>
-                                        <td className="p-2">{(c.standard_answer || '').length > 50 ? (c.standard_answer || '').substring(0, 50) + '...' : (c.standard_answer || '')}</td>
-                                        <td className="p-2">
-                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                <button
-                                                    onClick={() => { setEditingConfig(c); setIsEditModalOpen(true) }}
-                                                    style={{
-                                                        padding: '4px 10px',
-                                                        background: 'rgba(56, 189, 248, 0.1)',
-                                                        color: '#38bdf8',
-                                                        border: '1px solid #38bdf8',
-                                                        borderRadius: '4px',
-                                                        cursor: 'pointer',
-                                                        fontSize: '0.85rem'
-                                                    }}
-                                                >
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    onClick={() => deleteConfig(c.id)}
-                                                    style={{
-                                                        padding: '4px 10px',
-                                                        background: 'rgba(239, 68, 68, 0.1)',
-                                                        color: '#ef4444',
-                                                        border: '1px solid #ef4444',
-                                                        borderRadius: '4px',
-                                                        cursor: 'pointer',
-                                                        fontSize: '0.85rem'
-                                                    }}
-                                                >
-                                                    Del
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {Array.isArray(configs) && configs.length === 0 && (
+                            <div className="card" style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
+                                暂无数据项，点击上方"+ 新增数据项"开始添加
+                            </div>
+                        )}
+                        {Array.isArray(configs) && configs.map(c => (
+                            <div key={c.id} className="card" style={{ 
+                                padding: '14px 18px', 
+                                display: 'flex', 
+                                flexDirection: 'row',
+                                alignItems: 'center', 
+                                gap: '16px',
+                                transition: 'border-color 0.2s',
+                                borderColor: '#1e293b'
+                            }}>
+                                {/* 解析状态指示器 */}
+                                <div style={{ flexShrink: 0, width: '8px', height: '8px', borderRadius: '50%', 
+                                    background: c.parse_status === 'parsing' ? '#fbbf24' : c.parse_status === 'failed' ? '#ef4444' : '#4ade80',
+                                    boxShadow: `0 0 6px ${c.parse_status === 'parsing' ? '#fbbf2444' : c.parse_status === 'failed' ? '#ef444444' : '#4ade8044'}`,
+                                    ...(c.parse_status === 'parsing' ? { animation: 'pulse-dot 1.5s ease-in-out infinite' } : {})
+                                }} />
+                                {/* 内容区 */}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ 
+                                        fontWeight: 500, 
+                                        color: '#e2e8f0', 
+                                        fontSize: '0.9rem',
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        marginBottom: '4px'
+                                    }}>
+                                        {c.query}
+                                    </div>
+                                    <div style={{ 
+                                        color: '#64748b', 
+                                        fontSize: '0.8rem',
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis'
+                                    }}>
+                                        {(c.standard_answer || '').length > 100 ? (c.standard_answer || '').substring(0, 100) + '...' : (c.standard_answer || '暂无标准答案')}
+                                    </div>
+                                </div>
+                                {/* 状态标签 */}
+                                <div style={{ flexShrink: 0 }}>
+                                    {c.parse_status === 'parsing' ? (
+                                        <span style={{ 
+                                            display: 'inline-flex', alignItems: 'center', gap: '5px',
+                                            padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
+                                            background: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24', border: '1px solid rgba(251, 191, 36, 0.25)'
+                                        }}>
+                                            <span style={{ width: '10px', height: '10px', border: '1.5px solid #fbbf24', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', display: 'inline-block' }}></span>
+                                            解析中
+                                        </span>
+                                    ) : c.parse_status === 'failed' ? (
+                                        <span style={{ 
+                                            padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
+                                            background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.25)'
+                                        }}>✕ 失败</span>
+                                    ) : (
+                                        <span style={{ 
+                                            padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
+                                            background: 'rgba(74, 222, 128, 0.12)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.25)'
+                                        }}>✓ 完成</span>
+                                    )}
+                                </div>
+                                {/* 操作按钮 */}
+                                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                                    <button
+                                        onClick={() => { setEditingConfig(c); setIsEditModalOpen(true) }}
+                                        style={{
+                                            padding: '5px 12px',
+                                            background: '#1e3a5f',
+                                            color: '#38bdf8',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.8rem',
+                                            fontWeight: 500,
+                                            transition: 'background 0.2s'
+                                        }}
+                                    >
+                                        详情
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setEditingConfig({
+                                                query: c.query,
+                                                skill: '',
+                                                standard_answer: c.standard_answer,
+                                            });
+                                            setConfigAnswerMode('manual');
+                                            setConfigDocumentFile(null);
+                                            setIsEditModalOpen(true);
+                                        }}
+                                        style={{
+                                            padding: '5px 12px',
+                                            background: '#2d1b4e',
+                                            color: '#a855f7',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.8rem',
+                                            fontWeight: 500,
+                                            transition: 'background 0.2s'
+                                        }}
+                                    >
+                                        复制
+                                    </button>
+                                    <button
+                                        onClick={() => deleteConfig(c.id)}
+                                        style={{
+                                            padding: '5px 12px',
+                                            background: '#3b1c1c',
+                                            color: '#ef4444',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.8rem',
+                                            fontWeight: 500,
+                                            transition: 'background 0.2s'
+                                        }}
+                                    >
+                                        删除
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}
@@ -1970,73 +2156,165 @@ export default function Dashboard() {
             {/* 1. Config Edit Modal */}
             {isEditModalOpen && (
                 <div className="modal-overlay" onClick={() => setIsEditModalOpen(false)}>
-                    <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ maxHeight: '90vh', overflowY: 'auto' }}>
-                        <h3>{editingConfig.id ? '编辑数据项' : '新增数据项'}</h3>
+                    <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ maxHeight: '90vh', overflowY: 'auto', maxWidth: '900px', width: '66vw', minWidth: '500px', flexDirection: 'column' }}>
+                        <h3>{editingConfig.id ? '数据项详情' : '新增数据项'}</h3>
                         
+                        {/* 问题 - 始终突出显示 */}
                         <div className="form-group">
-                            <label>问题 (Query)</label>
-                            <input 
+                            <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>问题 (Query) <span style={{ color: '#ef4444' }}>*</span></label>
+                            <textarea 
                                 value={editingConfig.query || ''} 
                                 onChange={e => setEditingConfig({ ...editingConfig, query: e.target.value })} 
-                                disabled={!!editingConfig.id} // Disable if editing existing
-                                style={{ width: '100%', padding: '8px', opacity: editingConfig.id ? 0.6 : 1, cursor: editingConfig.id ? 'not-allowed' : 'text' }} 
+                                disabled={!!editingConfig.id}
+                                placeholder="请输入需要评估的问题..."
+                                style={{ width: '100%', padding: '10px', minHeight: '60px', opacity: editingConfig.id ? 0.7 : 1, cursor: editingConfig.id ? 'not-allowed' : 'text', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }} 
                             />
                         </div>
 
                         {!editingConfig.id ? (
                             // --- NEW CONFIG FORM ---
                             <>
+                                {/* 标准答案 - 突出显示 */}
                                 <div className="form-group">
-                                    <label>选择 Skill</label>
-                                    <select 
-                                        value={editingConfig.skill || ''} 
-                                        onChange={e => {
-                                            const skillName = e.target.value;
-                                            // Reset version when skill changes
-                                            setEditingConfig({ ...editingConfig, skill: skillName, version: undefined }); 
-                                        }}
-                                        style={{ width: '100%', padding: '8px', background: '#0f172a', border: '1px solid #334155', color: 'white', borderRadius: '4px' }}
-                                    >
-                                        <option value="">-- Select Skill --</option>
-                                        {availableSkills.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                                    </select>
-                                </div>
-                                {editingConfig.skill && (
-                                    <div className="form-group">
-                                        <label>选择 Version</label>
-                                        <select 
-                                            value={editingConfig.version !== undefined ? editingConfig.version : ''} 
-                                            onChange={e => setEditingConfig({ ...editingConfig, version: Number(e.target.value) })}
-                                            style={{ width: '100%', padding: '8px', background: '#0f172a', border: '1px solid #334155', color: 'white', borderRadius: '4px' }}
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>标准答案 <span style={{ color: '#ef4444' }}>*</span></label>
+                                    <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
+                                        <button
+                                            onClick={() => { setConfigAnswerMode('manual'); setConfigDocumentFile(null); }}
+                                            style={{
+                                                padding: '6px 16px',
+                                                background: configAnswerMode === 'manual' ? '#38bdf8' : '#1e293b',
+                                                color: configAnswerMode === 'manual' ? '#0f172a' : '#94a3b8',
+                                                border: `1px solid ${configAnswerMode === 'manual' ? '#38bdf8' : '#334155'}`,
+                                                borderRadius: '6px',
+                                                cursor: 'pointer',
+                                                fontSize: '0.85rem',
+                                                fontWeight: configAnswerMode === 'manual' ? 600 : 400,
+                                                transition: 'all 0.2s'
+                                            }}
                                         >
-                                            <option value="">-- Select Version --</option>
-                                            {availableSkills.find(s => s.name === editingConfig.skill)?.versions.map(v => (
-                                                <option key={v.version} value={v.version}>v{v.version}</option>
-                                            ))}
-                                        </select>
+                                            ✏️ 手动填写
+                                        </button>
+                                        <button
+                                            onClick={() => setConfigAnswerMode('document')}
+                                            style={{
+                                                padding: '6px 16px',
+                                                background: configAnswerMode === 'document' ? '#38bdf8' : '#1e293b',
+                                                color: configAnswerMode === 'document' ? '#0f172a' : '#94a3b8',
+                                                border: `1px solid ${configAnswerMode === 'document' ? '#38bdf8' : '#334155'}`,
+                                                borderRadius: '6px',
+                                                cursor: 'pointer',
+                                                fontSize: '0.85rem',
+                                                fontWeight: configAnswerMode === 'document' ? 600 : 400,
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            📄 上传案例文档
+                                        </button>
                                     </div>
-                                )}
-                                <div style={{ marginTop: '2rem', padding: '1rem', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid #0ea5e9', borderRadius: '6px', color: '#bae6fd', fontSize: '0.9rem' }}>
+
+                                    {configAnswerMode === 'manual' ? (
+                                        <textarea
+                                            value={editingConfig.standard_answer || ''}
+                                            onChange={e => setEditingConfig({ ...editingConfig, standard_answer: e.target.value })}
+                                            placeholder="请填写该问题的标准答案..."
+                                            style={{ width: '100%', padding: '10px', minHeight: '150px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.9rem' }}
+                                        />
+                                    ) : (
+                                        <div style={{ 
+                                            border: '2px dashed #334155', 
+                                            borderRadius: '8px', 
+                                            padding: '2rem', 
+                                            textAlign: 'center',
+                                            background: '#0f172a',
+                                            cursor: 'pointer',
+                                            transition: 'border-color 0.2s'
+                                        }}
+                                        onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#38bdf8'; }}
+                                        onDragLeave={e => { e.currentTarget.style.borderColor = '#334155'; }}
+                                        onDrop={e => {
+                                            e.preventDefault();
+                                            e.currentTarget.style.borderColor = '#334155';
+                                            const file = e.dataTransfer.files[0];
+                                            if (file) setConfigDocumentFile(file);
+                                        }}
+                                        onClick={() => {
+                                            const input = document.createElement('input');
+                                            input.type = 'file';
+                                            input.accept = '.txt,.md,.markdown,.pdf';
+                                            input.onchange = (e: any) => {
+                                                const file = e.target.files[0];
+                                                if (file) setConfigDocumentFile(file);
+                                            };
+                                            input.click();
+                                        }}
+                                        >
+                                            {configDocumentFile ? (
+                                                <div>
+                                                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📄</div>
+                                                    <div style={{ color: '#4ade80', fontWeight: 500 }}>{configDocumentFile.name}</div>
+                                                    <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: '4px' }}>
+                                                        {(configDocumentFile.size / 1024).toFixed(1)} KB · 点击更换文件
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📁</div>
+                                                    <div style={{ color: '#94a3b8' }}>点击或拖拽上传案例文档</div>
+                                                    <div style={{ color: '#64748b', fontSize: '0.8rem', marginTop: '4px' }}>
+                                                        支持 .txt, .md, .pdf 格式
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div style={{ marginTop: '1rem', padding: '12px 16px', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: '#94a3b8', fontSize: '0.85rem' }}>
                                     <p style={{ margin: 0 }}>
-                                        <strong>提示:</strong> 点击保存后，系统将使用选定 Skill 版本的内容自动分析并提取该 Query 的<strong>期望关键观点</strong>与<strong>期望关键动作</strong>。
+                                        💡 保存后，系统将基于标准答案自动提取<strong style={{ color: '#bae6fd' }}>关键观点</strong>（回答中必须包含的核心信息）和<strong style={{ color: '#bae6fd' }}>关键动作</strong>（Agent 必须执行的操作步骤），用于后续的细致评估打分。此过程在后台执行，无需等待。
                                     </p>
                                 </div>
                             </>
                         ) : (
-                            // --- EDIT FORM ---
+                            // --- VIEW/EDIT FORM ---
                             <>
+                                {/* 标准答案 - 突出显示 */}
                                 <div className="form-group">
-                                    <label>Skill (Read-only)</label>
-                                    <input value={editingConfig.skill || ''} disabled style={{ width: '100%', padding: '8px', opacity: 0.6 }} />
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>标准答案</label>
+                                    <textarea 
+                                        value={editingConfig.standard_answer || ''} 
+                                        onChange={e => setEditingConfig({ ...editingConfig, standard_answer: e.target.value })} 
+                                        style={{ width: '100%', padding: '10px', minHeight: '120px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.9rem' }} 
+                                    />
                                 </div>
-        
-                                {/* Standard Answer (Optional now?) */}
 
-        
-                                {/* Root Causes */}
-                                <div className="form-group">
-                                    <label>关键观点 (Expected Key Points)</label>
-                                    <div style={{ background: '#0f172a', padding: '10px', borderRadius: '4px', border: '1px solid #334155' }}>
+                                {/* 关键观点 - 默认折叠 */}
+                                <details style={{ marginBottom: '1rem' }}>
+                                    <summary style={{ 
+                                        cursor: 'pointer', 
+                                        color: '#94a3b8', 
+                                        fontSize: '0.9rem', 
+                                        padding: '10px 12px',
+                                        userSelect: 'none',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        background: 'rgba(30, 41, 59, 0.5)',
+                                        borderRadius: '6px',
+                                        border: '1px solid #334155',
+                                        listStyle: 'none',
+                                        transition: 'background 0.2s'
+                                    }}>
+                                        <span className="details-arrow" style={{ fontSize: '0.7rem', color: '#64748b', transition: 'transform 0.2s', display: 'inline-block' }}>▶</span>
+                                        <span style={{ fontWeight: 500 }}>关键观点 (Expected Key Points)</span>
+                                        <span style={{ fontSize: '0.8rem', color: '#64748b', marginLeft: 'auto' }}>
+                                            {(editingConfig.root_causes || []).length} 项 · 点击展开
+                                        </span>
+                                    </summary>
+                                    <div style={{ background: '#0f172a', padding: '10px', borderRadius: '4px', border: '1px solid #334155', marginTop: '8px' }}>
+                                        <div style={{ color: '#64748b', fontSize: '0.8rem', marginBottom: '10px', padding: '6px 8px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '4px' }}>
+                                            来源：从标准答案中自动提取 · 作用：评估 Agent 回答是否包含了所有关键信息
+                                        </div>
                                         {(editingConfig.root_causes || []).map((item, idx) => (
                                             <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
                                                 <input
@@ -2065,7 +2343,7 @@ export default function Dashboard() {
                                                         const newItems = (editingConfig.root_causes || []).filter((_, i) => i !== idx);
                                                         setEditingConfig({ ...editingConfig, root_causes: newItems });
                                                     }}
-                                                    style={{ color: '#ef4444', padding: '0 8px' }}
+                                                    style={{ color: '#ef4444', padding: '0 8px', background: 'none', border: 'none', cursor: 'pointer' }}
                                                 >
                                                     ✕
                                                 </button>
@@ -2082,12 +2360,35 @@ export default function Dashboard() {
                                             + 添加关键观点
                                         </button>
                                     </div>
-                                </div>
-        
-                                {/* Key Actions */}
-                                <div className="form-group">
-                                    <label>关键动作 (Expected Key Actions)</label>
-                                    <div style={{ background: '#0f172a', padding: '10px', borderRadius: '4px', border: '1px solid #334155' }}>
+                                </details>
+
+                                {/* 关键动作 - 默认折叠 */}
+                                <details style={{ marginBottom: '1rem' }}>
+                                    <summary style={{ 
+                                        cursor: 'pointer', 
+                                        color: '#94a3b8', 
+                                        fontSize: '0.9rem', 
+                                        padding: '10px 12px',
+                                        userSelect: 'none',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        background: 'rgba(30, 41, 59, 0.5)',
+                                        borderRadius: '6px',
+                                        border: '1px solid #334155',
+                                        listStyle: 'none',
+                                        transition: 'background 0.2s'
+                                    }}>
+                                        <span className="details-arrow" style={{ fontSize: '0.7rem', color: '#64748b', transition: 'transform 0.2s', display: 'inline-block' }}>▶</span>
+                                        <span style={{ fontWeight: 500 }}>关键动作 (Expected Key Actions)</span>
+                                        <span style={{ fontSize: '0.8rem', color: '#64748b', marginLeft: 'auto' }}>
+                                            {(editingConfig.key_actions || []).length} 项 · 点击展开
+                                        </span>
+                                    </summary>
+                                    <div style={{ background: '#0f172a', padding: '10px', borderRadius: '4px', border: '1px solid #334155', marginTop: '8px' }}>
+                                        <div style={{ color: '#64748b', fontSize: '0.8rem', marginBottom: '10px', padding: '6px 8px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '4px' }}>
+                                            来源：从标准答案中自动提取 · 作用：评估 Agent 是否执行了所有必要的操作步骤
+                                        </div>
                                         {(editingConfig.key_actions || []).map((item, idx) => (
                                             <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
                                                 <input
@@ -2116,7 +2417,7 @@ export default function Dashboard() {
                                                         const newItems = (editingConfig.key_actions || []).filter((_, i) => i !== idx);
                                                         setEditingConfig({ ...editingConfig, key_actions: newItems });
                                                     }}
-                                                    style={{ color: '#ef4444', padding: '0 8px' }}
+                                                    style={{ color: '#ef4444', padding: '0 8px', background: 'none', border: 'none', cursor: 'pointer' }}
                                                 >
                                                     ✕
                                                 </button>
@@ -2133,16 +2434,43 @@ export default function Dashboard() {
                                             + 添加关键动作
                                         </button>
                                     </div>
-                                </div>
-
-                                {/* Standard Answer (Moved to bottom) */}
-                                <div className="form-group"><label>标准答案示例</label><textarea value={editingConfig.standard_answer || ''} onChange={e => setEditingConfig({ ...editingConfig, standard_answer: e.target.value })} style={{ width: '100%', padding: '8px', minHeight: '100px' }} /></div>
+                                </details>
                             </>
                         )}
                         
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
-                            <button onClick={() => { setIsEditModalOpen(false); setIsSavingConfig(false); }}>取消</button>
-                            <button onClick={saveConfig} className="btn-primary" disabled={isSavingConfig}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
+                            <button 
+                                onClick={() => { setIsEditModalOpen(false); setIsSavingConfig(false); }}
+                                style={{
+                                    padding: '8px 24px',
+                                    background: '#1e293b',
+                                    color: '#94a3b8',
+                                    border: '1px solid #334155',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.9rem',
+                                    fontWeight: 500,
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                取消
+                            </button>
+                            <button 
+                                onClick={saveConfig} 
+                                disabled={isSavingConfig}
+                                style={{
+                                    padding: '8px 28px',
+                                    background: isSavingConfig ? '#1e3a5f' : '#38bdf8',
+                                    color: isSavingConfig ? '#64748b' : '#0f172a',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    cursor: isSavingConfig ? 'not-allowed' : 'pointer',
+                                    fontSize: '0.9rem',
+                                    fontWeight: 600,
+                                    transition: 'all 0.2s',
+                                    boxShadow: isSavingConfig ? 'none' : '0 2px 8px rgba(56, 189, 248, 0.25)'
+                                }}
+                            >
                                 {isSavingConfig ? '保存中...' : '保存'}
                             </button>
                         </div>
@@ -2192,8 +2520,9 @@ export default function Dashboard() {
                         <div className="detail-section">
                             <h4>评估结果</h4>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                                <div className={`status-box ${(selectedRecord.answer_score || 0) > 0.8 ? 'good' : 'bad'}`}>
-                                    <strong>回答评分:</strong> {(selectedRecord.answer_score || 0).toFixed(2)}
+                                <div className={`status-box ${selectedRecord.answer_score === null ? 'warning' : ((selectedRecord.answer_score || 0) > 0.8 ? 'good' : 'bad')}`}
+                                     style={selectedRecord.answer_score === null ? { borderLeft: '4px solid #94a3b8', background: 'rgba(148, 163, 184, 0.1)', color: '#94a3b8' } : {}}>
+                                    <strong>回答评分:</strong> {selectedRecord.answer_score === null ? '评估中...' : (selectedRecord.answer_score || 0).toFixed(2)}
                                 </div>
                             </div>
 
@@ -2501,6 +2830,11 @@ export default function Dashboard() {
         .form-group label { display: block; marginBottom: 0.5rem; color: #cbd5e1; }
         input, textarea { background: #0f172a; border: 1px solid #334155; color: white; borderRadius: 4px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        details[open] > summary .details-arrow { transform: rotate(90deg); }
+        details > summary:hover { background: rgba(30, 41, 59, 0.8) !important; }
+        details > summary::-webkit-details-marker { display: none; }
+        details > summary::marker { display: none; content: ''; }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.3); } }
         
         .detail-section { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #334155; }
         .detail-section:last-child { border-bottom: none; }

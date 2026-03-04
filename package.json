@@ -19,6 +19,7 @@
     "next": "16.1.4",
     "node-fetch": "^3.3.2",
     "openai": "^6.16.0",
+    "pdf-parse": "^1.1.1",
     "prisma": "5.22.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",

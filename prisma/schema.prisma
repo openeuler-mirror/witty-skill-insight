@@ -79,11 +79,12 @@ model Execution {
 model Config {
   id             String @id @default(cuid())
   query          String
-  skill          String
+  skill          String   @default("")
   standardAnswer String
   rootCauses     String? // JSON array
   keyActions     String? // JSON array
   user           String? // Added for user isolation
+  parseStatus    String   @default("completed") // parsing | completed | failed
 
   @@unique([query, user]) // Queries are unique per user
 }
