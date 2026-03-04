@@ -43,11 +43,12 @@ export async function POST(request: Request) {
         for (const item of newConfig) {
              const data: any = {
                  query: item.query,
-                 skill: item.skill,
-                 standardAnswer: item.standard_answer,
+                 skill: item.skill || '',
+                 standardAnswer: item.standard_answer || '',
                  rootCauses: item.root_causes ? JSON.stringify(item.root_causes) : null,
                  keyActions: item.key_actions ? JSON.stringify(item.key_actions) : null,
-                 user: user
+                 user: user,
+                 parseStatus: item.parse_status || 'completed'
              };
              await tx.config.create({ data });
         }

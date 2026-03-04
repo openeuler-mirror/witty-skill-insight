@@ -1,8 +1,10 @@
 import chokidar from 'chokidar';
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { ClaudeParser } from './claude-parser';
 import { saveExecutionRecord } from './data-service';
+import { prisma } from './prisma';
 
 export class ClaudeLogWatcher {
   private parser: ClaudeParser;
@@ -70,6 +72,26 @@ export class ClaudeLogWatcher {
     this.evalTimeouts.set(filePath, evalTimeout);
   }
 
+  private async getWittyUserFromEnv(): Promise<string | undefined> {
+    try {
+      const envPath = path.join(os.homedir(), '.witty', '.env');
+      if (fs.existsSync(envPath)) {
+        const content = fs.readFileSync(envPath, 'utf-8');
+        const match = content.match(/WITTY_INSIGHT_API_KEY=(.*)/);
+        if (match && match[1]) {
+          const apiKey = match[1].trim();
+          const user = await prisma.user.findUnique({
+            where: { apiKey }
+          });
+          if (user) return user.username;
+        }
+      }
+    } catch (e) {
+      console.error('[ClaudeWatcher] Error reading witty env:', e);
+    }
+    return undefined;
+  }
+
   private async processLogFile(filePath: string, eventName: string, options: { skip_evaluation: boolean; force_judgment?: boolean }) {
     try {
       const record = await this.parser.parseFile(filePath);
@@ -77,11 +99,14 @@ export class ClaudeLogWatcher {
       if (record && record.task_id) {
         if (!record.query || !record.final_result) return;
         
+        const envUser = await this.getWittyUserFromEnv();
+        
         await saveExecutionRecord({
+            user: envUser, // Pass matching user explicitly
             ...record,
             ...options
         } as any);
-        console.log(`[ClaudeWatcher] Upserted session ${record.task_id} (skip_eval: ${options.skip_evaluation})`);
+        console.log(`[ClaudeWatcher] Upserted session ${record.task_id} for user ${envUser || 'unknown'} (skip_eval: ${options.skip_evaluation})`);
       }
     } catch (err) {
       console.error(`[ClaudeWatcher] Failed to process log file ${filePath}:`, err);

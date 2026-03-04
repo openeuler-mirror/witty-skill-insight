@@ -26,10 +26,37 @@ export async function POST(request: Request) {
       if (user) {
         username = user.username;
         data.user = username;
+        console.log(`[Upload-API] User resolved via API Key: ${username}`);
+      } else {
+        console.warn(`[Upload-API] API Key provided but no matching user found in DB`);
       }
     }
+    
+    // Fallback 1: if API key didn't resolve a user, try data.user from request body
+    if (!username && data.user) {
+        username = data.user;
+        console.log(`[Upload-API] Using user from request body: ${username}`);
+    }
+    
+    // Fallback 2: if still no user, find a user that has evaluation settings configured
+    if (!username) {
+        try {
+            const userWithSettings = await prisma.userSettings.findFirst({
+                where: { settingsJson: { not: '{"activeConfigId":null,"configs":[]}' } }
+            });
+            if (userWithSettings) {
+                username = userWithSettings.user;
+                data.user = username;
+                console.log(`[Upload-API] Fallback: Using user with active settings: ${username}`);
+            } else {
+                console.warn(`[Upload-API] No user resolved - evaluation will be skipped`);
+            }
+        } catch (e) {
+            console.warn(`[Upload-API] Fallback user lookup failed:`, e);
+        }
+    }
 
-    console.log(`[Upload-API] 📥 Received data from ${data.framework || 'unknown'}: task_id=${data.task_id}, query=${data.query?.substring(0, 50)}...`);
+    console.log(`[Upload-API] 📥 Received data from ${data.framework || 'unknown'}: task_id=${data.task_id}, query=${data.query?.substring(0, 50)}..., user=${username || '(none)'}`);
     
     // 1. Session Analysis (Extraction)
     let interactions = data.interactions || [];
@@ -41,6 +68,37 @@ export async function POST(request: Request) {
         const reqToolCount = turn.requestMessages?.filter((m: any) => m.role === 'assistant' && m.tool_calls?.length).length || 0;
         console.log(`[Upload-Debug] Turn ${idx}: ReqMsgs=${turn.requestMessages?.length}, RespRole=${turn.responseMessage?.role}, RespTool=${hasRespTool}, AssistantReqTools=${reqToolCount}`);
     });
+
+    // First quick save so it appears on Dashboard immediately!
+    const quickData = { ...data, skip_evaluation: true };
+    try {
+        await saveExecutionRecord(quickData);
+    } catch (e) {
+        console.warn(`[Upload-API] Quick initial save failed:`, e);
+    }
+
+    // Fire and forget deep analysis to prevent blocking plugin
+    processUploadAsync(data, username, normalized, interactions).catch(e => {
+        console.error('[Upload-API] Async analysis failed:', e);
+    });
+
+    return NextResponse.json({ 
+        success: true, 
+        message: 'Upload received and analyzing in background',
+        upload_id: data.task_id 
+    }, { status: 200 });
+
+  } catch (error) {
+    console.error('[Upload-API] ❌ Error:', error);
+    return NextResponse.json({ error: 'Failed to process data' }, { status: 500 });
+  }
+}
+
+/**
+ * 后台异步处理分析与评估
+ */
+async function processUploadAsync(data: any, username: any, normalized: any, interactions: any) {
+    console.log(`[Upload-Async] Starting background analysis for ${data.task_id}`);
 
     // If it's a flat message list (which OpenCode/Claude report), analyze it
     const analysis = await analyzeSession(normalized, username);
@@ -65,9 +123,9 @@ export async function POST(request: Request) {
     if (skills.length > 0) {
         data.skills = skills;
         if (!data.skill) data.skill = skills[0];
-        console.log(`[Upload-API] 🛠️ Extracted Skills: ${JSON.stringify(skills)} for task_id=${data.task_id}`);
+        console.log(`[Upload-Async] 🛠️ Extracted Skills: ${JSON.stringify(skills)} for task_id=${data.task_id}`);
     } else {
-        console.log(`[Upload-API] ⚠️ No skills extracted for task_id=${data.task_id}`);
+        console.log(`[Upload-Async] ⚠️ No skills extracted for task_id=${data.task_id}`);
     }
 
     // Sanitize data
@@ -79,7 +137,8 @@ export async function POST(request: Request) {
     }
 
     if (!data.query) {
-        return NextResponse.json({ success: false, message: 'Empty query, skipped' }, { status: 200 });
+        console.log(`[Upload-Async] Empty query after analysis, aborting task_id=${data.task_id}`);
+        return;
     }
 
     // 2. Fetch Skill Definition & SOP
@@ -125,7 +184,7 @@ export async function POST(request: Request) {
             data.answer_score = judgmentResult.score;
             data.judgment_reason = judgmentResult.reason || 'Judged by DeepSeek';
         } else {
-            console.log(`[Upload-API] No config match for query: "${data.query.substring(0, 20)}...". Skipping judgment to preserve potential existing score.`);
+            console.log(`[Upload-Async] No config match for query: "${data.query.substring(0, 20)}...". Skipping judgment to preserve potential existing score.`);
         }
     }
 
@@ -143,32 +202,11 @@ export async function POST(request: Request) {
     data.failures = failureAnalysis.failures;
     data.skill_issues = failureAnalysis.skill_issues;
 
-    // 5. Final Save
-    const result = await saveExecutionRecord(data);
+    // 5. Final Save (Update Record)
+    data.skip_evaluation = false;
+    data.force_judgment = true; // explicitly save standard evaluations
+    await saveExecutionRecord(data);
     
-    const response = NextResponse.json({ 
-        success: result.success, 
-        message: 'Data analysed and saved successfully',
-        upload_id: result.record.upload_id,
-        judgment: {
-            skill_correct: result.record.is_skill_correct,
-            answer_correct: result.record.is_answer_correct,
-            score: result.record.answer_score,
-            reason: result.record.judgment_reason
-        },
-        analysis: {
-            task_id: data.task_id,
-            query: data.query,
-            skill: data.skill,
-            failures: (data.failures || []).length
-        }
-    }, { status: 200 });
+    console.log(`[Upload-Async] ✅ Completed async analysis: task_id=${data.task_id}, score=${data.answer_score}, failures=${(data.failures || []).length}`);
 
-    console.log(`[Upload-API] ✅ Success: task_id=${data.task_id}, score=${data.answer_score}, failures=${(data.failures || []).length}`);
-    return response;
-
-  } catch (error) {
-    console.error('[Upload-API] ❌ Error:', error);
-    return NextResponse.json({ error: 'Failed to process and save data' }, { status: 500 });
-  }
 }

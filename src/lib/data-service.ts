@@ -22,7 +22,7 @@ export interface ExecutionRecord {
   // Judgment fields
   is_skill_correct?: boolean;
   is_answer_correct?: boolean;
-  answer_score?: number;
+  answer_score?: number | null;
   judgment_reason?: string;
 
   failures?: {
@@ -86,8 +86,8 @@ export async function readRecords(user?: string): Promise<ExecutionRecord[]> {
     skills: r.skills ? JSON.parse(r.skills) : undefined,
     is_skill_correct: r.isSkillCorrect || false,
     is_answer_correct: r.isAnswerCorrect || false,
-    answer_score: (r.answerScore !== null && r.answerScore !== undefined) ? r.answerScore : undefined,
-    skill_score: (r.skillScore !== null && r.skillScore !== undefined) ? r.skillScore : undefined,
+    answer_score: r.answerScore !== undefined ? r.answerScore : undefined,
+    skill_score: r.skillScore !== undefined ? r.skillScore : undefined,
     judgment_reason: r.judgmentReason || undefined,
     failures: r.failures ? JSON.parse(r.failures) : undefined,
     label: r.label ?? null,
@@ -124,6 +124,7 @@ export async function readConfig(user?: string | null): Promise<ConfigItem[]> {
         standard_answer: c.standardAnswer,
         root_causes: parse(c.rootCauses),
         key_actions: parse(c.keyActions),
+        parse_status: c.parseStatus || 'completed',
     };
   });
 }
@@ -191,13 +192,25 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
   if (!targetRecord.task_id && targetRecord.upload_id) targetRecord.task_id = targetRecord.upload_id;
   targetRecord.upload_id = recordId; // Ensure primary ID is set
 
-  // Attempt to fetch label/model from session if missing (Try DB first)
-  if ((!targetRecord.label || !targetRecord.model) && targetRecord.task_id) {
+  // Attempt to fetch label/model/user from session if missing (Try DB first)
+  if ((!targetRecord.label || !targetRecord.model || !targetRecord.user) && targetRecord.task_id) {
        const session = await prisma.session.findUnique({ where: { taskId: targetRecord.task_id }});
        if (session) {
            if (!targetRecord.label && session.label) targetRecord.label = session.label;
            if (!targetRecord.model && session.model) targetRecord.model = session.model;
+           if (!targetRecord.user && session.user) targetRecord.user = session.user;
        }
+  }
+
+  // Final fallback for missing user: check if there is any user
+  if (!targetRecord.user) {
+      const anyUser = await prisma.user.findFirst({
+        select: { username: true }
+      });
+      if (anyUser) {
+          targetRecord.user = anyUser.username;
+          console.log(`[Data-Service] Fallback resolved user for task ${targetRecord.task_id} to: ${targetRecord.user}`);
+      }
   }
 
   // Normalize Tokens
@@ -311,6 +324,11 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
           judgmentReason = NO_MATCH_REASON;
           targetRecord.answer_score = 0;
       }
+  }
+
+  if (data.skip_evaluation) {
+      targetRecord.answer_score = null;
+      judgmentReason = '结果评估中...';
   }
 
   targetRecord.is_skill_correct = isSkillCorrect;
