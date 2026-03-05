@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+
+const path = require('path')
+const fs = require('fs')
+
+const commands = {
+  start: () => require('../scripts/start.js'),
+  stop: () => require('../scripts/stop.js'),
+  restart: () => require('../scripts/restart.js'),
+  status: () => require('../scripts/status.js'),
+  logs: () => require('../scripts/logs.js')
+}
+
+function parseOptions(args) {
+  const options = {}
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--port' || args[i] === '-p') {
+      options.port = parseInt(args[i + 1])
+      i++
+    } else if (args[i] === '--help' || args[i] === '-h') {
+      options.help = true
+    }
+  }
+  return options
+}
+
+function showHelp() {
+  console.log(`
+Witty-Skill-Insight CLI
+
+Usage:
+  witty-skill-insight <command> [options]
+
+Commands:
+  start [--port <port>]    Start the service (default port: 3000)
+  stop [--port <port>]     Stop the service
+  restart [--port <port>]  Restart the service
+  status [--port <port>]   Show service status
+  logs                     Show service logs
+
+Options:
+  --port, -p <port>       Specify port number
+  --help, -h              Show help
+
+Examples:
+  witty-skill-insight start
+  witty-skill-insight start --port 3001
+  witty-skill-insight restart --port 3001
+  witty-skill-insight status
+  witty-skill-insight stop
+  `)
+}
+
+function showCommandHelp(command) {
+  const helps = {
+    start: 'Start the witty-skill-insight service\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
+    stop: 'Stop the witty-skill-insight service\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
+    restart: 'Restart the witty-skill-insight service\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
+    status: 'Show witty-skill-insight service status\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
+    logs: 'Show witty-skill-insight service logs'
+  }
+  console.log(`\nwitty-skill-insight ${command}\n\n${helps[command] || ''}`)
+}
+
+const args = process.argv.slice(2)
+const command = args[0]
+const options = parseOptions(args.slice(1))
+
+if (!command || command === '--help' || command === '-h') {
+  showHelp()
+  process.exit(0)
+}
+
+if (options.help) {
+  showCommandHelp(command)
+  process.exit(0)
+}
+
+if (commands[command]) {
+  commands[command]().run(options)
+} else {
+  console.error(`Unknown command: ${command}`)
+  showHelp()
+  process.exit(1)
+}
