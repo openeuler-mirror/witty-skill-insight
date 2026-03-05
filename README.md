@@ -88,7 +88,59 @@ Witty-Skill-Insight 是一个开源的 **Agent Skill 生成、优化、评估与
 - **Node.js** >= 18
 - **npm** >= 9
 
-### 1. 安装与启动
+### 1. NPM 安装（推荐）
+
+```bash
+# 安装包（自动完成初始化）
+npmnpm install witty-skill-insight
+
+# 启动服务（默认端口 3000）
+npx witty-skill-insight start
+
+# 指定端口启动
+npx witty-skill-insight start --port 3001
+
+# 访问看板
+# http://localhost:3000
+```
+
+**CLI 命令：**
+
+| 命令 | 说明 |
+|------|------|
+| `start` [--port <port>] | 启动服务（默认端口 3000） |
+| `stop` [--port <port>] | 停止服务 |
+| `restart` [--port <port>] | 重启服务 |
+| `status` [--port <port>] | 查看服务状态 |
+| `logs` | 查看服务日志 |
+
+**示例：**
+
+```bash
+# 启动服务
+npx witty-skill-insight start
+
+# 指定端口启动
+npx witty-skill-insight start --port 3001
+
+# 重启服务
+npx witty-skill-insight restart --port 3001
+
+# 查看状态
+npx witty-skill-insight status --port 3001
+
+# 停止服务
+npx witty-skill-insight stop --port 3001
+
+# 查看日志
+npx witty-skill-insight logs
+```
+
+> **说明：** npm 安装方式会自动执行初始化（创建 .env、data 目录、同步数据库），无需手动配置。
+
+---
+
+### 2. Git 克隆安装
 
 ```bash
 # 克隆代码
@@ -239,6 +291,51 @@ npx tsc --noEmit
 
 # 代码规范检查
 npm run lint
+```
+
+---
+
+## 📦 NPM与其他发布
+
+本项目已配置为 npm 包与其他，可发布到 npm 官方仓库。
+
+### 发布流程
+
+```bash
+# 预览发布（不实际发布）
+node scripts/publish-npm.js --dry-run
+
+# 发布 patch 版本（默认）
+node scripts/publish-npm.js
+
+# 发布 minor 版本
+node scripts/publish-npm.js --type minor
+
+# 发布 major 版本
+node scripts/publish-npm.js --type major
+```
+
+### 发布步骤
+
+1. **环境检查** - 验证 git、npm 配置
+2. **版本管理** - 自动递增版本号
+3. **依赖安装** - npm ci 安装依赖
+4. **质量检查** - 运行 lint
+5. **项目构建** - npm run build
+6. **npm 发布** - 发布到官方仓库
+
+### 文件过滤
+
+已配置 `.npmignore` 排除以下内容：
+- `skills/` - Skill 示例库
+- `README.md` - 项目说明
+- `docs/` - 文档目录
+- `.env`、`data/` - 环境配置和数据
+- `.next`、`node_modules` - 构建产物和依赖
+
+**验证打包内容：**
+```bash
+npm pack --dry-run
 ```
 
 ---
