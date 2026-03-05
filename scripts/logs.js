@@ -18,10 +18,20 @@ async function run(options) {
   const tail = spawn('tail', ['-f', logPath], { stdio: 'inherit' })
   
   tail.on('error', (error) => {
-    console.error('Failed to tail log file:', error.message)
+    console.error('Failed to tail tail log file:', error.message)
     console.log('\nYou can view the log file directly:')
     console.log(`  cat ${logPath}`)
     process.exit(1)
+  })
+  
+  process.on('SIGINT', () => {
+    tail.kill()
+    process.exit(0)
+  })
+  
+  process.on('SIGTERM', () => {
+    tail.kill()
+    process.exit(0)
   })
 }
 
