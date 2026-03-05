@@ -84,16 +84,35 @@ export async function judgeAnswer(
     const response = await client.chat.completions.create({
       messages: [{ role: "user", content: prompt }],
       model: model, 
-      response_format: { type: "json_object" },
     });
 
-    const content = response.choices[0].message.content;
+    // --- DEBUG LOG ---
+    console.log(`[Judge API Debug] Model: ${model}. Received response choices:`, response?.choices?.length);
+
+    const content = response.choices?.[0]?.message?.content;
     
     appendLog('result_evaluation', { prompt }, { raw_output: content });
 
-    if (!content) throw new Error("No content from DeepSeek");
+    if (!content) {
+        console.error("\n[Judge API Error 🚨] LLM content is empty or undefined!");
+        console.error(">>> Full LLM Response:");
+        console.error(JSON.stringify(response, null, 2));
+        console.error("<<<\n");
+        throw new Error("No content from evaluation model");
+    }
 
-    const result = JSON.parse(content);
+    let jsonStr = content.trim();
+    const match = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)\\s*```/i);
+    if (match) {
+        jsonStr = match[1];
+    } else {
+        const first = jsonStr.indexOf('{');
+        const last = jsonStr.lastIndexOf('}');
+        if (first !== -1 && last !== -1 && last >= first) {
+            jsonStr = jsonStr.substring(first, last + 1);
+        }
+    }
+    const result = JSON.parse(jsonStr);
     const evaluations = result.evaluations || [];
     
     // --- Calculate Score in Code (to avoid LLM math errors) ---
@@ -165,7 +184,7 @@ export async function judgeAnswer(
 
   } catch (error) {
 
-    console.error("DeepSeek Judgment Error:", error);
+    console.error("LLM Judgment Error:", error);
     return { is_correct: false, score: 0, reason: "Judgment API failed" };
   }
 }
@@ -301,15 +320,31 @@ export async function analyzeEvaluationItems(
             const response = await client.chat.completions.create({
                 messages: [{ role: "user", content: prompt }],
                 model: model,
-                response_format: { type: "json_object" },
             });
             
-            const content = response.choices[0].message.content;
-            if (!content) continue;
+            const content = response.choices?.[0]?.message?.content;
+            if (!content) {
+                console.error(`\n[SkillAnalysis API Error 🚨] LLM content is empty for item: ${item.id}`);
+                console.error(">>> Full LLM Response:");
+                console.error(JSON.stringify(response, null, 2));
+                console.error("<<<\n");
+                continue;
+            }
             
             appendLog('skill_issue_analysis', { item_id: item.id, prompt }, { raw_output: content });
             
-            const parsed = JSON.parse(content);
+            let jsonStr = content.trim();
+            const matchParse = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)\\s*```/i);
+            if (matchParse) {
+                jsonStr = matchParse[1];
+            } else {
+                const first = jsonStr.indexOf('{');
+                const last = jsonStr.lastIndexOf('}');
+                if (first !== -1 && last !== -1 && last >= first) {
+                    jsonStr = jsonStr.substring(first, last + 1);
+                }
+            }
+            const parsed = JSON.parse(jsonStr);
             
             // 只添加确定是 Skill 问题的项目
             if (parsed.is_skill_issue === true) {
@@ -386,15 +421,32 @@ export async function analyzeFailures(
         const response = await client.chat.completions.create({
             messages: [{ role: "user", content: prompt }],
             model: model, 
-            response_format: { type: "json_object" },
         });
 
-        const content = response.choices[0].message.content;
+        const content = response.choices?.[0]?.message?.content;
+        
+        if (!content) {
+            console.error("\n[Failure Analysis API Error 🚨] LLM content is empty!");
+            console.error(">>> Full LLM Response:");
+            console.error(JSON.stringify(response, null, 2));
+            console.error("<<<\n");
+            return { failures: [] };
+        }
+
         appendLog('failure_analysis', { prompt, history_length: history.length }, { raw_output: content });
 
-        if (!content) return { failures: [] };
-
-        const result = JSON.parse(content);
+        let jsonStr = content.trim();
+        const matchParse = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)\\s*```/i);
+        if (matchParse) {
+            jsonStr = matchParse[1];
+        } else {
+            const first = jsonStr.indexOf('{');
+            const last = jsonStr.lastIndexOf('}');
+            if (first !== -1 && last !== -1 && last >= first) {
+                jsonStr = jsonStr.substring(first, last + 1);
+            }
+        }
+        const result = JSON.parse(jsonStr);
         const failures: FailureItem[] = result.failures || [];
         
         // 用于存储 Skill 问题分析结果

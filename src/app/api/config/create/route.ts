@@ -48,7 +48,6 @@ async function processConfigAsync(
                 const response = await openaiClient.chat.completions.create({
                     messages: [{ role: "user", content: prompt }],
                     model: modelName,
-                    response_format: { type: "json_object" },
                 });
 
                 const content = response.choices[0].message.content;
@@ -56,7 +55,18 @@ async function processConfigAsync(
                     throw new Error('No content returned from LLM for document extraction');
                 }
 
-                const parsed = JSON.parse(content);
+                let jsonStr = content.trim();
+                const matchParse = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)\\s*```/i);
+                if (matchParse) {
+                    jsonStr = matchParse[1];
+                } else {
+                    const first = jsonStr.indexOf('{');
+                    const last = jsonStr.lastIndexOf('}');
+                    if (first !== -1 && last !== -1 && last >= first) {
+                        jsonStr = jsonStr.substring(first, last + 1);
+                    }
+                }
+                const parsed = JSON.parse(jsonStr);
                 standardAnswer = parsed.standard_answer || '';
 
                 if (!standardAnswer) {
@@ -86,7 +96,6 @@ async function processConfigAsync(
         const response = await openaiClient.chat.completions.create({
             messages: [{ role: "user", content: prompt }],
             model: modelName,
-            response_format: { type: "json_object" },
         });
 
         const content = response.choices[0].message.content;
@@ -94,7 +103,18 @@ async function processConfigAsync(
             throw new Error('No content returned from LLM');
         }
 
-        const extractedData = JSON.parse(content);
+        let jsonStr = content.trim();
+        const matchParse = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)\\s*```/i);
+        if (matchParse) {
+            jsonStr = matchParse[1];
+        } else {
+            const first = jsonStr.indexOf('{');
+            const last = jsonStr.lastIndexOf('}');
+            if (first !== -1 && last !== -1 && last >= first) {
+                jsonStr = jsonStr.substring(first, last + 1);
+            }
+        }
+        const extractedData = JSON.parse(jsonStr);
         const rootCauses = extractedData.root_causes || [];
         const keyActions = extractedData.key_actions || [];
 

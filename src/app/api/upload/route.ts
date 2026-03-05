@@ -1,5 +1,5 @@
 import { readConfig, saveExecutionRecord } from '@/lib/data-service';
-import { analyzeFailures, analyzeSession, extractSkillsFromClaudeSession, extractSkillsFromOpencodeSession, extractSkillsFromOpenClawSession, judgeAnswer, normalizeInteractions } from '@/lib/judge';
+import { analyzeFailures, analyzeSession, extractSkillsFromClaudeSession, extractSkillsFromOpenClawSession, extractSkillsFromOpencodeSession, judgeAnswer, normalizeInteractions } from '@/lib/judge';
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
@@ -184,7 +184,7 @@ async function processUploadAsync(data: any, username: any, normalized: any, int
             const judgmentResult = await judgeAnswer(data.query, criteria, data.final_result, username);
             data.is_answer_correct = judgmentResult.is_correct;
             data.answer_score = judgmentResult.score;
-            data.judgment_reason = judgmentResult.reason || 'Judged by DeepSeek';
+            data.judgment_reason = judgmentResult.reason || 'Judged by Evaluation Model';
         } else {
             console.log(`[Upload-Async] No config match for query: "${data.query.substring(0, 20)}...". Skipping judgment to preserve potential existing score.`);
         }

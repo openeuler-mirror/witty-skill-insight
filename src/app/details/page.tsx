@@ -1402,7 +1402,7 @@ function DetailPage() {
                 <div className="card" style={cardStyle}>
                     <h3 style={chartTitleStyle}>
                         Accuracy Trend (0-1)
-                        <CustomTooltip content="基于 AI 裁判 (DeepSeek) 对执行结果的自动评分 (1.0=通过, 0.0=失败)" />
+                        <CustomTooltip content="基于 AI 裁判 (LLM) 对执行结果的自动评分 (1.0=通过, 0.0=失败)" />
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={filteredData}>

@@ -305,7 +305,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                     );
                     isAnswerCorrect = judgment.is_correct;
                     targetRecord.answer_score = judgment.score;
-                    judgmentReason = judgment.reason || 'Judged by DeepSeek';
+                    judgmentReason = judgment.reason || 'Judged by Evaluation Model';
                }
           }
       } else {

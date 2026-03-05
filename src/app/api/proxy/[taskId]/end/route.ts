@@ -392,7 +392,7 @@ export async function POST(
             is_skill_correct: false,
             is_answer_correct: judgmentResult.is_correct,
             answer_score: judgmentResult.score,
-            judgment_reason: judgmentResult.reason || 'Judged by DeepSeek'
+            judgment_reason: judgmentResult.reason || 'Judged by Evaluation Model'
         };
     }
 

@@ -1,4 +1,4 @@
-import { ProxyAgent, fetch as undiciFetch } from 'undici';
+import { Agent, ProxyAgent, fetch as undiciFetch } from 'undici';
 
 export interface ProxyConfig {
   customFetch: typeof fetch | undefined;
@@ -18,11 +18,11 @@ export function getProxyConfig(): ProxyConfig {
                    process.env.http_proxy || 
                    process.env.HTTP_PROXY;
 
+  const rejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '0';
   let customFetch: typeof fetch | undefined = undefined;
 
   if (proxyUrl) {
     console.log('[ProxyConfig] HTTP proxy configured (URL hidden for privacy)');
-    const rejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '0';
     
     if (rejectUnauthorized === false) {
       console.log('[ProxyConfig] SSL certificate verification is disabled');
@@ -33,6 +33,10 @@ export function getProxyConfig(): ProxyConfig {
       connect: {
         rejectUnauthorized
       }
+    });
+
+    const fallbackAgent = new Agent({
+      connect: { rejectUnauthorized }
     });
 
     const noProxy = process.env.no_proxy || process.env.NO_PROXY;
@@ -60,7 +64,18 @@ export function getProxyConfig(): ProxyConfig {
 
       return undiciFetch(url as any, {
         ...init as any,
-        dispatcher: skipProxy ? undefined : proxyAgent
+        dispatcher: skipProxy ? fallbackAgent : proxyAgent
+      });
+    }) as unknown as typeof fetch;
+  } else if (rejectUnauthorized === false) {
+    console.log('[ProxyConfig] No proxy, but SSL certificate verification is disabled');
+    const agent = new Agent({
+      connect: { rejectUnauthorized: false }
+    });
+    customFetch = ((url: RequestInfo | URL, init?: RequestInit) => {
+      return undiciFetch(url as any, {
+        ...init as any,
+        dispatcher: agent
       });
     }) as unknown as typeof fetch;
   }
@@ -68,7 +83,7 @@ export function getProxyConfig(): ProxyConfig {
   cachedProxyConfig = {
     customFetch,
     proxyUrl,
-    rejectUnauthorized: process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '0'
+    rejectUnauthorized
   };
 
   return cachedProxyConfig;
