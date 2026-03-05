@@ -40,7 +40,7 @@ Witty-Skill-Insight 是一个开源的 **Agent Skill 生成、优化、评估与
 
 ### 🔌 4. Agent 原生接口
 
-无需修改一行代码即可完成运行期数据采集（已支持 **OpenCode**, **Claude Code**, **OpenHands**）。更进一步，将“自动生成”与“自优化”等重型平台能力封装为轻量级 Skill，在终端向 Agent 暴露原生接口，实现能力的按需无缝集成。
+无需修改一行代码即可完成运行期数据采集（已支持 **OpenCode**, **Claude Code**, **OpenClaw**）。更进一步，将“自动生成”与“自优化”等重型平台能力封装为轻量级 Skill，在终端向 Agent 暴露原生接口，实现能力的按需无缝集成。
 �👉 *[了解详情：Agent 友好集成技术解析](docs/4%20-%20AGENT_INTEGRATION.md)*
 
 👉 *[最佳实践案例：Docker 应用卡顿排查与修复](docs/5%20-%20PRACTICE_CASE.md)*
@@ -62,7 +62,7 @@ Witty-Skill-Insight 是一个开源的 **Agent Skill 生成、优化、评估与
 <p align="center">
   <img src="docs/images/execution_steps.png" width="80%" />
 </p>
-<p align="center"><em>逐步拆解 LLM & Tool token和耗时，并支持 Top5 高亮 / 排序与数据详情联动跳转/em></p>
+<p align="center"><em>逐步拆解 LLM & Tool token和耗时，并支持 Top5 高亮 / 排序与数据详情联动跳转</em></p>
 
 ### 多维度指标对比
 
@@ -116,7 +116,7 @@ bash scripts/restart_dev.sh
 
 ### 方式一：一键配置（推荐）
 
-无需克隆代码，在任意终端运行以下命令即可自动完成 **OpenCode** 和 **Claude Code** 的自动采集装载与配置：
+无需克隆代码，在任意终端运行以下命令即可自动完成 **OpenCode** **OpenClaw** 和 **Claude Code** 的自动采集装载与配置：
 
 ```bash
 curl -sSf http://<DASHBOARD_IP>:3000/api/setup | bash
@@ -208,7 +208,7 @@ opencode
 
 ### 当前已实现 ✅
 
-- [x] **无感采集与接入**：OpenCode, Claude Code, OpenHands 无侵入数据采集
+- [x] **无感采集与接入**：OpenCode, Claude Code, OpenClaw 无侵入数据采集
 - [x] **多维指标监测与对比**：跨模型/框架维度的 Latency, Token, Accuracy 对比
 - [x] **LLM 自动评分与深度归因**：基于标准的判题机制，精准区分模型能力缺失与 Skill 缺陷
 - [x] **Skill 版本管理与同步**：版本隔离、跨框架代码分发

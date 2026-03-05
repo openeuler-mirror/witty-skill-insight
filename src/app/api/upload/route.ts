@@ -1,5 +1,5 @@
 import { readConfig, saveExecutionRecord } from '@/lib/data-service';
-import { analyzeFailures, analyzeSession, extractSkillsFromClaudeSession, extractSkillsFromOpencodeSession, judgeAnswer, normalizeInteractions } from '@/lib/judge';
+import { analyzeFailures, analyzeSession, extractSkillsFromClaudeSession, extractSkillsFromOpencodeSession, extractSkillsFromOpenClawSession, judgeAnswer, normalizeInteractions } from '@/lib/judge';
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
@@ -113,6 +113,8 @@ async function processUploadAsync(data: any, username: any, normalized: any, int
         skills = extractSkillsFromOpencodeSession(normalized);
     } else if (data.framework === 'claudecode' || data.framework === 'claude') {
         skills = extractSkillsFromClaudeSession(normalized);
+    } else if (data.framework === 'openclaw') {
+        skills = extractSkillsFromOpenClawSession(normalized);
     }
     
     // If specialized failed, fallback to analysis.skill
