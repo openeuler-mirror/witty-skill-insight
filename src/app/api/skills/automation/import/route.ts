@@ -1,4 +1,4 @@
-
+import { resolveUser } from '@/lib/auth';
 import { db } from '@/lib/prisma';
 import fs from 'fs';
 import { NextRequest, NextResponse } from 'next/server';
@@ -33,15 +33,15 @@ function copyFolderSync(from: string, to: string, filesList: string[], rootTo: s
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { path: localPath, user } = body;
+        const { path: localPath, user: explicitUser } = body;
 
         if (!localPath) {
             return NextResponse.json({ error: 'Missing path' }, { status: 400 });
         }
-        
-        if (!user) {
-            return NextResponse.json({ error: 'Missing user' }, { status: 400 });
-        }
+
+        // Resolve user: API Key header > explicit user field
+        const authResult = await resolveUser(request, explicitUser || undefined);
+        const user = authResult.username;
 
         if (!fs.existsSync(localPath)) {
             return NextResponse.json({ error: 'Path does not exist' }, { status: 404 });

@@ -1,8 +1,9 @@
-from typing import List, Dict, Any
 import json
+from typing import Any, Dict, List
+
 from architecture.genome import SkillGenome
-from engine.mutator import DiagnosticMutator
 from architecture.scoring import Diagnosis
+from engine.mutator import DiagnosticMutator
 
 
 class ReportParser:
@@ -104,7 +105,7 @@ Just return the JSON.
 
 class ExperienceCrystallizer:
     """
-    The 'Warm Run' Engine.
+    The 'Dynamic Run' Engine.
     Ingests reports -> Parses -> Mutates Skill.
     """
 
@@ -116,7 +117,7 @@ class ExperienceCrystallizer:
         self, genome: SkillGenome, report_items: List[Dict[str, Any]]
     ) -> tuple[SkillGenome, list]:
         """
-        Main entry point for "Warm Run" optimization.
+        Main entry point for "Dynamic Run" optimization.
 
         Returns:
             tuple: (optimized_genome, diagnoses)

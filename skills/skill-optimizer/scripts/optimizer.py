@@ -1,24 +1,23 @@
-from typing import Dict, Any, Optional, List
 import logging
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from langfuse import Langfuse
 from architecture.genome import SkillGenome
+from engine.crystallizer import ExperienceCrystallizer, ReportParser
 from engine.evaluation_adapter import EvaluationAdapter
 from engine.mutator import DiagnosticMutator
-from engine.crystallizer import ExperienceCrystallizer, ReportParser
-
+from langfuse import Langfuse
 
 logger = logging.getLogger(__name__)
 
 
 class SkillOptimizer:
     """
-    The Main Controller for the new "Cold/Warm" Optimization Strategy.
+    The Main Controller for the new "Static/Dynamic" Optimization Strategy.
 
     Strategy:
     1. Cold Start: Static 5D Evaluation -> Immediate Fix.
-    2. Warm Run: Trace Analysis -> Experience Crystallization (Injection).
+    2. Dynamic Run: Trace Analysis -> Experience Crystallization (Injection).
     """
 
     def __init__(
@@ -118,23 +117,23 @@ class SkillOptimizer:
 
         return genome, static_diagnoses
 
-    def optimize_warm(
+    def optimize_dynamic(
         self,
         genome: SkillGenome,
         report_items: Optional[List[Dict[str, Any]]] = None,
         trace_id: Optional[str] = None,
     ):
         """
-        [Warm Run]
+        [Dynamic Run]
         Trace Analysis -> Experience Crystallization.
         Returns: (optimized_genome, diagnoses)
         """
-        logger.info(">>> Starting Warm Optimization (Experience Crystallization)...")
+        logger.info(">>> Starting Dynamic Optimization (Experience Crystallization)...")
 
         if report_items:
             return self.crystallizer.crystallize(genome, report_items)
         else:
-            logger.warning("No reports found for warm run. Skipping.")
+            logger.warning("No reports found for dynamic run. Skipping.")
             return genome, []
 
     def optimize_hybrid(
@@ -146,32 +145,33 @@ class SkillOptimizer:
     ):
         """
         [Hybrid Run]
-        Pipeline: Static Optimization -> Warm Optimization.
+        Pipeline: Static Optimization -> Dynamic Optimization.
         Ensures the skill is structurally sound before injecting experience.
         Returns: (optimized_genome, all_diagnoses)
         """
-        logger.info(">>> Starting Hybrid Optimization (Static + Warm)...")
+        logger.info(">>> Starting Hybrid Optimization (Static + Dynamic)...")
 
         # 1. Run Static Optimization (Inject Feedback Here)
         genome_after_static, static_diagnoses = self.optimize_static(
             skill_path, trace_id=trace_id, human_feedback=human_feedback
         )
 
-        # 2. Run Warm Optimization
+        # 2. Run Dynamic Optimization
         try:
             # We pass the genome from static step
-            # Note: We don't pass feedback again to warm optimization to avoid double application
-            genome_final, warm_diagnoses = self.optimize_warm(
+            # Note: We don't pass feedback again to dynamic optimization to avoid double application
+            genome_final, dynamic_diagnoses = self.optimize_dynamic(
                 genome_after_static, report_items, trace_id=trace_id
             )
-            
+
             # Merge diagnoses
-            all_diagnoses = static_diagnoses + warm_diagnoses
+            all_diagnoses = static_diagnoses + dynamic_diagnoses
             return genome_final, all_diagnoses
 
         except Exception as e:
-            logger.error(f"Warm Optimization failed in Hybrid mode: {e}")
+            logger.error(f"Dynamic Optimization failed in Hybrid mode: {e}")
             import traceback
+
             traceback.print_exc()
             # Fallback to static result so we don't lose everything
             return genome_after_static, static_diagnoses

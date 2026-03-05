@@ -40,5 +40,6 @@ Rewrite the Skill Content and manage auxiliary files to address ALL the issues l
 # Constraints
 - Maintain the original structure (Role, Instruction, Content, etc.) unless asked to change.
 - Do NOT remove existing valid logic, only fix bugs or add missing parts.
-- Use the provided tools (`update_skill_content`, `write_auxiliary_file`) to apply your changes.
+- Use the provided tools (e.g., `write_auxiliary_file`) to apply your changes to scripts or docs.
+- The updated SKILL.md MUST be returned in your final conversational response enclosed in a ```markdown ... ``` block.
 """

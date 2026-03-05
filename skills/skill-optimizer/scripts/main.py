@@ -1,25 +1,25 @@
 import argparse
-import sys
-import os
-import logging
-import re
 import datetime
+import logging
+import os
+import re
+import sys
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
+
 import httpx
-from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
 
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from constants import ENV_FILE
 from architecture.genome import SkillGenome
-from optimizer import SkillOptimizer
+from constants import ENV_FILE
 from engine.report_generator import OptimizationReportGenerator
+from optimizer import SkillOptimizer
 from witty_insight_api import get_skill_logs
-
 
 # Load environment variables
 load_dotenv(ENV_FILE)
@@ -73,15 +73,23 @@ class RealLLMClient:
             # Fallback to OPENAI_API_KEY if DEEPSEEK not set (as per some setups)
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
-                raise ValueError("Neither DEEPSEEK_API_KEY nor OPENAI_API_KEY set.")
+                from constants import ENV_FILE
+
+                raise ValueError(
+                    f"\\n❌ Error: Neither DEEPSEEK_API_KEY nor OPENAI_API_KEY is set.\\n"
+                    f"Please configure your AI model API key in the environment file:\\n"
+                    f"   -> {ENV_FILE.absolute()}\\n"
+                    f"Alternatively, you can run './scripts/opt.sh --help' to use the interactive setup."
+                )
 
         self.llm = ChatOpenAI(
             model=model_name,
             base_url=base_url,
             api_key=api_key,
-            http_client=httpx.Client(verify=False),
-            http_async_client=httpx.AsyncClient(verify=False),
-            max_tokens=8192,
+            http_client=httpx.Client(verify=False, timeout=300.0),
+            http_async_client=httpx.AsyncClient(verify=False, timeout=300.0),
+            max_tokens=4096,
+            request_timeout=300.0,
         )
 
     def __call__(self, prompt):
@@ -128,7 +136,7 @@ def run_optimizer(
     Main entry point for function calls.
 
     Args:
-        mode: 'static' or 'warm' or 'hybrid'
+        mode: 'static' or 'dynamic' or 'hybrid'
         input_path: Path to input directory or file
         output_path: Path to output directory (optional)
         human_feedback: Optional human feedback content to guide optimization
@@ -214,19 +222,19 @@ def run_optimizer(
                     skill_file, trace_id=trace_id, human_feedback=human_feedback
                 )
 
-            elif mode == "warm":
-                logger.info("Mode: Warm (Experience Crystallization)")
+            elif mode == "dynamic":
+                logger.info("Mode: Dynamic (Experience Crystallization)")
 
                 # try to get history excution report
                 report_items = get_skill_logs(skill=initial_genome.name, limit=3)
 
-                # optimize_warm takes (genome, report)
-                optimized_genome, diagnoses = optimizer.optimize_warm(
+                # optimize_dynamic takes (genome, report)
+                optimized_genome, diagnoses = optimizer.optimize_dynamic(
                     genome=initial_genome, report_items=report_items, trace_id=trace_id
                 )
 
             elif mode == "hybrid":
-                logger.info("Mode: Hybrid (Static + Warm)")
+                logger.info("Mode: Hybrid (Static + Dynamic)")
 
                 # try to get history excution report
                 report_items = get_skill_logs(skill=initial_genome.name)
@@ -255,12 +263,16 @@ def run_optimizer(
             # Determine Save Directory
             if output_path == skill_file.parent:
                 # Create sibling directory to avoid overwrite/nesting
-                save_dir = skill_file.parent.parent / new_skill_name
+                outer_save_dir = skill_file.parent.parent / new_skill_name
             else:
                 # Save inside output_path
-                save_dir = output_path / new_skill_name
+                outer_save_dir = output_path / new_skill_name
 
-            save_dir.mkdir(parents=True, exist_ok=True)
+            outer_save_dir.mkdir(parents=True, exist_ok=True)
+
+            # The actual skill directory inside the wrapper
+            skill_save_dir = outer_save_dir / base_skill_name
+            skill_save_dir.mkdir(parents=True, exist_ok=True)
 
             # Save SKILL.md
             if optimized_genome:
@@ -270,7 +282,7 @@ def run_optimizer(
                         "Optimized SKILL.md content is suspiciously short or empty!"
                     )
 
-                save_file = save_dir / "SKILL.md"
+                save_file = skill_save_dir / "SKILL.md"
                 with open(save_file, "w", encoding="utf-8") as f:
                     f.write(new_content)
                 logger.info(f"Optimized skill saved to: {save_file}")
@@ -283,7 +295,7 @@ def run_optimizer(
                     )
 
                 for rel_path, file_content in optimized_genome.files.items():
-                    dest_path = save_dir / rel_path
+                    dest_path = skill_save_dir / rel_path
                     dest_path.parent.mkdir(parents=True, exist_ok=True)
                     with open(dest_path, "w", encoding="utf-8") as f:
                         f.write(file_content)
@@ -295,7 +307,7 @@ def run_optimizer(
             if diagnoses:
                 import json
 
-                diagnoses_file = save_dir / "diagnoses.json"
+                diagnoses_file = outer_save_dir / "diagnoses.json"
                 diagnoses_data = [
                     {
                         "dimension": d.dimension,
@@ -330,13 +342,13 @@ def run_optimizer(
                     optimized=optimized_genome,
                     diagnoses=diagnoses,
                 )
-                report_file = save_dir / "OPTIMIZATION_REPORT.md"
+                report_file = outer_save_dir / "OPTIMIZATION_REPORT.md"
                 with open(report_file, "w", encoding="utf-8") as f:
                     f.write(report_content)
                 logger.info(f"Saved optimization report to: {report_file}")
 
             # Record successful optimization path
-            optimized_paths.append(save_dir)
+            optimized_paths.append(outer_save_dir)
 
         except Exception as e:
             logger.error(f"Optimization failed for {skill_file}: {e}")
@@ -366,9 +378,9 @@ def main():
 
     parser.add_argument(
         "--mode",
-        choices=["static", "warm", "hybrid"],
+        choices=["static", "dynamic", "hybrid"],
         required=True,
-        help="Optimization mode: static (cold) or warm (trace-based) or hybrid (both)",
+        help="Optimization mode: static (cold) or dynamic (trace-based) or hybrid (both)",
     )
     parser.add_argument(
         "--input",
@@ -392,7 +404,7 @@ def main():
     args = parser.parse_args()
 
     if not args.input:
-        parser.error("--input is required for static/warm modes")
+        parser.error("--input is required for static/dynamic modes")
 
     input_path = Path(args.input)
     output_path = Path(args.output) if args.output else None
@@ -420,70 +432,10 @@ def main():
         args.mode, input_path, output_path, human_feedback=human_feedback_content
     )
 
-    # Post-optimization: Upload and Versioning
     if optimized_paths:
-        from witty_insight_api import upload_local_skill
-        import shutil
-
-        for path in optimized_paths:
-            try:
-                # 1. Upload to get version
-                version = upload_local_skill(str(path))
-
-                if version is not None:
-                    logger.info(f"Successfully uploaded skill. Version: {version}")
-
-                    # 2. Rename directory to include version
-                    # Current format: base-optimized-timestamp
-                    # Target format: base-v{version} (as per user request implies changing path related to version)
-                    # We keep the base name and replace the suffix
-
-                    # Heuristic: split by "-optimized-" to find base name
-                    if "-optimized-" in path.name:
-                        base_name = path.name.split("-optimized-")[0]
-                    else:
-                        base_name = path.name  # Fallback
-
-                    new_dir_name = f"{base_name}-v{version}"
-                    new_path = path.parent / new_dir_name
-
-                    if new_path.exists():
-                        logger.warning(
-                            f"Target directory {new_path} already exists. Skipping rename."
-                        )
-                    else:
-                        shutil.move(str(path), str(new_path))
-                        logger.info(f"Renamed {path} to {new_path}")
-
-                        # 3. Update Report with Version
-                        report_file = new_path / "OPTIMIZATION_REPORT.md"
-                        if report_file.exists():
-                            with open(report_file, "r", encoding="utf-8") as f:
-                                content = f.read()
-
-                            # Add Version Header
-                            version_header = (
-                                f"# Optimization Report (Version {version})\n\n"
-                            )
-                            # If file starts with #, prepend before it
-                            new_content = version_header + content
-
-                            with open(report_file, "w", encoding="utf-8") as f:
-                                f.write(new_content)
-                            logger.info(
-                                f"Updated report with version info at {report_file}"
-                            )
-
-                        # 4. Create VERSION.TXT
-                        version_file = new_path / "VERSION.TXT"
-                        with open(version_file, "w", encoding="utf-8") as f:
-                            f.write(str(version))
-                        logger.info(f"Created version file at {version_file}")
-                else:
-                    logger.warning(f"Upload failed or no version returned for {path}")
-
-            except Exception as e:
-                logger.error(f"Post-processing failed for {path}: {e}")
+        logger.info(
+            f"Optimization completed. Modified skill paths: {[str(p) for p in optimized_paths]}"
+        )
 
 
 if __name__ == "__main__":
