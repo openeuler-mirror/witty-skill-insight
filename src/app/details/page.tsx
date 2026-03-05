@@ -117,6 +117,155 @@ const CustomTooltip = ({ content }: { content: string }) => {
     );
 };
 
+const findToolResult = (toolCallId: string, interactions: any[], currentMessageId: string): any => {
+    let currentId = currentMessageId;
+    const visited = new Set<string>();
+    let maxDepth = 100;
+    
+    while (currentId && maxDepth > 0 && !visited.has(currentId)) {
+        visited.add(currentId);
+        
+        const children = interactions.filter((i: any) => i.parentId === currentId);
+        
+        for (const child of children) {
+            const childMsg = child.message;
+            if (childMsg && Array.isArray(childMsg.content)) {
+                const toolResults = childMsg.content.filter((c: any) => 
+                    c.type === 'toolResult' || c.type === 'tool_result'
+                );
+                
+                for (const tr of toolResults) {
+                    if ((tr.toolCallId || tr.tool_use_id) === toolCallId) {
+                        return {
+                            content: tr.content,
+                            isError: tr.isError || tr.is_error,
+                            timestamp: childMsg.timestamp || Date.parse(child.timestamp)
+                        };
+                    }
+                }
+            }
+        }
+        
+        if (children.length > 0) {
+            currentId = children[0].id;
+            maxDepth--;
+        } else {
+            break;
+        }
+    }
+    
+    return null;
+};
+
+const normalizeInteractions = (interactions: any[]) => {
+    if (!interactions || interactions.length === 0) return [];
+    
+    const firstItem = interactions[0];
+    
+    if (firstItem.type && (firstItem.type === 'user' || firstItem.type === 'assistant') && firstItem.message) {
+        const toolCallMap = new Map<string, any>();
+        
+        interactions.forEach((item: any, index: number) => {
+            const msg = item.message;
+            if (!msg || !Array.isArray(msg.content)) return;
+            
+            const toolCallType = msg.content.some((c: any) => c.type === 'toolCall') ? 'toolCall' : 'tool_use';
+            
+            const toolCalls = msg.content.filter((c: any) => c.type === toolCallType);
+            toolCalls.forEach((tc: any) => {
+                toolCallMap.set(tc.id, {
+                    name: tc.name,
+                    arguments: tc.arguments || tc.input,
+                    messageId: item.id,
+                    timestamp: msg.timestamp || Date.parse(item.timestamp)
+                });
+            });
+        });
+        
+        return interactions.map((item: any, index: number) => {
+            const msg = item.message;
+            if (!msg) return null;
+            
+            const entryTimestamp = Date.parse(item.timestamp);
+            const timestamp = msg.timestamp || (isNaN(entryTimestamp) ? 0 : entryTimestamp);
+            const normalized: any = {
+                role: msg.role,
+                timestamp: timestamp,
+                timeInfo: { created: timestamp }
+            };
+            
+            if (item.latency) {
+                normalized.latency = item.latency;
+            } else if (msg.role === 'assistant') {
+                const prevItem = interactions[index - 1];
+                if (prevItem && prevItem.message?.role === 'user') {
+                    const prevEntryTimestamp = Date.parse(prevItem.timestamp);
+                    const prevTimestamp = prevEntryTimestamp;
+                    const currentEntryTimestamp = Date.parse(item.timestamp);
+                    
+                    if (!isNaN(prevTimestamp) && !isNaN(currentEntryTimestamp) && currentEntryTimestamp > prevTimestamp) {
+                        normalized.latency = currentEntryTimestamp - prevTimestamp;
+                    }
+                }
+            }
+            
+            if (msg.content) {
+                if (typeof msg.content === 'string') {
+                    normalized.content = msg.content;
+                } else if (Array.isArray(msg.content)) {
+                    const textBlocks = msg.content.filter((c: any) => c.type === 'text');
+                    if (textBlocks.length > 0) {
+                        normalized.content = textBlocks.map((c: any) => c.text).join('\n');
+                    }
+                    
+                    const toolCallType = msg.content.some((c: any) => c.type === 'toolCall') ? 'toolCall' : 'tool_use';
+                    
+                    const toolCalls = msg.content.filter((c: any) => c.type === toolCallType);
+                    if (toolCalls.length > 0) {
+                        normalized.tool_calls = toolCalls.map((tc: any) => {
+                            const call = toolCallMap.get(tc.id);
+                            const result = findToolResult(tc.id, interactions, item.id);
+                            
+                            let duration_ms = 0;
+                            if (call && result) {
+                                const callTime = call.timestamp;
+                                const resultTime = result.timestamp;
+                                if (callTime && resultTime && resultTime > callTime) {
+                                    duration_ms = resultTime - callTime;
+                                }
+                            }
+                            
+                            return {
+                                function: { name: tc.name },
+                                arguments: tc.arguments || tc.input,
+                                output: result ? result.content : null,
+                                timing: { duration_ms }
+                            };
+                        });
+                    }
+                }
+            }
+            
+            if (msg.usage) {
+                const totalTokens = msg.usage.totalTokens || 
+                                  (msg.usage.total_tokens || 0) || 
+                                  ((msg.usage.input_tokens || 0) + (msg.usage.output_tokens || 0));
+                
+                normalized.usage = {
+                    total: totalTokens,
+                    total_tokens: totalTokens,
+                    input: msg.usage.input || msg.usage.input_tokens || 0,
+                    output: msg.usage.output || msg.usage.output_tokens || 0
+                };
+            }
+            
+            return normalized;
+        }).filter((item: any) => item && (item.role === 'user' || item.role === 'assistant'));
+    }
+    
+    return interactions;
+};
+
 const RenderInteractionList = ({ 
     interactions, 
     focusedStep, 
@@ -135,10 +284,15 @@ const RenderInteractionList = ({
     const [currentPage, setCurrentPage] = useState(0);
     const pageSize = 5;
 
+    // Normalize interactions for different frameworks
+    const normalizedInteractions = useMemo(() => {
+        return normalizeInteractions(interactions);
+    }, [interactions]);
+    
     // Prepare data with calculated metrics
     const processedInteractions = useMemo(() => {
         const rows: any[] = [];
-
+        
         const toMs = (v: any) => {
             if (v == null) return null;
             if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -154,8 +308,8 @@ const RenderInteractionList = ({
             }
             return null;
         };
-
-        interactions.forEach((item, index) => {
+        
+        normalizedInteractions.forEach((item, index) => {
             // LLM 调用行
             let lat = item.latency || 0;
             if (!lat && item.timeInfo && item.timeInfo.completed && item.timeInfo.created) {

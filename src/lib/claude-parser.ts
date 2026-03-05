@@ -70,6 +70,9 @@ export class ClaudeParser {
     const skills = new Set<string>();
     const interactions: any[] = [];
 
+    // Map to track tool calls and their results
+    const toolCallMap = new Map<string, any>();
+    
     for (const turn of turns) {
         let turnStartTime = 0;
         let turnEndTime = 0;
@@ -129,6 +132,15 @@ export class ClaudeParser {
                     }
                     const toolBlocks = entry.message.content.filter((c: any) => c.type === 'tool_use');
                     for (const tool of toolBlocks) {
+                        // Store tool call for later matching with result
+                        if (tool.id) {
+                            toolCallMap.set(tool.id, {
+                                name: tool.name,
+                                input: tool.input,
+                                timestamp: entry.timestamp
+                            });
+                        }
+                        
                         // Handle native Claude Code "Skill" system integration invocation
                         if (tool.name === 'Skill' && tool.input && typeof tool.input.skill === 'string') {
                             skills.add(tool.input.skill.trim());
@@ -136,6 +148,31 @@ export class ClaudeParser {
                         // If it's another non-built-in tool (custom Witty tools or other custom MCPs not starting with uppercase)
                         else if (tool.name && !/^[A-Z]/.test(tool.name)) {
                             skills.add(tool.name);
+                        }
+                    }
+                }
+            }
+            
+            // Process tool results and add timing information
+            if (entry.toolUseResult && entry.toolUseResult.durationMs) {
+                const toolUseId = entry.toolUseID;
+                if (toolUseId && toolCallMap.has(toolUseId)) {
+                    const toolCall = toolCallMap.get(toolUseId);
+                    // Find the interaction with this tool call and add timing
+                    const interaction = interactions.find((i: any) => 
+                        i.type === 'assistant' && 
+                        Array.isArray(i.message?.content) &&
+                        i.message.content.some((c: any) => c.type === 'tool_use' && c.id === toolUseId)
+                    );
+                    
+                    if (interaction) {
+                        const toolUse = interaction.message.content.find((c: any) => c.type === 'tool_use' && c.id === toolUseId);
+                        if (toolUse) {
+                            toolUse.timing = {
+                                started_at: toolCall.timestamp,
+                                completed_at: entry.timestamp,
+                                duration_ms: entry.toolUseResult.durationMs
+                            };
                         }
                     }
                 }

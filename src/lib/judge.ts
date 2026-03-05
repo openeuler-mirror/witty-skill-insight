@@ -650,6 +650,39 @@ export function extractSkillsFromClaudeSession(interactions: any[]): string[] {
   return skills;
 }
 
+export function extractSkillsFromOpenClawSession(interactions: any[]): string[] {
+  const seen = new Set<string>();
+  const skills: string[] = [];
+  const skillNamePattern = /^[a-zA-Z0-9_\-\.]+$/;
+
+  const collect = (content: any) => {
+    if (!content || !Array.isArray(content)) return;
+    for (const block of content) {
+      if (block?.type !== 'toolCall') continue;
+      const toolName = (block?.name || '').toLowerCase();
+      if (toolName !== 'skill' && toolName !== 'load_skill') continue;
+      const input = block?.arguments;
+      const skillName = input?.skill ?? input?.skill_name ?? input?.skillName ?? input?.name;
+      if (skillName == null || !String(skillName).trim()) continue;
+      const s = String(skillName).trim().replace(/^['"]+|['"]+$/g, '');
+      if (skillNamePattern.test(s) && !seen.has(s)) {
+        seen.add(s);
+        skills.push(s);
+      }
+    }
+  };
+
+  for (const turn of interactions) {
+    if (turn.responseMessage?.content) collect(turn.responseMessage.content);
+    if (turn.requestMessages) {
+        for (const m of turn.requestMessages) {
+            if (m.role === 'assistant' && m.content) collect(m.content);
+        }
+    }
+  }
+  return skills;
+}
+
 
 export async function analyzeSession(input: any[], user?: string | null): Promise<AnalysisResult> {
     const messages = normalizeInteractions(input);
