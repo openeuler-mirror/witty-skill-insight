@@ -41,7 +41,7 @@ Witty-Skill-Insight 是一个开源的 **Agent Skill 生成、优化、评估与
 ### 🔌 4. Agent 原生接口
 
 无需修改一行代码即可完成运行期数据采集（已支持 **OpenCode**, **Claude Code**, **OpenClaw**）。更进一步，将“自动生成”与“自优化”等重型平台能力封装为轻量级 Skill，在终端向 Agent 暴露原生接口，实现能力的按需无缝集成。
-�👉 *[了解详情：Agent 友好集成技术解析](docs/4%20-%20AGENT_INTEGRATION.md)*
+👉 *[了解详情：Agent 友好集成技术解析](docs/4%20-%20AGENT_INTEGRATION.md)*
 
 👉 *[最佳实践案例：Docker 应用卡顿排查与修复](docs/5%20-%20PRACTICE_CASE.md)*
 
@@ -92,7 +92,7 @@ Witty-Skill-Insight 是一个开源的 **Agent Skill 生成、优化、评估与
 
 ```bash
 # 安装包（自动完成初始化）
-npmnpm install witty-skill-insight
+npm install witty-skill-insight
 
 # 启动服务（默认端口 3000）
 npx witty-skill-insight start
@@ -295,9 +295,9 @@ npm run lint
 
 ---
 
-## 📦 NPM与其他发布
+## 📦 NPM 发布
 
-本项目已配置为 npm 包与其他，可发布到 npm 官方仓库。
+本项目已配置为 npm 包，可发布到 npm 官方仓库。
 
 ### 发布流程
 
