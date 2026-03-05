@@ -1,8 +1,5 @@
 #!/usr/bin/env node
 
-const path = require('path')
-const fs = require('fs')
-
 const commands = {
   start: () => require('../scripts/start.js'),
   stop: () => require('../scripts/stop.js'),
@@ -15,7 +12,12 @@ function parseOptions(args) {
   const options = {}
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--port' || args[i] === '-p') {
-      options.port = parseInt(args[i + 1])
+      const port = parseInt(args[i + 1])
+      if (isNaN(port) || port < 1 || port > 65535) {
+        console.error('Invalid port number. Port must be between 1 and 65535.')
+        process.exit(1)
+      }
+      options.port = port
       i++
     } else if (args[i] === '--help' || args[i] === '-h') {
       options.help = true
@@ -77,7 +79,17 @@ if (options.help) {
 }
 
 if (commands[command]) {
-  commands[command]().run(options)
+  try {
+    const commandModule = commands[command]()
+    if (typeof commandModule.run !== 'function') {
+      console.error(`Command module for '${command}' is missing run() function`)
+      process.exit(1)
+    }
+    commandModule.run(options)
+  } catch (error) {
+    console.error(`Error executing command '${command}':`, error.message)
+    process.exit(1)
+  }
 } else {
   console.error(`Unknown command: ${command}`)
   showHelp()
