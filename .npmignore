@@ -3,8 +3,7 @@
 .env.local
 .env.*.local
 
-# Build artifacts
-.next
+# Build artifacts - DO NOT exclude .next for production
 out
 dist
 build
@@ -31,13 +30,31 @@ server.log
 coverage
 .nyc_output
 
-# TypeScript
+# TypeScript cache
 tsconfig.tsbuildinfo
 
-# Data directory
+# Data directory (user data, not part of package)
 data/
+
+# Database files (should be created by user)
+prisma/dev.db
+*.db
+*.db-journal
 
 # Exclude specific directories and files
 skills/
 README.md
 docs/
+
+# Development only
+.next/cache
+
+# Exclude unnecessary files from standalone
+.next/standalone/docs/
+.next/standalone/data/
+.next/standalone/src/
+.next/standalone/skills/
+.next/standalone/README.md
+.next/standalone/.env
+.next/standalone/server.log
+.next/standalone/prisma/dev.db

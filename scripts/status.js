@@ -2,7 +2,8 @@
 
 const {
   findPidOnPort,
-  getPort
+  getPort,
+  isPortListening
 } = require('./utils.js')
 
 async function run(options) {
@@ -19,9 +20,17 @@ async function run(options) {
       console.log(`  Port: ${port}`)
       console.log(`  URL: http://localhost:${port}`)
     } else {
-      console.log('✗ Service is not running')
-      console.log(`  Port: ${port}`)
-      console.log(`\nTo start: npx witty-skill-insight start --port ${port}`)
+      const isListening = await isPortListening(port)
+      if (isListening) {
+        console.log('✓ Service is running')
+        console.log(`  Port: ${port}`)
+        console.log(`  URL: http://localhost:${port}`)
+        console.log(`  Note: PID not available (limited permissions)`)
+      } else {
+        console.log('✗ Service is not running')
+        console.log(`  Port: ${port}`)
+        console.log(`\nTo start: npx witty-skill-insight start --port ${port}`)
+      }
     }
   } catch (error) {
     console.error('Error checking service status:', error.message)

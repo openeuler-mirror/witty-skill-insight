@@ -85,7 +85,13 @@ if (commands[command]) {
       console.error(`Command module for '${command}' is missing run() function`)
       process.exit(1)
     }
-    commandModule.run(options)
+    const result = commandModule.run(options)
+    if (result && typeof result.then === 'function') {
+      result.catch((error) => {
+        console.error(`Error executing command '${command}':`, error.message)
+        process.exit(1)
+      })
+    }
   } catch (error) {
     console.error(`Error executing command '${command}':`, error.message)
     process.exit(1)

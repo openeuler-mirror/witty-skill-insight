@@ -1,9 +1,5 @@
 export async function register() {
-  if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { claudeWatcher } = await import('./lib/claude-watcher');
-    claudeWatcher.start();
-    
-    const { openclawWatcher } = await import('./lib/openclaw-watcher');
-    openclawWatcher.start();
-  }
+  // Server-side watchers have been removed.
+  // Watchers now run on the client side via scripts downloaded through curl setup.
+  // See: scripts/claude_watcher_client.ts and scripts/openclaw_watcher_client.ts
 }

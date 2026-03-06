@@ -1,6 +1,7 @@
 const { execSync, spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+const http = require('http')
 
 function findPidOnPort(port) {
   const platform = process.platform
@@ -19,7 +20,7 @@ function findPidOnPort(port) {
       if (fs.existsSync('/usr/bin/lsof') || fs.existsSync('/usr/sbin/lsof')) {
         try {
           const pid = execSync(`lsof -t -i:${port} -sTCP:LISTEN`, { encoding: 'utf8' })
-          return pid.trim()
+          if (pid.trim()) return pid.trim()
         } catch (e) {}
       }
       
@@ -38,10 +39,40 @@ function findPidOnPort(port) {
           if (match) return match[1]
         } catch (e) {}
       }
+      
+      try {
+        const output = execSync(`fuser ${port}/tcp 2>/dev/null`, { encoding: 'utf8' })
+        if (output.trim()) return output.trim()
+      } catch (e) {}
     }
   } catch (e) {}
   
   return null
+}
+
+function isPortListening(port) {
+  return new Promise((resolve) => {
+    const req = http.request({
+      hostname: 'localhost',
+      port: port,
+      path: '/',
+      method: 'HEAD',
+      timeout: 1000
+    }, (res) => {
+      resolve(true)
+    })
+    
+    req.on('error', () => {
+      resolve(false)
+    })
+    
+    req.on('timeout', () => {
+      req.destroy()
+      resolve(false)
+    })
+    
+    req.end()
+  })
 }
 
 function killProcess(pid) {
@@ -67,9 +98,10 @@ function getPort(options) {
   return 3000
 }
 
-function ensureEnvFile() {
-  const envPath = path.join(process.cwd(), '.env')
-  const envExamplePath = path.join(process.cwd(), '.env.example')
+function ensureEnvFile(packageRoot) {
+  const root = packageRoot || path.resolve(__dirname, '..')
+  const envPath = path.join(root, '.env')
+  const envExamplePath = path.join(root, '.env.example')
   
   if (!fs.existsSync(envPath) && fs.existsSync(envExamplePath)) {
     console.log('No .env found. Initializing from .env.example...')
@@ -78,8 +110,9 @@ function ensureEnvFile() {
   }
 }
 
-function ensureDataDirectory() {
-  const dataPath = path.join(process.cwd(), 'data')
+function ensureDataDirectory(packageRoot) {
+  const root = packageRoot || path.resolve(__dirname, '..')
+  const dataPath = path.join(root, 'data')
   if (!fs.existsSync(dataPath)) {
     console.log('Creating data directory...')
     fs.mkdirSync(dataPath, { recursive: true })
@@ -118,5 +151,6 @@ module.exports = {
   ensureEnvFile,
   ensureDataDirectory,
   runCommand,
-  sleep
+  sleep,
+  isPortListening
 }
