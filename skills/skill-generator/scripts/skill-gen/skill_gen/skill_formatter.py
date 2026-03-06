@@ -17,7 +17,7 @@ class SkillFormatter:
         sections = []
         
         # 1. YAML Frontmatter
-        sections.append(self._render_frontmatter(pattern))
+        sections.append(self._render_frontmatter(pattern, skill))
         
         # 2. Title & Overview
         sections.append(self._render_title_and_overview(skill))
@@ -44,30 +44,71 @@ class SkillFormatter:
         
         return "\n\n".join(sections)
 
-    def _render_frontmatter(self, pattern: FailurePattern) -> str:
-        hardware = pattern.applicable_scope.hardware or "通用"
-        platform = pattern.applicable_scope.platform
+    def _render_frontmatter(self, pattern: FailurePattern, skill: Skill = None) -> str:
+        # Use the summary from the pattern which should now be high-level and include trigger conditions
+        description = getattr(pattern, 'summary', "")
+        
+        # Fallback if summary is empty (e.g. legacy pattern)
+        if not description:
+             description = f"该故障模式涉及 {pattern.pattern_name}。主要现象包括：{', '.join(pattern.symptoms.primary)}。"
+             if skill and skill.failure_cases:
+                 root_cause = skill.failure_cases[0].root_cause
+                 if len(root_cause) < 50:
+                      description = f"{root_cause} 故障表现为：{', '.join(pattern.symptoms.primary)}"
+                 else:
+                      description = root_cause
+
+        # Construct keywords from pattern content
+        keywords = []
+        # Add pattern name parts
+        keywords.extend(pattern.pattern_name.split())
+        # Add category
+        if pattern.category:
+            keywords.append(pattern.category.value)
+        # Add hardware/platform info
+        if pattern.applicable_scope:
+            if pattern.applicable_scope.hardware:
+                keywords.append(pattern.applicable_scope.hardware)
+            if pattern.applicable_scope.platform:
+                keywords.append(pattern.applicable_scope.platform)
+        
+        # Add symptoms keywords (simple split)
+        if pattern.symptoms and pattern.symptoms.primary:
+            for s in pattern.symptoms.primary:
+                import re
+                words = re.findall(r'\w+', s)
+                keywords.extend([w for w in words if len(w) > 2])
+            
+        # Deduplicate and clean keywords
+        keywords = sorted(list(set([k for k in keywords if k and len(k) > 1])))
+        # Limit keywords count
+        keywords = keywords[:10]
+
+        import json
+        
+        # Clean description for YAML (remove newlines if necessary or use block scalar style)
+        # Using > block scalar style is good for long text.
         
         return textwrap.dedent(f"""
             ---
-            id: {pattern.pattern_id}
             name: {pattern.pattern_name}
-            severity: {pattern.severity.value}
-            category: {pattern.category.value}
-            platform: {platform}
-            hardware: {hardware}
+            description: >
+              {description}
+            metadata:
+              keywords: {json.dumps(keywords, ensure_ascii=False)}
             ---
         """).strip()
 
     def _render_title_and_overview(self, skill: Skill) -> str:
         pattern = skill.failure_pattern
-        # Use the first case's root cause as a base for overview if available, 
-        # or construct a generic one.
-        overview = ""
-        if skill.failure_cases and skill.failure_cases[0].root_cause:
-            overview = skill.failure_cases[0].root_cause
-        else:
-            overview = f"该故障模式涉及 {pattern.pattern_name}。"
+        # Use summary for overview
+        overview = getattr(pattern, 'summary', "")
+        
+        if not overview:
+            if skill.failure_cases and skill.failure_cases[0].root_cause:
+                overview = skill.failure_cases[0].root_cause
+            else:
+                overview = f"该故障模式涉及 {pattern.pattern_name}。"
 
         return textwrap.dedent(f"""
             # {pattern.pattern_name}
@@ -178,6 +219,16 @@ class SkillFormatter:
     def _render_references(self, skill: Skill, generated_scripts: Optional[List[dict]] = None, reference_files: Optional[List[str]] = None) -> str:
         lines = ["## 参考资料 (References)"]
         
+        if skill.general_experiences:
+            lines.append("\n### 通用经验 (General Experience)")
+            for exp in skill.general_experiences:
+                # Handle multiline content for blockquote
+                content_lines = exp.content.splitlines()
+                quoted_content = "\n".join([f"> {line}" for line in content_lines])
+                lines.append(f"\n{quoted_content}")
+                if exp.source:
+                    lines.append(f"> \n> Source: {exp.source}")
+
         # Add generated reference files if available
         if reference_files:
             lines.append("\n### 参考文件说明")

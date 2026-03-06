@@ -64,8 +64,12 @@ class FailurePatternCategory(str, Enum):
 
 class Environment(BaseModel):
     hardware: Optional[str] = Field(None, description="硬件型号，无则省略")
-    os: str = Field(..., description="操作系统")
-    platform: str = Field(..., description="产品平台和版本")
+    os: str = Field(
+        ..., description="操作系统，必须包含具体的版本号（如 EulerOS 2.0 SP8）"
+    )
+    platform: str = Field(
+        ..., description="产品平台和版本，必须包含具体的内核版本或软件版本号"
+    )
     scope: str = Field(..., description="影响范围，如'现网多台，必现'")
 
 
@@ -109,6 +113,14 @@ class FailureCase(BaseModel):
     commands: List[Command] = Field(..., description="案例中出现的所有命令")
     knowledge_gaps: List[KnowledgeGap]
     source_documents: List[str]
+
+    def generate_id(self) -> str:
+        """生成唯一ID: CASE-{hash(title+root_cause)[:8]}"""
+        import hashlib
+
+        content = f"{self.title}{self.root_cause}"
+        hash_str = hashlib.md5(content.encode("utf-8")).hexdigest()[:8]
+        return f"CASE-{hash_str.upper()}"
 
 
 class ApplicableScope(BaseModel):
@@ -173,6 +185,10 @@ class Verification(BaseModel):
 class FailurePattern(BaseModel):
     pattern_id: str = Field(..., description="FM-<领域>-<关键词>-<序号>")
     pattern_name: str = Field(..., description="泛化的模式名，不含具体实例名/IP/时间")
+    summary: str = Field(
+        ...,
+        description="故障模式的专业摘要。应包含：1. 诊断手段（如：通过 crash 工具分析 vmcore）；2. 问题分类（如：系统卡死、死锁）；3. 具体模式描述（环境/触发条件 -> 根因 -> 影响）。",
+    )
     category: FailurePatternCategory
     severity: Severity
     applicable_scope: ApplicableScope
@@ -208,6 +224,13 @@ class MergeResult(BaseModel):
     merge_notes: str
 
 
+class GeneralExperience(BaseModel):
+    id: str = Field(..., description="e.g. EXP-XXX")
+    content: str = Field(..., description="The actual text content")
+    source: str = Field(..., description='File path or "Manual Input"')
+
+
 class Skill(BaseModel):
     failure_pattern: FailurePattern
     failure_cases: List[FailureCase]
+    general_experiences: List[GeneralExperience] = Field(default_factory=list)

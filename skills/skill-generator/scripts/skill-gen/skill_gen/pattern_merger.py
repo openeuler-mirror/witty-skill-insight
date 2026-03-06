@@ -2,7 +2,13 @@ import logging
 from typing import List, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
-from .schema import FailureCase, MergeResult, MergeDecision, FailurePattern
+from .schema import (
+    FailureCase,
+    MergeResult,
+    MergeDecision,
+    FailurePattern,
+    GeneralExperience,
+)
 from .utils import get_llm
 
 logger = logging.getLogger(__name__)
@@ -29,7 +35,10 @@ class PatternMerger:
         self.llm = get_llm()
 
     async def merge(
-        self, new_case: FailureCase, existing_patterns: List[FailurePattern] = []
+        self,
+        new_case: FailureCase,
+        existing_patterns: List[FailurePattern] = [],
+        general_experiences: List[GeneralExperience] = [],
     ) -> MergeResult:
         """
         Merges a new FailureCase into existing patterns or creates a new one.
@@ -37,19 +46,22 @@ class PatternMerger:
         Args:
             new_case: The new FailureCase to process.
             existing_patterns: List of existing FailurePatterns.
+            general_experiences: List of GeneralExperience items to enrich the pattern.
 
         Returns:
             A MergeResult containing the updated/new pattern, decision, and notes.
         """
         if not existing_patterns:
-            return await self._create_new_pattern(new_case)
+            return await self._create_new_pattern(new_case, general_experiences)
 
         best_match = await self._find_best_match(new_case, existing_patterns)
 
         if best_match:
-            return await self._merge_case_into_pattern(new_case, best_match)
+            return await self._merge_case_into_pattern(
+                new_case, best_match, general_experiences
+            )
         else:
-            return await self._create_new_pattern(new_case)
+            return await self._create_new_pattern(new_case, general_experiences)
 
     async def _find_best_match(
         self, new_case: FailureCase, patterns: List[FailurePattern]
@@ -114,42 +126,69 @@ IMPORTANT: Output strictly in valid JSON format matching the schema. No markdown
             return None
 
     async def _merge_case_into_pattern(
-        self, new_case: FailureCase, pattern: FailurePattern
+        self,
+        new_case: FailureCase,
+        pattern: FailurePattern,
+        general_experiences: List[GeneralExperience] = [],
     ) -> MergeResult:
         from langchain_core.output_parsers import PydanticOutputParser
 
         parser = PydanticOutputParser(pydantic_object=PatternGenerationResponse)
 
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    """You are an expert SRE. Update the existing FailurePattern by merging information from the new FailureCase.
+        # Prepare general experience text
+        general_experience_text = ""
+        if general_experiences:
+            general_experience_text = "\n".join(
+                [f"- {exp.content}" for exp in general_experiences]
+            )
+
+        system_prompt = """You are an expert SRE. Update the existing FailurePattern by merging information from the new FailureCase.
 Rules:
-1. Preserve existing robust information.
+1. Preserve existing robust information, especially specific version constraints in applicable_scope.
 2. Add new symptoms, trigger conditions, or evidences from the new case if they provide new value.
 3. Update frequency/confidence if applicable.
 4. If there are conflicts, resolve them or note them in merge_notes.
 5. Ensure the output is a valid FailurePattern object.
+6. Generate a `summary` that mentions the tools (e.g. crash, vmcore), problem category (e.g. deadlock, hang)"
+"""
 
-IMPORTANT: Output strictly in valid JSON format matching the schema. No markdown.""",
+        if general_experiences:
+            system_prompt += (
+                '\nUse the provided "General Experience Context" (domain knowledge, operational patterns) '
+                "to enrich the FailurePattern, especially in diagnosis steps, remediation steps, and decision logic."
+            )
+
+        user_prompt_template = "Existing Pattern:\n{existing_pattern}\n\nNew Case:\n{new_case}\n\n{format_instructions}"
+
+        if general_experiences:
+            user_prompt_template += (
+                "\n\nGeneral Experience Context:\n{general_experience_text}"
+            )
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    system_prompt,
                 ),
                 (
                     "user",
-                    "Existing Pattern:\n{existing_pattern}\n\nNew Case:\n{new_case}\n\n{format_instructions}",
+                    user_prompt_template,
                 ),
             ]
         )
 
         try:
             chain = prompt | self.llm | parser
-            response = await chain.ainvoke(
-                {
-                    "existing_pattern": pattern.model_dump_json(indent=2),
-                    "new_case": new_case.model_dump_json(indent=2),
-                    "format_instructions": parser.get_format_instructions(),
-                }
-            )
+            inputs = {
+                "existing_pattern": pattern.model_dump_json(indent=2),
+                "new_case": new_case.model_dump_json(indent=2),
+                "format_instructions": parser.get_format_instructions(),
+            }
+            if general_experiences:
+                inputs["general_experience_text"] = general_experience_text
+
+            response = await chain.ainvoke(inputs)
 
             if response:
                 return MergeResult(
@@ -171,36 +210,63 @@ IMPORTANT: Output strictly in valid JSON format matching the schema. No markdown
                 merge_notes=f"Error during merge: {str(e)}",
             )
 
-    async def _create_new_pattern(self, new_case: FailureCase) -> MergeResult:
+    async def _create_new_pattern(
+        self, new_case: FailureCase, general_experiences: List[GeneralExperience] = []
+    ) -> MergeResult:
         from langchain_core.output_parsers import PydanticOutputParser
 
         parser = PydanticOutputParser(pydantic_object=PatternGenerationResponse)
+
+        # Prepare general experience text
+        general_experience_text = ""
+        if general_experiences:
+            general_experience_text = "\n".join(
+                [f"- {exp.content}" for exp in general_experiences]
+            )
+
+        system_prompt = """You are an expert SRE. Create a generalized FailurePattern from this FailureCase.
+Rules:
+1. Generalize specific values (IPs, IDs, dates, hostnames) to placeholders.
+2. CRITICAL: PRESERVE specific version numbers (e.g. kernel version, software version) in applicable_scope. Do NOT generalize versions unless they are irrelevant.
+3. Extract clear symptoms, root cause, and steps.
+4. Generate a unique pattern_id (e.g., FM-<Category>-<Keywords>-001).
+5. Ensure the output is a valid FailurePattern object.
+6. Generate a `summary` that mentions the tools (e.g. crash, vmcore), problem category (e.g. deadlock, hang)"
+"""
+
+        if general_experiences:
+            system_prompt += (
+                '\nUse the provided "General Experience Context" (domain knowledge, operational patterns) '
+                "to enrich the FailurePattern, especially in diagnosis steps, remediation steps, and decision logic."
+            )
+
+        user_prompt_template = "New Case:\n{new_case}\n\n{format_instructions}"
+
+        if general_experiences:
+            user_prompt_template += (
+                "\n\nGeneral Experience Context:\n{general_experience_text}"
+            )
 
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    """You are an expert SRE. Create a generalized FailurePattern from this FailureCase.
-Rules:
-1. Generalize specific values (IPs, IDs, dates) to placeholders.
-2. Extract clear symptoms, root cause, and steps.
-3. Generate a unique pattern_id (e.g., FM-<Category>-<Keywords>-001).
-4. Ensure the output is a valid FailurePattern object.
-
-IMPORTANT: Output strictly in valid JSON format matching the schema. No markdown.""",
+                    system_prompt,
                 ),
-                ("user", "New Case:\n{new_case}\n\n{format_instructions}"),
+                ("user", user_prompt_template),
             ]
         )
 
         try:
             chain = prompt | self.llm | parser
-            response = await chain.ainvoke(
-                {
-                    "new_case": new_case.model_dump_json(indent=2),
-                    "format_instructions": parser.get_format_instructions(),
-                }
-            )
+            inputs = {
+                "new_case": new_case.model_dump_json(indent=2),
+                "format_instructions": parser.get_format_instructions(),
+            }
+            if general_experiences:
+                inputs["general_experience_text"] = general_experience_text
+
+            response = await chain.ainvoke(inputs)
 
             if response:
                 return MergeResult(

@@ -21,7 +21,6 @@ def get_llm():
             "  LLM_API_KEY=your_api_key\n"
             "  DEEPSEEK_API_KEY=your_api_key"
         )
-    
     llm = ChatOpenAI(
         model=model,
         base_url=base_url,

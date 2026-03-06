@@ -34,6 +34,8 @@ def main() -> int:
 
     # 将项目根目录加入 sys.path，以便导入 skill_gen 包
     sys.path.append(str(python_module_root))
+    # 将包目录加入 sys.path，以便 skill_seekers 能够被作为顶层包导入 (解决内部绝对导入问题)
+    sys.path.append(str(python_package_dir))
 
     try:
         from skill_gen.skill_generation import run_skill_generation
@@ -48,8 +50,9 @@ def main() -> int:
     parser.add_argument(
         "--input",
         "-i",
-        required=True,
-        help="输入路径：单个文档路径 / 目录路径 / 配置文件路径 / URL",
+        required=False,
+        action="append",
+        help="输入路径：单个文档路径 / 目录路径 / 配置文件路径 / URL (可多次指定)",
     )
     parser.add_argument(
         "--output",
@@ -80,6 +83,28 @@ def main() -> int:
         default=0.5,
         help="文档质量评估阈值 (0~1)，默认 0.5",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["single", "merge"],
+        default="single",
+        help="生成模式：single (默认，单/多文档生成对应数量Skill) / merge (多文档合并生成一个Skill)",
+    )
+
+    parser.add_argument(
+        "--general-experience",
+        "-g",
+        dest="general_experience",
+        default=None,
+        help="通用经验文件路径（可选）",
+    )
+
+    parser.add_argument(
+        "--pattern-file",
+        "-p",
+        dest="pattern_file",
+        default=None,
+        help="故障模式 YAML 文件路径（可选，用于直接生成 Skill）",
+    )
 
     # 模型配置参数（AI 平台传递）
     parser.add_argument(
@@ -97,9 +122,17 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    if not args.input and not args.pattern_file:
+        parser.error("必须提供 --input 或 --pattern-file 其中之一")
+
     # 如果提供了模型参数，设置到环境变量
     if args.llm_api_key:
         os.environ["LLM_API_KEY"] = args.llm_api_key
+
+    # 兼容 .env 中的配置：如果 LLM_API_KEY 为空，尝试从 DEEPSEEK_API_KEY 复制
+    if not os.getenv("LLM_API_KEY") and os.getenv("DEEPSEEK_API_KEY"):
+        os.environ["LLM_API_KEY"] = os.getenv("DEEPSEEK_API_KEY")
+
     if args.llm_model:
         os.environ["LLM_MODEL"] = args.llm_model
     if args.llm_base_url:
@@ -139,6 +172,9 @@ def main() -> int:
         concurrency=args.concurrency,
         skill_name=args.skill_name,
         quality_threshold=args.quality_threshold,
+        mode=args.mode,
+        general_experience_path=args.general_experience,
+        pattern_file_path=args.pattern_file,
     )
 
     return 0
@@ -146,5 +182,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
