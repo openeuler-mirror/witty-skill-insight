@@ -66,7 +66,7 @@ export async function DELETE(request: Request) {
 export async function PATCH(request: Request) {
     try {
         const body = await request.json();
-        const { task_id, upload_id, query: newQuery, user_feedback, label: newLabel } = body;
+        const { task_id, upload_id, query: newQuery, user_feedback, label: newLabel, final_result: newFinalResult } = body;
 
         if (!task_id && !upload_id) {
             return NextResponse.json({ error: 'task_id or upload_id is required' }, { status: 400 });
@@ -112,13 +112,29 @@ export async function PATCH(request: Request) {
                 task_id: task_id || undefined,
                 upload_id: upload_id || undefined,
                 query: newQuery.trim(),
-                force_judgment: true
+                skip_evaluation: true
             });
 
             return NextResponse.json({
                 success: result.success,
                 record: result.record,
                 message: 'Query 已更新'
+            });
+        }
+
+        // 4. Handle Final Result Update
+        if (typeof newFinalResult === 'string') {
+            const result = await saveExecutionRecord({
+                task_id: task_id || undefined,
+                upload_id: upload_id || undefined,
+                final_result: newFinalResult.trim(),
+                force_judgment: true
+            });
+
+            return NextResponse.json({
+                success: result.success,
+                record: result.record,
+                message: 'Final Result 已更新'
             });
         }
 

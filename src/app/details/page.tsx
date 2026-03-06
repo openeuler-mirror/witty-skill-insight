@@ -642,6 +642,11 @@ function DetailPage() {
     const [editingQueryFor, setEditingQueryFor] = useState<string | null>(null);
     const [editQueryValue, setEditQueryValue] = useState('');
     const [querySaveStatus, setQuerySaveStatus] = useState<{ id: string; status: 'saving' | 'ok' | 'error'; msg?: string } | null>(null);
+
+    const [editingResultFor, setEditingResultFor] = useState<string | null>(null);
+    const [editResultValue, setEditResultValue] = useState('');
+    const [resultSaveStatus, setResultSaveStatus] = useState<{ id: string; status: 'saving' | 'ok' | 'error'; msg?: string } | null>(null);
+
     const [feedbackComments, setFeedbackComments] = useState<Record<string, string>>({});
     const [focusedStep, setFocusedStep] = useState<number | null>(null);
     
@@ -908,6 +913,83 @@ function DetailPage() {
         }
     };
 
+    const startEditResult = (taskId: string, currentResult: string) => {
+        setEditingResultFor(taskId);
+        setEditResultValue(currentResult || '');
+        setResultSaveStatus(null);
+    };
+
+    const cancelEditResult = () => {
+        setEditingResultFor(null);
+        setEditResultValue('');
+        setResultSaveStatus(null);
+    };
+
+    const saveFinalResult = async (taskId: string, uploadId?: string) => {
+        const val = editResultValue.trim();
+        if (!val) return;
+        setResultSaveStatus({ id: taskId, status: 'saving' });
+        try {
+            const res = await fetch('/api/data', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    task_id: taskId,
+                    upload_id: uploadId || undefined,
+                    final_result: val
+                })
+            });
+            const json = await res.json();
+            if (!res.ok) {
+                setResultSaveStatus({ id: taskId, status: 'error', msg: json.error || '保存失败' });
+                return;
+            }
+            const msg = json.message || '已保存并重评';
+            setResultSaveStatus({ id: taskId, status: 'ok', msg });
+            setEditingResultFor(null);
+            setEditResultValue('');
+            
+            // Refresh data
+            const dataRes = await fetch('/api/data');
+            const data: any[] = await dataRes.json();
+            const filtered = data.filter(d =>
+                d.query === query &&
+                (!framework || d.framework === framework)
+            ).map(x => ({
+                ...x,
+                tokens: Number(x.tokens || x.Token || 0),
+                latency: Number(x.latency || 0),
+                answer_score: x.answer_score !== undefined ? Number(x.answer_score) : (x.is_answer_correct ? 1.0 : 0.0)
+            }));
+            filtered.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+            setAllData(filtered);
+        } catch (e) {
+            setResultSaveStatus({ id: taskId, status: 'error', msg: '网络错误' });
+        }
+    };
+
+    const handleUploadResult = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('document', file);
+        try {
+            const res = await fetch('/api/parse-document', {
+                method: 'POST',
+                body: formData
+            });
+            const json = await res.json();
+            if (res.ok) {
+                setEditResultValue(json.content || '');
+            } else {
+                alert('解析文档失败: ' + (json.error || 'Unknown error'));
+            }
+        } catch (err: any) {
+            alert('解析文档异常: ' + err.message);
+        }
+    };
+
+
     const toggleExpand = async (taskId: string) => {
         const newSet = new Set(expandedIds);
         if (newSet.has(taskId)) {
@@ -1107,8 +1189,20 @@ function DetailPage() {
     return (
         <div style={{minHeight: '100vh', background: '#0f172a', color: '#f8fafc', padding: '2rem'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #334155', paddingBottom: '0.5rem'}}>
-                <h1 style={{fontSize: '1.5rem', margin: 0}}>
-                    Details: <span style={{color:'#38bdf8'}}>{query}</span>
+                <h1 style={{
+                    fontSize: '1.5rem', 
+                    margin: 0, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    whiteSpace: 'nowrap', 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis'
+                }} title={query}>
+                    <span style={{flexShrink: 0}}>Details:</span>
+                    <span style={{color:'#38bdf8', overflow: 'hidden', textOverflow: 'ellipsis'}}>
+                        {query}
+                    </span>
                 </h1>
                 <button 
                     className="export-btn"
@@ -1371,7 +1465,7 @@ function DetailPage() {
             <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '2rem'}}>
                 <div className="card" style={cardStyle}>
                     <h3 style={chartTitleStyle}>
-                        Latency Trend (sec)
+                        时延趋势 (秒)
                         <CustomTooltip content="从请求发出到收到最终完整回复的总耗时" />
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
@@ -1386,7 +1480,7 @@ function DetailPage() {
                 </div>
                 <div className="card" style={cardStyle}>
                     <h3 style={chartTitleStyle}>
-                        Token Usage Trend
+                        Token 消耗趋势
                         <CustomTooltip content="输入 Prompt 与输出 Completion 的 Token 总和" />
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
@@ -1401,7 +1495,7 @@ function DetailPage() {
                 </div>
                 <div className="card" style={cardStyle}>
                     <h3 style={chartTitleStyle}>
-                        Accuracy Trend (0-1)
+                        准确率趋势 (0-1)
                         <CustomTooltip content="基于 AI 裁判 (LLM) 对执行结果的自动评分 (1.0=通过, 0.0=失败)" />
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
@@ -1420,12 +1514,12 @@ function DetailPage() {
             {(compareDimData.latency.length > 0) && (
                 <div style={{marginBottom: '2rem'}}>
                     <h2 style={{fontSize: '1.25rem', marginBottom: '1rem'}}>
-                        Comparison by {comparisonDim === 'label' ? 'Label' : 'Model'} (Averages)
+                        按 {comparisonDim === 'label' ? '标签 (Label)' : '模型 (Model)'} 对比 (平均值)
                     </h2>
                     <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem'}}>
                         <div className="card" style={cardStyle}>
                             <h3 style={chartTitleStyle}>
-                                Latency by {comparisonDim === 'label' ? 'Label' : 'Model'}
+                                平均时延 - {comparisonDim === 'label' ? '标签' : '模型'}
                                 <CustomTooltip content="平均延迟时间" />
                             </h3>
                             <ResponsiveContainer width="100%" height={200}>
@@ -1440,7 +1534,7 @@ function DetailPage() {
                         </div>
                         <div className="card" style={cardStyle}>
                             <h3 style={chartTitleStyle}>
-                                Token Usage by {comparisonDim === 'label' ? 'Label' : 'Model'}
+                                平均 Token - {comparisonDim === 'label' ? '标签' : '模型'}
                                 <CustomTooltip content="平均 Token 使用量" />
                             </h3>
                             <ResponsiveContainer width="100%" height={200}>
@@ -1455,7 +1549,7 @@ function DetailPage() {
                         </div>
                         <div className="card" style={cardStyle}>
                             <h3 style={chartTitleStyle}>
-                                Accuracy by {comparisonDim === 'label' ? 'Label' : 'Model'}
+                                平均准确率 - {comparisonDim === 'label' ? '标签' : '模型'}
                                 <CustomTooltip content="平均准确率 (0-1)" />
                             </h3>
                             <ResponsiveContainer width="100%" height={200}>
@@ -1626,17 +1720,118 @@ function DetailPage() {
                                             {/* 2. Final Result */}
                                             <div style={{marginBottom: '1.5rem'}}>
                                                 <h4 style={sectionHeader}>Final Result</h4>
-                                                <div style={{
-                                                    ...codeBlock,
-                                                    maxHeight: '300px',
-                                                    overflowY: 'auto',
-                                                    padding: '1rem',
-                                                    background: '#1e293b', 
-                                                    border: '1px solid #334155',
-                                                    borderRadius: '6px'
-                                                }}>
-                                                    {item.final_result || '(No Result)'}
-                                                </div>
+                                                
+                                                {editingResultFor === taskId ? (
+                                                    <div style={{marginTop: '0.5rem'}}>
+                                                        <textarea
+                                                            value={editResultValue}
+                                                            onChange={(e) => setEditResultValue(e.target.value)}
+                                                            rows={6}
+                                                            style={{
+                                                                width: '100%',
+                                                                padding: '0.75rem',
+                                                                background: '#1e293b',
+                                                                border: '1px solid #334155',
+                                                                borderRadius: '6px',
+                                                                color: '#e2e8f0',
+                                                                fontFamily: 'monospace',
+                                                                fontSize: '0.9rem',
+                                                                resize: 'vertical'
+                                                            }}
+                                                            placeholder="输入或上传 Final Result"
+                                                        />
+                                                        <div style={{display: 'flex', gap: '0.5rem', marginTop: '0.5rem', alignItems: 'center'}}>
+                                                            <button
+                                                                onClick={() => saveFinalResult(taskId, item.upload_id)}
+                                                                disabled={resultSaveStatus?.id === taskId && resultSaveStatus?.status === 'saving'}
+                                                                style={{
+                                                                    padding: '6px 14px',
+                                                                    background: '#38bdf8',
+                                                                    color: '#0f172a',
+                                                                    border: 'none',
+                                                                    borderRadius: '4px',
+                                                                    cursor: resultSaveStatus?.id === taskId && resultSaveStatus?.status === 'saving' ? 'not-allowed' : 'pointer',
+                                                                    fontWeight: 'bold'
+                                                                }}
+                                                            >
+                                                                {resultSaveStatus?.id === taskId && resultSaveStatus?.status === 'saving' ? '保存中...' : '保存并重评'}
+                                                            </button>
+                                                            <button
+                                                                onClick={cancelEditResult}
+                                                                style={{
+                                                                    padding: '6px 14px',
+                                                                    background: '#334155',
+                                                                    color: '#94a3b8',
+                                                                    border: 'none',
+                                                                    borderRadius: '4px',
+                                                                    cursor: 'pointer'
+                                                                }}
+                                                            >
+                                                                取消
+                                                            </button>
+                                                            <label style={{
+                                                                padding: '6px 14px',
+                                                                background: '#2d3748',
+                                                                color: '#fbbf24',
+                                                                border: '1px solid #fbbf24',
+                                                                borderRadius: '4px',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '4px',
+                                                                fontSize: '0.85rem'
+                                                            }}>
+                                                                📄 上传报告
+                                                                <input 
+                                                                    type="file" 
+                                                                    accept=".md,.txt,.pdf,.markdown" 
+                                                                    style={{display: 'none'}} 
+                                                                    onChange={handleUploadResult}
+                                                                />
+                                                            </label>
+
+                                                            {resultSaveStatus?.id === taskId && resultSaveStatus?.status === 'ok' && (
+                                                                <span style={{color: '#4ade80', fontSize: '0.9rem'}}>{resultSaveStatus.msg}</span>
+                                                            )}
+                                                            {resultSaveStatus?.id === taskId && resultSaveStatus?.status === 'error' && (
+                                                                <span style={{color: '#f87171', fontSize: '0.9rem'}}>{resultSaveStatus.msg}</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div>
+                                                        <div style={{
+                                                            ...codeBlock,
+                                                            maxHeight: '300px',
+                                                            overflowY: 'auto',
+                                                            padding: '1rem',
+                                                            background: '#1e293b', 
+                                                            border: '1px solid #334155',
+                                                            borderRadius: '6px'
+                                                        }}>
+                                                            {item.final_result || '(No Result)'}
+                                                        </div>
+                                                        <div style={{marginTop: '0.5rem'}}>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); startEditResult(taskId, item.final_result || ''); }}
+                                                                style={{
+                                                                    padding: '4px 10px',
+                                                                    background: 'transparent',
+                                                                    color: '#38bdf8',
+                                                                    border: '1px solid #38bdf8',
+                                                                    borderRadius: '4px',
+                                                                    cursor: 'pointer',
+                                                                    display: 'inline-flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '4px',
+                                                                    fontSize: '0.8rem'
+                                                                }}
+                                                            >
+                                                                ✏️ 编辑 / 替换结果
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             {/* 3. Judgment Reason */}
