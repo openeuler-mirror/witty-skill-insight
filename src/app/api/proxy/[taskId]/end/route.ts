@@ -1,7 +1,7 @@
 
 import { readConfig, saveExecutionRecord } from '@/lib/data-service';
 import { analyzeFailures, analyzeSession, judgeAnswer } from '@/lib/judge';
-import { prisma } from '@/lib/prisma';
+import { db, prisma } from '@/lib/prisma';
 import { endSession } from '@/lib/proxy-store';
 import { getActiveConfig } from '@/lib/server-config';
 import { NextResponse } from 'next/server';
@@ -15,7 +15,6 @@ function getBaseUrl(taskId: string): string {
   return 'https://api.deepseek.com';
 }
 
-/** 从模型回复中解析出 skill 名称列表，支持 JSON 数组或每行一个 */
 function parseSkillsFromModelResponse(content: string): string[] {
   if (!content || typeof content !== 'string') return [];
   const raw = content.trim();
@@ -32,14 +31,12 @@ function parseSkillsFromModelResponse(content: string): string[] {
   const normalized = list
     .filter((s) => s != null && String(s).trim() !== '')
     .map((s) => String(s).trim().replace(/^['"]+|['"]+$/g, ''));
-  // 仅保留符合 skill name 格式的项（字母数字、下划线、连字符、点）
   const skillNamePattern = /^[a-zA-Z0-9_\-\.]+$/;
   return normalized.filter((s) => skillNamePattern.test(s));
 }
 
 const SKILLS_FETCH_TIMEOUT_MS = 25_000;
 
-/** Witty 无交互：从会话中提取 tool_name === "load_skill" 的 tool call，从 args 取 skill_name，去重为 skills 列表 */
 function extractSkillsFromWittySession(session: {
   interactions: { toolCalls?: any[]; responseMessage?: { tool_calls?: any[] } }[];
 }): string[] {
@@ -68,14 +65,12 @@ function extractSkillsFromWittySession(session: {
           }
         }
       } catch {
-        // ignore malformed args
       }
     }
   }
   return skills;
 }
 
-/** OpenEncode：从会话中提取 function.name === "skill" 的 tool call，从 arguments 的 name 取 skill 名，去重为 skills 列表 */
 function extractSkillsFromOpencodeSession(session: {
   interactions: { toolCalls?: any[]; responseMessage?: { tool_calls?: any[] } }[];
 }): string[] {
@@ -104,14 +99,12 @@ function extractSkillsFromOpencodeSession(session: {
           }
         }
       } catch {
-        // ignore malformed args
       }
     }
   }
   return skills;
 }
 
-/** 从单条消息的 content（数组）中收集 type=tool_use、name=Skill 的 input.skill，去重写入 seen 与 skills */
 function collectSkillToolUseFromContent(
   content: unknown,
   seen: Set<string>,
@@ -132,8 +125,6 @@ function collectSkillToolUseFromContent(
   }
 }
 
-/** Claude：从会话中提取 type 为 tool_use、name 为 Skill 的 content 块，从 input.skill 取 skill 名，去重为 skills 列表（与 DeepAgent 处理方式一致）。
- *  兼顾两种存储：responseMessage.content 与 requestMessages 中 role=assistant 的 content（扁平对话） */
 function extractSkillsFromClaudeSession(session: {
   interactions: {
     requestMessages?: { role?: string; content?: unknown }[];
@@ -154,7 +145,6 @@ function extractSkillsFromClaudeSession(session: {
   return skills;
 }
 
-/** 从单条消息中提取纯文本（兼容 content 为 string 或 Anthropic 的 content 数组） */
 function messageContentToText(msg: { content?: string | { type?: string; text?: string }[] }): string {
   if (!msg?.content) return '';
   if (typeof msg.content === 'string') return msg.content;
@@ -166,14 +156,12 @@ function messageContentToText(msg: { content?: string | { type?: string; text?: 
     .trim();
 }
 
-/** 用完整会话历史 + 一条「提取 skills」的用户消息调用模型，得到 skills 列表 */
 async function fetchSkillsViaModel(
   taskId: string,
   interactions: { requestMessages: any[]; responseMessage: any }[]
 ): Promise<string[]> {
   if (!interactions.length) return [];
 
-  // 从所有 interactions 构建完整对话（OpenAI 格式：role + content 字符串），供模型从整段对话中推断激活的 skills
   const history: { role: 'user' | 'assistant' | 'system'; content: string }[] = [];
   for (const interaction of interactions) {
     const reqMsgs = interaction.requestMessages || [];
@@ -197,7 +185,6 @@ async function fetchSkillsViaModel(
     }
   }
 
-  // 若历史过长，只保留最后若干轮，避免超出上下文
   const maxTurns = 30;
   const trimmedHistory =
     history.length > maxTurns ? history.slice(-maxTurns) : history;
@@ -206,7 +193,6 @@ async function fetchSkillsViaModel(
   const baseUrl = getBaseUrl(taskId);
   const chatUrl = `${baseUrl}/v1/chat/completions`;
 
-  // 从界面配置获取 API Key（不再依赖环境变量）
   const activeConfig = await getActiveConfig();
   const apiKey = activeConfig?.apiKey;
   if (!apiKey) {
@@ -276,7 +262,6 @@ export async function POST(
     for (const interaction of session.interactions) {
       const usage = interaction.usage || interaction.responseMessage?.usage;
       if (usage) {
-        // Handle case where usage is a JSON string (sometimes happens with DB storage)
         let parsedUsage = usage;
         if (typeof usage === 'string') {
              try { parsedUsage = JSON.parse(usage); } catch(e) {}
@@ -284,9 +269,6 @@ export async function POST(
         
         const anyUsage = parsedUsage as any;
         const t = (anyUsage.total_tokens || anyUsage.total || 0);
-        
-        // Log found tokens for debug
-        // console.log(`[Proxy-End] Found tokens: ${t} in interaction`);
         
         totalTokens += Number(t);
       }
@@ -297,20 +279,15 @@ export async function POST(
 
     const analysis = await analyzeSession(session.interactions, session.user);
     
-    // If session doesn't have a query but we extracted one, update the session
     if (!session.query && analysis.query) {
         try {
-            await prisma.session.update({
-                where: { taskId },
-                data: { query: analysis.query }
-            });
+            await db.updateSession(taskId, { query: analysis.query });
             console.log(`[End] Updated session query for ${taskId}: ${analysis.query.substring(0, 50)}...`);
         } catch (e) {
             console.warn(`[End] Failed to update session query: ${e}`);
         }
     }
 
-    // 1. Extract Skills First
     const isWittyLike =
       framework === 'deepagent(langgraph)' ||
       framework === 'witty' ||
@@ -337,22 +314,11 @@ export async function POST(
 
     const primarySkillName = skills.length > 0 ? skills[0] : analysis.skill;
 
-    // 2. Fetch Skill Definition & SOP
     let skillDef = undefined;
     console.log(`[End] Primary skill name for ${taskId}: ${primarySkillName || '(none)'}`);
     if (primarySkillName) {
-         const skillRecord = await prisma.skill.findFirst({
-             where: { 
-                 name: primarySkillName,
-                 OR: [
-                     { user: session.user || null },
-                     { user: null },
-                     { visibility: 'public' }
-                 ]
-             },
-             include: { versions: { orderBy: { version: 'desc' }, take: 1 } }
-         });
-         if (skillRecord && skillRecord.versions.length > 0) {
+         const skillRecord = await db.findSkill(primarySkillName, session.user || null);
+         if (skillRecord && skillRecord.versions && skillRecord.versions.length > 0) {
              skillDef = skillRecord.versions[0].content;
              console.log(`[End] Skill definition found for ${primarySkillName}, length: ${skillDef?.length || 0}`);
          } else {
@@ -362,18 +328,14 @@ export async function POST(
          console.warn(`[End] No primarySkillName extracted. Attribution will be skipped.`);
     }
 
-    // 3. Judge Answer (Auto Evaluation)
     let evaluation = { is_skill_correct: false, is_answer_correct: false, answer_score: 0, judgment_reason: "Auto-eval skipped (missing query/result/skill)" };
     
-    // Normalize query/skill fields
     if (session.query) analysis.query = session.query;
     if (analysis.query) analysis.query = analysis.query.trim().replace(/^['"]+|['"]+$/g, '').trim();
     if (primarySkillName) analysis.skill = primarySkillName;
 
-    // Load Evaluation Config if matches
     let criteria: any = { skill_definition: skillDef };
     
-    // Try to find a matching config
     try {
         const configs = await readConfig(session.user);
         const cfg = configs.find(c => c.query && analysis.query && c.query.trim() === analysis.query.trim());
@@ -396,7 +358,6 @@ export async function POST(
         };
     }
 
-    // 4. Failure Analysis with Attribution
     console.log(`[End] Calling analyzeFailures: skillName=${primarySkillName || 'none'}, skillDef=${skillDef ? 'present' : 'absent'}, answerScore=${evaluation.answer_score}`);
     const failureAnalysis = await analyzeFailures(
         session.interactions, 
@@ -404,8 +365,8 @@ export async function POST(
         skillDef, 
         evaluation.answer_score,
         String(evaluation.judgment_reason || ""),
-        analysis.query,         // 新增: 用户问题
-        analysis.final_result,   // 新增: Agent 回答
+        analysis.query,
+        analysis.final_result,
         session.user
     );
     console.log(`[End] analyzeFailures result: ${failureAnalysis.failures.length} failures, ${failureAnalysis.skill_issues?.length || 0} skill issues`);
@@ -425,15 +386,14 @@ export async function POST(
       tokens: totalTokens,
       latency: duration,
       timestamp: new Date(session.startTime).toISOString(),
-      user: session.user, // Pass user 
+      user: session.user,
       failures: failureAnalysis.failures,
       
-      // Evaluation Results
       is_skill_correct: evaluation.is_skill_correct,
       is_answer_correct: evaluation.is_answer_correct,
       answer_score: evaluation.answer_score,
       judgment_reason: evaluation.judgment_reason,
-      force_judgment: false, // Already judged
+      force_judgment: false,
 
       ...body,
     });

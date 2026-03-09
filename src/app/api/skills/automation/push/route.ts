@@ -1,5 +1,5 @@
 
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/prisma';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
@@ -15,25 +15,16 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Missing user' }, { status: 400 });
         }
 
-        // 1. Find Skill
-        const skill = await prisma.skill.findFirst({
-            where: { 
-                name: name,
-                user: user
-            },
-            include: { versions: true }
-        });
+        const skill = await db.findSkill(name, user);
 
         if (!skill) {
             return NextResponse.json({ error: `Skill '${name}' for user '${user}' not found` }, { status: 404 });
         }
 
-        // 2. Determine Version
         let targetVersion = version;
 
         if (targetVersion === undefined || targetVersion === null) {
-            // Use latest if not specified
-            const sortedVersions = skill.versions.sort((a, b) => b.version - a.version);
+            const sortedVersions = (skill.versions || []).sort((a: any, b: any) => b.version - a.version);
             if (sortedVersions.length > 0) {
                 targetVersion = sortedVersions[0].version;
             } else {
@@ -41,19 +32,14 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Verify version exists
-        const versionRecord = skill.versions.find(v => v.version === targetVersion);
+        const versionRecord = (skill.versions || []).find((v: any) => v.version === targetVersion);
         if (!versionRecord) {
             return NextResponse.json({ error: `Version ${targetVersion} not found for skill '${name}'` }, { status: 404 });
         }
 
-        // 3. Update Status
-        const updated = await prisma.skill.update({
-            where: { id: skill.id },
-            data: {
-                activeVersion: targetVersion,
-                isUploaded: true
-            }
+        const updated = await db.updateSkill(skill.id, {
+            activeVersion: targetVersion,
+            isUploaded: true
         });
 
         return NextResponse.json({

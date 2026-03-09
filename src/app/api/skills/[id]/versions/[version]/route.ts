@@ -1,6 +1,6 @@
 
+import { db } from '@/lib/prisma';
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 
 export async function GET(
     request: NextRequest,
@@ -11,12 +11,8 @@ export async function GET(
 
         if (!version) return NextResponse.json({ error: 'Version ID required' }, { status: 400 });
 
-        const ver = await prisma.skillVersion.findFirst({
-            where: {
-                skillId: id,
-                version: parseInt(version, 10)
-            }
-        });
+        const skill = await db.findSkillById(id);
+        const ver = skill?.versions?.find((v: any) => v.version === parseInt(version, 10));
 
         if (!ver) {
             return NextResponse.json({ error: 'Version not found' }, { status: 404 });

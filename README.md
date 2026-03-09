@@ -104,6 +104,8 @@ npx witty-skill-insight start --port 3001
 # http://localhost:3000
 ```
 
+> **数据库配置**：默认使用 SQLite。如需使用 OpenGauss，请在启动前编辑 `.env` 文件配置 `DB_HOST` 等参数。
+
 **CLI 命令：**
 
 | 命令 | 说明 |
@@ -159,6 +161,11 @@ bash scripts/restart_dev.sh
 | 变量名               | 必填 | 说明                                                    |
 | :------------------- | :--- | :------------------------------------------------------ |
 | `DATABASE_URL`       | ✅   | SQLite 数据库路径，默认 `file:../data/witty_insight.db` |
+| `DB_HOST`            |      | OpenGauss 数据库地址（配置后使用 OpenGauss，否则使用 SQLite） |
+| `DB_PORT`            |      | OpenGauss 数据库端口 |
+| `DB_NAME`            |      | OpenGauss 数据库名称 |
+| `DB_USER`            |      | OpenGauss 数据库用户名 |
+| `DB_PASSWORD`        |      | OpenGauss 数据库密码 |
 
 > 💡 **LLM 判题配置**：启动看板后，在「Settings」页面配置评分用的模型和 API Key（支持 DeepSeek、OpenAI 等）。
 
@@ -271,6 +278,25 @@ opencode run "帮我分析下这个项目"
 # OpenCode 交互模式
 opencode
 # 会话结束退出后，数据会自动上报到看板
+```
+
+### 关闭数据上报
+
+如需关闭 OpenCode 数据上报功能，可通过以下两种方式：
+
+**方式一：删除插件文件**
+
+```bash
+rm ~/.opencode/plugins/Witty-Skill-Insight.ts
+```
+
+**方式二：删除 API Key**
+
+编辑 `~/.witty/.env` 文件，删除或注释掉 `WITTY_INSIGHT_API_KEY` 配置：
+
+```bash
+# 删除或注释此行
+# WITTY_INSIGHT_API_KEY=sk-xxxx-xxxx
 ```
 
 ---

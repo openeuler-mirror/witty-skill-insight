@@ -1,12 +1,8 @@
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * GET /api/config/status?id=xxx
- * 查询指定 config 条目的解析状态及最新数据
- */
 export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
@@ -16,9 +12,7 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Missing id parameter' }, { status: 400 });
         }
 
-        const config = await prisma.config.findUnique({
-            where: { id }
-        });
+        const config = await db.findConfigById(id);
 
         if (!config) {
             return NextResponse.json({ error: 'Config not found' }, { status: 404 });

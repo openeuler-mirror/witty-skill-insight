@@ -1,5 +1,5 @@
 import { analyzeSession } from '@/lib/judge';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
@@ -11,9 +11,7 @@ export async function GET(request: Request) {
     }
 
     try {
-        const session = await prisma.session.findUnique({
-            where: { taskId: taskId }
-        });
+        const session = await db.findSessionByTaskId(taskId);
 
         if (!session) {
             return NextResponse.json({ error: 'Session not found' }, { status: 404 });
@@ -24,15 +22,10 @@ export async function GET(request: Request) {
         let query = session.query;
         if (!query && interactions.length > 0) {
             try {
-                // Background extraction if missing
                 const analysis = await analyzeSession(interactions, session.user);
                 if (analysis.query) {
                     query = analysis.query;
-                    // Async update DB
-                    prisma.session.update({
-                        where: { id: session.id },
-                        data: { query }
-                    }).catch(console.error);
+                    db.updateSession(taskId, { query }).catch(console.error);
                 }
             } catch (e) {
                 console.warn('Failed to extract query on the fly', e);

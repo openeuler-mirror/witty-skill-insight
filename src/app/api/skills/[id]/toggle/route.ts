@@ -1,9 +1,8 @@
 
 import { canAccessSkill, resolveUser } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/prisma';
 import { NextRequest, NextResponse } from 'next/server';
 
-// POST /api/skills/[id]/toggle
 export async function POST(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
@@ -17,10 +16,8 @@ export async function POST(
             return NextResponse.json({ error: 'isUploaded must be a boolean' }, { status: 400 });
         }
 
-        // 用户身份解析
         const { username } = await resolveUser(request, explicitUser);
 
-        // 权限校验
         const { allowed, skill } = await canAccessSkill(id, username);
         if (!skill) {
             return NextResponse.json({ error: 'Skill not found' }, { status: 404 });
@@ -29,10 +26,7 @@ export async function POST(
             return NextResponse.json({ error: 'Unauthorized: You do not own this skill' }, { status: 403 });
         }
 
-        const updatedSkill = await prisma.skill.update({
-            where: { id },
-            data: { isUploaded }
-        });
+        const updatedSkill = await db.updateSkill(id, { isUploaded });
 
         return NextResponse.json({ success: true, skill: updatedSkill });
     } catch (error) {

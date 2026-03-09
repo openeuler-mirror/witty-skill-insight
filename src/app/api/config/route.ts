@@ -1,5 +1,5 @@
 import { readConfig } from '@/lib/data-service';
-import { prisma } from '@/lib/prisma';
+import { db, prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +20,6 @@ export async function POST(request: Request) {
   try {
     const { configs: newConfig, user } = await request.json();
     
-    // Basic validation
     if (!Array.isArray(newConfig)) {
        return NextResponse.json({ error: 'Invalid config format, expected array' }, { status: 400 });
     }
@@ -29,30 +28,65 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'User is required for scoped config' }, { status: 400 });
     }
 
-    // Transaction: Delete all for THIS user AND legacy orphans, then create
-    await prisma.$transaction(async (tx) => {
-        await tx.config.deleteMany({ 
-            where: { 
-                OR: [
-                    { user: user },
-                    { user: null }
-                ]
-            } as any
-        });
+    const client = db.getClient();
+    
+    if ('query' in client) {
+        const pgClient = client as any;
         
-        for (const item of newConfig) {
-             const data: any = {
-                 query: item.query,
-                 skill: item.skill || '',
-                 standardAnswer: item.standard_answer || '',
-                 rootCauses: item.root_causes ? JSON.stringify(item.root_causes) : null,
-                 keyActions: item.key_actions ? JSON.stringify(item.key_actions) : null,
-                 user: user,
-                 parseStatus: item.parse_status || 'completed'
-             };
-             await tx.config.create({ data });
+        await pgClient.query('BEGIN');
+        try {
+            await pgClient.query(
+                `DELETE FROM "Config" WHERE "user" = $1 OR "user" IS NULL`,
+                [user]
+            );
+            
+            for (const item of newConfig) {
+                const id = require('uuid').v4();
+                await pgClient.query(
+                    `INSERT INTO "Config" (id, query, skill, "standardAnswer", "rootCauses", "keyActions", "user", "parseStatus") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                    [
+                        id,
+                        item.query,
+                        item.skill || '',
+                        item.standard_answer || '',
+                        item.root_causes ? JSON.stringify(item.root_causes) : null,
+                        item.key_actions ? JSON.stringify(item.key_actions) : null,
+                        user,
+                        item.parse_status || 'completed'
+                    ]
+                );
+            }
+            
+            await pgClient.query('COMMIT');
+        } catch (e) {
+            await pgClient.query('ROLLBACK');
+            throw e;
         }
-    });
+    } else {
+        await (prisma as any).$transaction(async (tx: any) => {
+            await tx.config.deleteMany({ 
+                where: { 
+                    OR: [
+                        { user: user },
+                        { user: null }
+                    ]
+                }
+            });
+            
+            for (const item of newConfig) {
+                 const data: any = {
+                     query: item.query,
+                     skill: item.skill || '',
+                     standardAnswer: item.standard_answer || '',
+                     rootCauses: item.root_causes ? JSON.stringify(item.root_causes) : null,
+                     keyActions: item.key_actions ? JSON.stringify(item.key_actions) : null,
+                     user: user,
+                     parseStatus: item.parse_status || 'completed'
+                 };
+                 await tx.config.create({ data });
+            }
+        });
+    }
 
     return NextResponse.json({ success: true, message: 'Config saved' });
   } catch (error) {

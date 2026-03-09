@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { spawn } = require('child_process')
+const { spawn, execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
@@ -83,6 +83,44 @@ async function run(options) {
   const dbPath = path.join(PACKAGE_ROOT, 'data', 'witty_insight.db')
   process.env.DATABASE_URL = `file:${dbPath}`
   
+  const envPath = path.join(PACKAGE_ROOT, '.env')
+  const fileEnv = loadEnvFile(envPath)
+  
+  if (fileEnv.DB_HOST) {
+    console.log('OpenGauss configuration detected (DB_HOST=' + fileEnv.DB_HOST + ')')
+    console.log('Initializing OpenGauss database with project schema...')
+    
+    try {
+      execSync('python3 -c "import psycopg2"', { stdio: 'pipe' })
+    } catch (e) {
+      console.log('psycopg2 not found. Installing psycopg2-binary...')
+      try {
+        execSync('pip3 install psycopg2-binary', { stdio: 'inherit' })
+      } catch (pipError) {
+        console.log('Warning: Could not install psycopg2-binary. OpenGauss init may fail.')
+      }
+    }
+    
+    const initScript = path.join(PACKAGE_ROOT, 'scripts', 'init_opengauss.py')
+    if (fs.existsSync(initScript)) {
+      try {
+        const initEnv = { ...process.env, ...fileEnv }
+        execSync('python3 "' + initScript + '"', { 
+          stdio: 'inherit', 
+          cwd: PACKAGE_ROOT,
+          env: initEnv
+        })
+        console.log('✓ OpenGauss initialized successfully')
+      } catch (initError) {
+        console.error('Warning: OpenGauss initialization failed:', initError.message)
+        console.error('You may need to run it manually: python3 scripts/init_opengauss.py')
+      }
+    } else {
+      console.log('Warning: init_opengauss.py not found, skipping OpenGauss init')
+    }
+    console.log()
+  }
+  
   try {
     console.log('Syncing database schema...')
     await runCommand('npx prisma db push', { cwd: PACKAGE_ROOT })
@@ -106,8 +144,6 @@ async function run(options) {
   console.log(`Starting server on port ${port}...`)
   
   const logPath = path.join(PACKAGE_ROOT, 'server.log')
-  const envPath = path.join(PACKAGE_ROOT, '.env')
-  const fileEnv = loadEnvFile(envPath)
   const env = { 
     ...process.env, 
     ...fileEnv, 

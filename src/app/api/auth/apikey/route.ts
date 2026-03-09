@@ -1,5 +1,5 @@
 
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/prisma';
 import crypto from 'crypto';
 import { NextResponse } from 'next/server';
 
@@ -20,27 +20,22 @@ export async function POST(request: Request) {
     }
     
     // Find existing user
-    let user = await prisma.user.findUnique({
-      where: { username: cleanUsername }
-    });
+    let user = await db.findUserByUsername(cleanUsername);
 
     // If not found, create new user with API Key
     if (!user) {
       const apiKey = `sk-${crypto.randomBytes(16).toString('hex')}`;
       try {
-          user = await prisma.user.create({
-            data: {
+          user = await db.createUser({
               username: cleanUsername,
               apiKey
-            }
           });
       } catch (e: any) {
           // Handle race condition where user might be created between findUnique and create
           // P2002 is Prisma unique constraint violation code
-          if (e.code === 'P2002') {
-              user = await prisma.user.findUnique({
-                  where: { username: cleanUsername }
-              });
+          // Postgres duplicate key error is 23505
+          if (e.code === 'P2002' || (e.code === '23505' && (e.constraint?.includes('User_username_key') || e.detail?.includes('username')))) {
+              user = await db.findUserByUsername(cleanUsername);
           } else {
               throw e;
           }
@@ -52,12 +47,11 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ 
-        username: user.username, 
-        apiKey: user.apiKey 
+      apiKey: user.apiKey,
+      username: user.username
     });
-
   } catch (error) {
     console.error('API Key generation error:', error);
-    return NextResponse.json({ error: 'Failed to generate API Key', details: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

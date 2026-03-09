@@ -2,12 +2,11 @@
 import fs from 'fs';
 import path from 'path';
 import { judgeAnswer } from './judge';
-import { prisma } from './prisma';
+import { db, prisma } from './prisma';
 
-// Data Types
 export interface ExecutionRecord {
   upload_id?: string;
-  task_id?: string; // Add task_id alias
+  task_id?: string;
   query?: string;
   framework?: string;
   tokens?: number;
@@ -16,10 +15,8 @@ export interface ExecutionRecord {
   timestamp?: string | Date;
   final_result?: string;
   skill?: string;
-  /** 通过「模仿用户发 query 提取」得到的激活 skills 列表 */
   skills?: string[];
 
-  // Judgment fields
   is_skill_correct?: boolean;
   is_answer_correct?: boolean;
   answer_score?: number | null;
@@ -34,7 +31,6 @@ export interface ExecutionRecord {
       attribution_reason?: string;
   }[];
 
-  // Allow other fields
   skill_score?: number | null;
   skill_issues?: any[] | null; 
   skill_version?: number | null;
@@ -66,12 +62,9 @@ export async function readRecords(user?: string): Promise<ExecutionRecord[]> {
     ];
   }
 
-  const records = await prisma.execution.findMany({
-    where,
-    orderBy: { timestamp: 'desc' }
-  });
+  const records = await db.findExecutions(where, { timestamp: 'desc' });
 
-  return records.map(r => ({
+  return records.map((r: any) => ({
     ...r,
     upload_id: r.id,
     task_id: r.taskId || undefined,
@@ -80,7 +73,7 @@ export async function readRecords(user?: string): Promise<ExecutionRecord[]> {
     tokens: r.tokens || undefined,
     cost: r.cost || undefined,
     latency: r.latency || undefined,
-    timestamp: r.timestamp.toISOString(),
+    timestamp: r.timestamp?.toISOString?.() || r.timestamp,
     final_result: r.finalResult || undefined,
     skill: r.skill || undefined,
     skills: r.skills ? JSON.parse(r.skills) : undefined,
@@ -108,11 +101,8 @@ export async function readConfig(user?: string | null): Promise<ConfigItem[]> {
     ];
   }
   
-  const configs = await prisma.config.findMany({
-    where,
-    orderBy: { id: 'desc' }
-  });
-  return configs.map(c => {
+  const configs = await db.findConfigs(where);
+  return configs.map((c: any) => {
     let parse = (s: string | null) => {
         if (!s) return undefined;
         try { return JSON.parse(s); } catch (e) { return undefined; }
@@ -139,14 +129,11 @@ export function readEvaluationResults(): Record<string, string> {
 }
 
 export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ success: boolean; record: ExecutionRecord }> {
-  // Identify record by upload_id OR task_id
   const id = data.upload_id || data.task_id;
-  // Use provided ID or fallback to randomly generated one if creating new
   const recordId = id || crypto.randomUUID(); 
   
-  // Try to find existing record first to merge
   let existingRecord: ExecutionRecord | null = null;
-  const dbRecord = await prisma.execution.findUnique({ where: { id: recordId } });
+  const dbRecord = await db.findExecutionById(recordId);
   
   if (dbRecord) {
      existingRecord = {
@@ -158,7 +145,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
         tokens: dbRecord.tokens || undefined,
         cost: dbRecord.cost || undefined,
         latency: dbRecord.latency || undefined,
-        timestamp: dbRecord.timestamp.toISOString(),
+        timestamp: dbRecord.timestamp?.toISOString?.() || dbRecord.timestamp,
         final_result: dbRecord.finalResult || undefined,
         skill: dbRecord.skill || undefined,
         skills: dbRecord.skills ? JSON.parse(dbRecord.skills) : undefined,
@@ -179,7 +166,6 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
   let targetRecord: ExecutionRecord = existingRecord ? { ...existingRecord } : {};
   const isUpdate = !!existingRecord;
 
-  // Merge Data
   if (!isUpdate && !targetRecord.timestamp && !data.timestamp) {
     targetRecord.timestamp = new Date().toISOString();
   } else if (data.timestamp) {
@@ -187,14 +173,12 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
   }
   
   targetRecord = { ...targetRecord, ...data };
-  // Ensure IDs are consistent
   if (!targetRecord.upload_id && targetRecord.task_id) targetRecord.upload_id = targetRecord.task_id;
   if (!targetRecord.task_id && targetRecord.upload_id) targetRecord.task_id = targetRecord.upload_id;
-  targetRecord.upload_id = recordId; // Ensure primary ID is set
+  targetRecord.upload_id = recordId;
 
-  // Attempt to fetch label/model/user from session if missing (Try DB first)
   if ((!targetRecord.label || !targetRecord.model || !targetRecord.user) && targetRecord.task_id) {
-       const session = await prisma.session.findUnique({ where: { taskId: targetRecord.task_id }});
+       const session = await db.findSessionByTaskId(targetRecord.task_id);
        if (session) {
            if (!targetRecord.label && session.label) targetRecord.label = session.label;
            if (!targetRecord.model && session.model) targetRecord.model = session.model;
@@ -202,37 +186,35 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
        }
   }
 
-  // Final fallback for missing user: check if there is any user
   if (!targetRecord.user) {
-      const anyUser = await prisma.user.findFirst({
-        select: { username: true }
-      });
-      if (anyUser) {
-          targetRecord.user = anyUser.username;
-          console.log(`[Data-Service] Fallback resolved user for task ${targetRecord.task_id} to: ${targetRecord.user}`);
+      try {
+          const client = db.getClient();
+          if ('query' in client) {
+              const res = await (client as any).query('SELECT username FROM "User" LIMIT 1');
+              if (res.rows[0]) {
+                  targetRecord.user = res.rows[0].username;
+                  console.log(`[Data-Service] Fallback resolved user for task ${targetRecord.task_id} to: ${targetRecord.user}`);
+              }
+          }
+      } catch (e) {
+          console.warn('[Data-Service] Fallback user lookup failed:', e);
       }
   }
 
-  // Normalize Tokens
   const incomingTokens = data.Token || data.token || data.tokens;
   if (incomingTokens !== undefined) targetRecord.tokens = Number(incomingTokens);
 
-  // 无匹配配置时的固定提示（便于前端判断并展示）
   const NO_MATCH_REASON = '未找到匹配的评测配置，分数已归零';
 
-  // Judgment Logic
   let isSkillCorrect = targetRecord.is_skill_correct || false;
   let isAnswerCorrect = targetRecord.is_answer_correct || false;
   let judgmentReason = targetRecord.judgment_reason || NO_MATCH_REASON;
 
-  // Try to find config
   const configs = await readConfig(targetRecord.user);
-  // Match by query (仅完全一致)
   if (targetRecord.query && configs.length > 0) {
       const matchedConfig = configs.find(c => c.query.trim() === targetRecord.query?.trim());
       
       if (matchedConfig) {
-          // Check Skill：仅用 skills 列表
           const expectedSkill = (matchedConfig.skill || '').trim();
           if (targetRecord.skills !== undefined && Array.isArray(targetRecord.skills)) {
               isSkillCorrect = targetRecord.skills.some(
@@ -240,50 +222,33 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
               );
           }
 
-          // Check Answer
           if (targetRecord.final_result !== undefined) {
                let needsJudgment = true;
                
                if (isUpdate && !data.force_judgment) {
-                   // If Query and Result match the old record, assume no need to re-judge
                    if (existingRecord && existingRecord.query === targetRecord.query && existingRecord.final_result === targetRecord.final_result) {
                        needsJudgment = false;
                    }
                }
 
-               // Re-judge if new result or explicitly requested, AND evaluation is not disabled
                if (needsJudgment && !targetRecord.skip_evaluation) {
-                    // 1. Fetch Skill Definition if valid skill name exists
                     let skillDefinition: string | undefined = undefined;
                     const skillName = (targetRecord.skill || matchedConfig.skill || '').trim();
 
                     if (skillName) {
                         try {
-                            const skill = await prisma.skill.findFirst({ 
-                                where: { 
-                                    name: skillName,
-                                    OR: [
-                                        { user: targetRecord.user || null },
-                                        { user: null }
-                                    ]
-                                } as any
-                            });
+                            const skill = await db.findSkill(skillName, targetRecord.user || null);
                             if (skill) {
                                 const targetVersion = skill.activeVersion || 0;
-                                const sv = await prisma.skillVersion.findFirst({
-                                    where: { skillId: skill.id, version: targetVersion }
-                                });
+                                const sv = skill.versions?.find((v: any) => v.version === targetVersion);
                                 if (sv && sv.content) {
                                     skillDefinition = sv.content;
-                                    targetRecord.skill_version = sv.version; // Capture version
-                                } else {
-                                    const latestSv = await prisma.skillVersion.findFirst({
-                                        where: { skillId: skill.id },
-                                        orderBy: { version: 'desc' }
-                                    });
+                                    targetRecord.skill_version = sv.version;
+                                } else if (skill.versions && skill.versions.length > 0) {
+                                    const latestSv = skill.versions[0];
                                     if (latestSv && latestSv.content) {
                                         skillDefinition = latestSv.content;
-                                        targetRecord.skill_version = latestSv.version; // Capture inferred version
+                                        targetRecord.skill_version = latestSv.version;
                                     }
                                 }
                             }
@@ -309,9 +274,6 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                }
           }
       } else {
-          // No matched config found for this query
-          // IMPORTANT: If this is an update and we already have a score, don't wipe it out 
-          // unless user specifically requested a re-judgment.
           if ((!isUpdate || data.force_judgment) && !targetRecord.answer_score) {
               isAnswerCorrect = false;
               judgmentReason = NO_MATCH_REASON;
@@ -335,7 +297,6 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
   targetRecord.is_answer_correct = isAnswerCorrect;
   targetRecord.judgment_reason = judgmentReason;
 
-  // Skill Score Lookup
   const skillForScore = Array.isArray(targetRecord.skills) && targetRecord.skills.length > 0 ? targetRecord.skills[0] : undefined;
   if (skillForScore) {
       const evalResults = readEvaluationResults();
@@ -343,10 +304,10 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
       if (scoreStr) targetRecord.skill_score = parseFloat(scoreStr);
   }
 
-  // Write Back to DB
-  await prisma.execution.upsert({
+  await db.upsertExecution({
       where: { id: recordId },
-      update: {
+      create: {
+          id: recordId,
           taskId: targetRecord.task_id,
           query: targetRecord.query,
           framework: targetRecord.framework,
@@ -369,8 +330,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
           skillVersion: targetRecord.skill_version,
           model: targetRecord.model
       },
-      create: {
-          id: recordId,
+      update: {
           taskId: targetRecord.task_id,
           query: targetRecord.query,
           framework: targetRecord.framework,
@@ -395,28 +355,26 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
       }
   });
   
-  // Also sync with Session table if interactions are provided
   if (targetRecord.task_id && targetRecord.interactions) {
-      await prisma.session.upsert({
-          where: { taskId: targetRecord.task_id },
-          update: {
-              query: targetRecord.query,
-              label: targetRecord.label,
-              user: targetRecord.user,
-              model: targetRecord.model,
-              interactions: typeof targetRecord.interactions === 'string' ? targetRecord.interactions : JSON.stringify(targetRecord.interactions)
-          },
-          create: {
+      await db.upsertSession(
+          targetRecord.task_id,
+          {
               taskId: targetRecord.task_id,
               query: targetRecord.query,
               label: targetRecord.label,
               user: targetRecord.user,
               model: targetRecord.model,
               interactions: typeof targetRecord.interactions === 'string' ? targetRecord.interactions : JSON.stringify(targetRecord.interactions)
+          },
+          {
+              query: targetRecord.query,
+              label: targetRecord.label,
+              user: targetRecord.user,
+              model: targetRecord.model,
+              interactions: typeof targetRecord.interactions === 'string' ? targetRecord.interactions : JSON.stringify(targetRecord.interactions)
           }
-      });
+      );
   }
 
   return { success: true, record: targetRecord };
 }
-

@@ -1,5 +1,5 @@
 import { readRecords, saveExecutionRecord } from '@/lib/data-service';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -26,32 +26,18 @@ export async function DELETE(request: Request) {
         
         let deleteCount = 0;
 
-        // Priority 1: Delete by ID (upload_id or task_id)
         if (target.upload_id) {
-            try {
-                await prisma.execution.delete({ where: { id: target.upload_id } });
-                deleteCount = 1;
-            } catch (e) {
-                // Ignore if not found
-            }
+            const success = await db.deleteExecution(target.upload_id);
+            deleteCount = success ? 1 : 0;
         } else if (target.task_id) {
-             // We don't have a unique index on task_id alone in schema strictly speaking (unless I added @unique, I didn't)
-             // But usually task_id is unique per run. 
-             // If schema didn't say @unique, we use deleteMany
-             const result = await prisma.execution.deleteMany({ where: { taskId: target.task_id } });
-             deleteCount = result.count;
+             deleteCount = await db.deleteExecutions({ taskId: target.task_id });
         } else {
-             // Priority 2: Composite Key Fallback
-             // Delete by timestamp + framework + query
              if (target.timestamp && target.framework && target.query) {
-                 const result = await prisma.execution.deleteMany({
-                     where: {
-                         timestamp: new Date(target.timestamp),
-                         framework: target.framework,
-                         query: target.query
-                     }
+                 deleteCount = await db.deleteExecutions({
+                     timestamp: new Date(target.timestamp),
+                     framework: target.framework,
+                     query: target.query
                  });
-                 deleteCount = result.count;
              }
         }
         
@@ -72,7 +58,6 @@ export async function PATCH(request: Request) {
             return NextResponse.json({ error: 'task_id or upload_id is required' }, { status: 400 });
         }
 
-        // 1. Handle User Feedback Update
         if (user_feedback !== undefined) {
             const result = await saveExecutionRecord({
                 task_id: task_id || undefined,
@@ -87,7 +72,6 @@ export async function PATCH(request: Request) {
             });
         }
 
-        // 2. Handle Label Update (NEW)
         if (newLabel !== undefined) {
             const result = await saveExecutionRecord({
                 task_id: task_id || undefined,
@@ -102,7 +86,6 @@ export async function PATCH(request: Request) {
             });
         }
 
-        // 3. Handle Query Update
         if (typeof newQuery === 'string') {
             if (!newQuery.trim()) {
                 return NextResponse.json({ error: 'query must be a non-empty string' }, { status: 400 });
@@ -122,7 +105,6 @@ export async function PATCH(request: Request) {
             });
         }
 
-        // 4. Handle Final Result Update
         if (typeof newFinalResult === 'string') {
             const result = await saveExecutionRecord({
                 task_id: task_id || undefined,

@@ -1,9 +1,8 @@
 
 import { saveExecutionRecord } from '@/lib/data-service';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
-// Helper to extract value from OTLP AnyValue
 function getValue(anyValue: any): any {
     if (!anyValue) return undefined;
     if (anyValue.stringValue !== undefined) return anyValue.stringValue;
@@ -25,21 +24,17 @@ function getValue(anyValue: any): any {
 
 export async function POST(req: Request) {
     try {
-        // --- 1. Authenticate User via Header (same as traces/route.ts) ---
         const apiKey = req.headers.get('x-witty-api-key');
         let authenticatedUser: string | undefined;
 
         if (apiKey) {
-            const userRecord = await prisma.user.findUnique({
-                where: { apiKey }
-            });
+            const userRecord = await db.findUserByApiKey(apiKey);
             if (userRecord) {
                 authenticatedUser = userRecord.username;
                 console.log(`[OTel Logs] Authenticated User: ${authenticatedUser}`);
             }
         }
 
-        // --- 2. Parse Body ---
         const contentType = req.headers.get('content-type') || '';
 
         if (!contentType.includes('application/json')) {
@@ -56,7 +51,6 @@ export async function POST(req: Request) {
 
         console.log(`[OTel Logs] Received ${body.resourceLogs.length} resourceLog(s)`);
 
-        // --- 3. Process Each ResourceLog ---
         for (const resourceLog of body.resourceLogs) {
             const resourceAttrs: any = {};
             if (resourceLog.resource?.attributes) {
@@ -78,11 +72,9 @@ export async function POST(req: Request) {
 
                     const eventName = attributes['event.name'] || record.body?.stringValue;
                     
-                    // Extract session and user from BOTH resource and record attributes
                     const sessionId = attributes['session.id'] || resourceAttrs['session.id'] || resourceAttrs['service.instance.id'];
                     const otelUserId = attributes['user.id'] || resourceAttrs['user.id'];
                     
-                    // Priority: Dashboard authenticated user > OTel user.id
                     const finalUser = authenticatedUser || otelUserId || 'anonymous';
 
                     console.log(`[OTel Logs] Event: ${eventName} | Session: ${sessionId} | User: ${finalUser}`);
@@ -92,7 +84,6 @@ export async function POST(req: Request) {
                         continue;
                     }
 
-                    // --- 4. Bridge to Execution Table ---
                     const framework = serviceName === 'cli-agent' || serviceName === 'claude-code' ? 'claudecode' : serviceName;
 
                     if (eventName === 'user_prompt') {
@@ -118,7 +109,7 @@ export async function POST(req: Request) {
                             task_id: sessionId,
                             model: attributes['model'],
                             tokens: totalTokens,
-                            latency: durationMs / 1000, // Convert ms to seconds
+                            latency: durationMs / 1000,
                             cost: costUsd,
                             framework: framework,
                             user: finalUser,

@@ -1,17 +1,15 @@
 
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/prisma';
 import fs from 'fs';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 
-// Helper: Ensure directory exists
 function ensureDir(dirPath: string) {
     if (!fs.existsSync(dirPath)) {
         fs.mkdirSync(dirPath, { recursive: true });
     }
 }
 
-// Copy directory content recursively
 function copyFolderSync(from: string, to: string, filesList: string[], rootTo: string) {
     if (!fs.existsSync(to)) {
         fs.mkdirSync(to, { recursive: true });
@@ -27,7 +25,6 @@ function copyFolderSync(from: string, to: string, filesList: string[], rootTo: s
             copyFolderSync(srcPath, destPath, filesList, rootTo);
         } else {
             fs.copyFileSync(srcPath, destPath);
-            // Store relative path from the Version root
             filesList.push(path.relative(rootTo, destPath));
         }
     }
@@ -55,7 +52,6 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'SKILL.md not found in path' }, { status: 400 });
         }
 
-        // 1. Read SKILL.md and Parse Info
         const skillContent = fs.readFileSync(skillMdPath, 'utf8');
         let extractedName = path.basename(localPath);
         let extractedDesc = 'Imported via automation';
@@ -72,62 +68,40 @@ export async function POST(request: NextRequest) {
             if (descMatch && descMatch[1]) extractedDesc = descMatch[1].trim();
         }
 
-        // 2. Check DB
-        // Use findFirst because prisma client might not have updated the unique type yet
-        let skill = await prisma.skill.findFirst({ 
-            where: { 
-                name: extractedName,
-                user: user
-            } 
-        });
+        let skill = await db.findSkill(extractedName, user);
         let nextVersionNum = 0;
 
         if (!skill) {
-            // Create New
-            skill = await prisma.skill.create({
-                data: {
-                    name: extractedName,
-                    user: user,
-                    description: extractedDesc,
-                    visibility: 'private',
-                    activeVersion: 0,
-                    isUploaded: false
-                }
+            skill = await db.createSkill({
+                name: extractedName,
+                user: user,
+                description: extractedDesc,
+                visibility: 'private',
+                activeVersion: 0,
+                isUploaded: false
             });
             nextVersionNum = 0;
         } else {
-            // Update Existing - Increment Version
-            const lastVersion = await prisma.skillVersion.findFirst({
-                where: { skillId: skill.id },
-                orderBy: { version: 'desc' }
-            });
+            const lastVersion = await db.findLatestSkillVersion(skill.id);
             nextVersionNum = lastVersion ? (lastVersion.version + 1) : 0;
         }
 
-        // 3. Storage Copy
         const storageBase = path.join(process.cwd(), 'data', 'storage', 'skills', skill.id, `v${nextVersionNum}`);
         ensureDir(storageBase);
 
         const savedFilesList: string[] = [];
         copyFolderSync(localPath, storageBase, savedFilesList, storageBase);
 
-        // 4. Create Version Record
-        const skillVersion = await prisma.skillVersion.create({
-            data: {
-                skillId: skill.id,
-                version: nextVersionNum,
-                content: skillContent,
-                assetPath: `data/storage/skills/${skill.id}/v${nextVersionNum}`,
-                files: JSON.stringify(savedFilesList),
-                changeLog: `Auto-imported version ${nextVersionNum}`
-            }
+        const skillVersion = await db.createSkillVersion({
+            skillId: skill.id,
+            version: nextVersionNum,
+            content: skillContent,
+            assetPath: `data/storage/skills/${skill.id}/v${nextVersionNum}`,
+            files: JSON.stringify(savedFilesList),
+            changeLog: `Auto-imported version ${nextVersionNum}`
         });
 
-        // 5. Update active version
-        await prisma.skill.update({
-            where: { id: skill.id },
-            data: { activeVersion: nextVersionNum }
-        });
+        await db.updateSkill(skill.id, { activeVersion: nextVersionNum });
 
         return NextResponse.json({
             success: true,

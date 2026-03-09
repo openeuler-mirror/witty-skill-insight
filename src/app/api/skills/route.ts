@@ -1,12 +1,11 @@
 import { resolveUser } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
+import { db, prisma } from '@/lib/prisma';
 import fs from 'fs';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
-// GET /api/skills
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -14,23 +13,11 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get('category');
     const userParam = searchParams.get('user');
     
-    // 用户身份解析：优先 user 查询参数，其次 apiKey
     const { username: user } = await resolveUser(request, userParam);
     
     const where: any = {};
     
-    // User Isolation: Only show my skills or public skills (optional logic)
-    // For now, let's strictly show only this user's skills if user is provided.
     if (user) {
-        // The provided code snippet for this block seems to be from a different context (e.g., a POST request for creating config items)
-        // and is syntactically incorrect for assigning to `where.OR` in a GET request's filtering logic.
-        // To make the file syntactically correct and based on the instruction to "Use 'any' casting to resolve property access and object literal errors",
-        // and assuming the intent was to modify the filtering logic, the original filtering logic is retained,
-        // but if the user intended to insert the provided `for...of` loop, it cannot be done here while maintaining syntax.
-        // If the intention was to replace the `where.OR` assignment with the provided loop, it would break the query.
-        // As the instruction is to make the resulting file syntactically correct, and the provided snippet is not valid
-        // for the `where.OR` assignment, the original `where.OR` assignment is kept.
-        // If the user intended to add the provided loop elsewhere or in a different context, please provide further clarification.
         where.OR = [
             { user: user },
             { user: null },
@@ -45,7 +32,6 @@ export async function GET(request: NextRequest) {
           { description: { contains: query } }
         ]
       };
-      // Merge with where
       if (where.OR) {
           where.AND = [
               { OR: where.OR },
@@ -61,34 +47,19 @@ export async function GET(request: NextRequest) {
       where.category = category;
     }
 
-    const skills = await prisma.skill.findMany({
-      where,
-      // orderBy: { updatedAt: 'desc' }, // Custom sort by v0 createdAt below
-      include: {
-        versions: {
-          orderBy: { version: 'desc' },
-          select: { version: true, createdAt: true, changeLog: true }
-        }
-      }
-    });
+    const skills = await db.findSkills(where);
 
-    // Sort by v0 creation time (Descending)
-    skills.sort((a, b) => {
-      const v0A = a.versions.find((v: any) => v.version === 0);
-      const v0B = b.versions.find((v: any) => v.version === 0);
+    skills.sort((a: any, b: any) => {
+      const v0A = a.versions?.find((v: any) => v.version === 0);
+      const v0B = b.versions?.find((v: any) => v.version === 0);
       const timeA = v0A ? new Date(v0A.createdAt).getTime() : 0;
       const timeB = v0B ? new Date(v0B.createdAt).getTime() : 0;
       return timeB - timeA;
     });
 
-    // Transform to match frontend expectation (partially)
     const response = skills.map((s: any) => {
-      // Find active version data
       const activeVerObj = s.versions?.find((v: any) => v.version === (s.activeVersion || 0));
-
-      // Use active version's changelog/time if available, else fallback to skill's generic info
       const displayDescription = activeVerObj?.changeLog || s.description;
-      // Use active version's createdAt, or fallback to skill updated at
       const displayTime = activeVerObj?.createdAt ? new Date(activeVerObj.createdAt).toISOString() : s.updatedAt.toISOString();
 
       return {
@@ -99,10 +70,9 @@ export async function GET(request: NextRequest) {
         tags: s.tags ? JSON.parse(s.tags) : [],
         author: s.author,
         updatedAt: displayTime,
-        version: s.activeVersion || 0, // Frontend shows this as 'Activated: vX'
+        version: s.activeVersion || 0,
         activeVersion: s.activeVersion || 0,
         visibility: s.visibility,
-        // Mock stats for now as we didn't migrate stats DB
         qualityScore: 0,
         usageCount: 0,
         successRate: 0,
@@ -122,7 +92,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// DELETE /api/skills
 export async function DELETE(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const id = searchParams.get('id');
@@ -130,27 +99,22 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
 
   try {
-    // 用户身份解析
     const { username: user } = await resolveUser(request, userParam);
     
-    // 1. Check if skill exists and belongs to user
-    const skill: any = await prisma.skill.findUnique({ where: { id } });
+    const skill = await db.findSkillById(id);
     if (!skill) return NextResponse.json({ error: 'Skill not found' }, { status: 404 });
     
     if (user && skill.user && skill.user !== user) {
         return NextResponse.json({ error: 'Unauthorized delete' }, { status: 403 });
     }
 
-    // 2. We assume standard path: data/storage/skills/{id}
     const storagePath = path.join(process.cwd(), 'data', 'storage', 'skills', id);
 
-    // 3. Delete files from storage
     if (fs.existsSync(storagePath)) {
       fs.rmSync(storagePath, { recursive: true, force: true });
     }
 
-    // 4. Delete from DB (Cascade deletes versions)
-    await prisma.skill.delete({ where: { id } });
+    await db.deleteSkill(id);
 
     return NextResponse.json({ success: true });
   } catch (e: any) {

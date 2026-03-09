@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { ClaudeParser } from './claude-parser';
 import { saveExecutionRecord } from './data-service';
-import { prisma } from './prisma';
+import { db } from './prisma';
 
 export class ClaudeLogWatcher {
   private parser: ClaudeParser;
@@ -80,9 +80,7 @@ export class ClaudeLogWatcher {
         const match = content.match(/WITTY_INSIGHT_API_KEY=(.*)/);
         if (match && match[1]) {
           const apiKey = match[1].trim();
-          const user = await prisma.user.findUnique({
-            where: { apiKey }
-          });
+          const user = await db.findUserByApiKey(apiKey);
           if (user) return user.username;
         }
       }

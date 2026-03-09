@@ -44,6 +44,35 @@ find_pid_on_port() {
 PORT=3000
 echo "Checking port $PORT..."
 
+# Check for OpenGauss configuration in .env
+if [ -f .env ]; then
+  # Load .env variables safely
+  set -a
+  source .env
+  set +a
+fi
+
+if [ -n "$DB_HOST" ]; then
+  echo "OpenGauss configuration detected (DB_HOST=$DB_HOST)."
+  echo "Initializing OpenGauss database with project schema..."
+  
+  # Ensure psycopg2 is installed
+  if ! python3 -c "import psycopg2" >/dev/null 2>&1; then
+    echo "psycopg2 not found. Installing psycopg2-binary..."
+    pip3 install psycopg2-binary
+  fi
+  
+  # Run the initialization script
+  python3 scripts/init_opengauss.py
+  if [ $? -ne 0 ]; then
+    echo "OpenGauss initialization failed! Aborting."
+    exit 1
+  fi
+  echo "OpenGauss initialized successfully."
+else
+  echo "No OpenGauss configuration (DB_HOST) found. Skipping OpenGauss init."
+fi
+
 # 1. Try finding PID specifically
 PIDS=$(find_pid_on_port $PORT)
 
