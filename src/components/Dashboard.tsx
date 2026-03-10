@@ -1892,11 +1892,11 @@ export default function Dashboard() {
                                          <td className="p-2" title={row.query}>{row.query.length > 30 ? row.query.substring(0, 30) + '...' : row.query}</td>
                                          <td className="p-2">{formatLatency(row.latency)}</td>
                                          <td className="p-2">{formatTokens(row.tokens)}</td>
-                                         <td className="p-2">
-                                             <span style={{ color: row.answer_score === null ? '#94a3b8' : ((row.answer_score || 0) > 0.8 ? '#4ade80' : '#ef4444'), fontWeight: 'bold' }}>
-                                                 {row.answer_score === null ? '评估中...' : (row.answer_score || 0).toFixed(2)}
-                                             </span>
-                                         </td>
+                                          <td className="p-2">
+                                              <span style={{ color: row.answer_score === null ? '#94a3b8' : ((row.answer_score || 0) > 0.8 ? '#4ade80' : '#ef4444'), fontWeight: 'bold' }}>
+                                                  {row.answer_score === null ? '--' : (row.answer_score || 0).toFixed(2)}
+                                              </span>
+                                          </td>
                                          <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{row.model || '-'}</td>
 
                                          <td className="p-2">
@@ -2522,7 +2522,7 @@ export default function Dashboard() {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem', marginBottom: '1.5rem' }}>
                                 <div className={`status-box ${selectedRecord.answer_score === null ? 'warning' : ((selectedRecord.answer_score || 0) > 0.8 ? 'good' : 'bad')}`}
                                      style={selectedRecord.answer_score === null ? { borderLeft: '4px solid #94a3b8', background: 'rgba(148, 163, 184, 0.1)', color: '#94a3b8' } : {}}>
-                                    <strong>回答评分:</strong> {selectedRecord.answer_score === null ? '评估中...' : (selectedRecord.answer_score || 0).toFixed(2)}
+                                    <strong>回答评分:</strong> {selectedRecord.answer_score === null ? '--' : (selectedRecord.answer_score || 0).toFixed(2)}
                                 </div>
                             </div>
 

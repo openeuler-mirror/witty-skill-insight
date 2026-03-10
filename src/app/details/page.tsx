@@ -1608,10 +1608,10 @@ function DetailPage() {
                                 <div>
                                     <span style={{
                                         padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold',
-                                        background: (item.answer_score||0) > 0.8 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)',
-                                        color: (item.answer_score||0) > 0.8 ? '#4ade80' : '#f87171'
+                                        background: item.answer_score === null ? 'rgba(148, 163, 184, 0.1)' : ((item.answer_score||0) > 0.8 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)'),
+                                        color: item.answer_score === null ? '#94a3b8' : ((item.answer_score||0) > 0.8 ? '#4ade80' : '#f87171')
                                     }}>
-                                        {(item.answer_score||0) > 0.8 ? 'PASS' : 'FAIL'}
+                                        {item.answer_score === null ? '--' : ((item.answer_score||0) > 0.8 ? 'PASS' : 'FAIL')}
                                     </span>
                                 </div>
                                 <div style={{fontSize: '0.9rem', color: '#cbd5e1'}}>
@@ -1619,7 +1619,7 @@ function DetailPage() {
                                 </div>
                                 <div>{item.latency ? (item.latency < 1 ? (item.latency*1000).toFixed(0)+'ms' : item.latency.toFixed(2)+'s') : '-'}</div>
                                 <div>{item.tokens}</div>
-                                <div style={{color: (item.answer_score||0)>0.8 ? '#4ade80' : '#f87171'}}>{item.answer_score?.toFixed(2)}</div>
+                                <div style={{color: item.answer_score === null ? '#94a3b8' : ((item.answer_score||0)>0.8 ? '#4ade80' : '#f87171')}}>{item.answer_score === null ? '--' : item.answer_score?.toFixed(2)}</div>
                                 <div style={{textAlign: 'center', color: '#94a3b8'}} className="expand-icon">
                                     {isExpanded ? '▲' : '▼'}
                                 </div>
