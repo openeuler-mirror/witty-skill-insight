@@ -155,6 +155,24 @@ LLM_BASE_URL=https://api.deepseek.com/v1
 **处理配置缺失**：
 如果验证失败（未找到任何 API Key），请询问用户提供配置（推荐 DeepSeek）。
 
+### 第3.5步：模型连通性测试
+
+在获取到模型配置后，先进行模型连通性测试：
+
+```bash
+python scripts/test_model_connectivity.py --env-file .env
+```
+*(如果从平台或命令行参数中直接获得了配置，也可通过 `--api-key="xxx" --base-url="xxx" --model="xxx"` 的方式传入)*
+
+如果测试通过，再进行后续任务。
+
+如果测试不通过，则停止生成，并要求与用户交互，提供下列选项：
+```
+Question: "模型连通性测试未通过，请重新配置以确保后续流程顺利进行："
+Options: "获取 DeepSeek 的 api_key", "获取符合 OpenAI 规范的 LLM 的 base_Url、api_key、model_name", "取消"
+```
+用户提供后，再次执行该脚本进行连通性测试，只有连通性测试通过，才可进行后续生成，确保后续不会有模型调用问题。
+
 ### 第4步：识别输入来源
 
 根据用户请求确定输入来源：

@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 const https = require('https');
+const readline = require('readline');
 
 // 1. Load configuration
 function loadConfiguration() {
@@ -59,9 +60,22 @@ async function main() {
         process.exit(1);
     }
     
-    if (!fs.existsSync(path.join(absPath, 'SKILL.md'))) {
+    const skillMdPath = path.join(absPath, 'SKILL.md');
+    if (!fs.existsSync(skillMdPath)) {
         console.error('⚠️  Error: Missing SKILL.md. A valid skill folder must contain a SKILL.md file at its root.');
         process.exit(1);
+    }
+    
+    // Parse name from SKILL.md locally to check version
+    const folderName = path.basename(absPath);
+    let extractedName = folderName;
+    const skillContent = fs.readFileSync(skillMdPath, 'utf8');
+    const match = skillContent.match(/^---\s*([\s\S]*?)\s*---/);
+    if (match && match[1]) {
+        const nameMatch = match[1].match(/^name:\s*(.+)$/m);
+        if (nameMatch && nameMatch[1]) {
+            extractedName = nameMatch[1].trim();
+        }
     }
 
     const { host, apiKey, user } = loadConfiguration();
@@ -71,9 +85,73 @@ async function main() {
         process.exit(1);
     }
 
+    // Checking existence on Insight platform
+    const urlStr = host.match(/^https?:\/\//) ? host : `http://${host}`;
+    const checkUrl = new URL(urlStr + '/api/skills' + (user ? `?user=${encodeURIComponent(user)}` : ''));
+    
+    const checkReqModule = checkUrl.protocol === 'https:' ? https : http;
+    const existingSkill = await new Promise((resolve) => {
+        const options = { method: 'GET', headers: {} };
+        if (apiKey) options.headers['x-witty-api-key'] = apiKey;
+        
+        const req = checkReqModule.request(checkUrl, options, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    try {
+                        const skills = JSON.parse(data);
+                        const existing = skills.find(s => s.name === extractedName);
+                        resolve(existing);
+                    } catch(e) { resolve(null); }
+                } else {
+                    resolve(null);
+                }
+            });
+        });
+        req.on('error', () => resolve(null));
+        req.end();
+    });
+
+    let targetVersionNum = 0;
+    if (existingSkill) {
+        let maxVersion = -1;
+        if (existingSkill.versions && existingSkill.versions.length > 0) {
+            maxVersion = Math.max(...existingSkill.versions.map(v => v.version));
+        }
+        targetVersionNum = maxVersion + 1;
+        console.log(`\nℹ️  Insight平台已存在该Skill (名称: ${extractedName})。`);
+        console.log(`ℹ️  本次操作将以新版本 v${targetVersionNum} 上传。`);
+    } else {
+        console.log(`\nℹ️  Insight平台未找到同名Skill (名称: ${extractedName})。`);
+        console.log(`ℹ️  本次操作将以首个版本 v0 上传。`);
+    }
+
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+
+    const confirm = await new Promise(resolve => {
+        rl.question(`❓ 是否确认上传? (y/N) `, answer => {
+            rl.close();
+            resolve(answer.trim().toLowerCase() === 'y');
+        });
+    });
+
+    if (!confirm) {
+        console.log('❌ 已取消上传。');
+        process.exit(0);
+    }
+
     // append user field if exists
     if (user) {
         appendField('user', user);
+    }
+    
+    // append targetSkillId if the skill already exists
+    if (existingSkill && existingSkill.id) {
+        appendField('targetSkillId', existingSkill.id);
     }
 
     // walk dir and add files
@@ -100,7 +178,6 @@ async function main() {
     bodySegments.push(Buffer.from(`--${boundary}--\r\n`, 'utf8'));
     const fullBody = Buffer.concat(bodySegments);
 
-    const urlStr = host.match(/^https?:\/\//) ? host : `http://${host}`;
     const targetUrl = new URL(urlStr + '/api/skills/upload');
 
     console.log(`🚀 Uploading to ${targetUrl.href}...`);

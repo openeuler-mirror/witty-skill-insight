@@ -1,8 +1,10 @@
-import { db, prisma } from '@/lib/prisma';
+import { resolveUser } from '@/lib/auth';
+import { db } from '@/lib/prisma';
 import fs from 'fs';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 
+// Helper: Ensure directory exists
 function ensureDir(dirPath: string) {
     if (!fs.existsSync(dirPath)) {
         fs.mkdirSync(dirPath, { recursive: true });
@@ -61,7 +63,11 @@ export async function POST(request: NextRequest) {
         let skill: any = null;
 
         const targetSkillId = formData.get('targetSkillId') as string;
-        const user = formData.get('user') as string;
+        const explicitUser = formData.get('user') as string;
+
+        // Resolve user: API Key header > explicit user field
+        const authResult = await resolveUser(request, explicitUser || undefined);
+        const user = authResult.username;
 
         if (targetSkillId) {
             skill = await db.findSkillById(targetSkillId);

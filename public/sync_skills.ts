@@ -7,6 +7,7 @@
  * Requires: ~/.witty/.env configuration
  */
 
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
@@ -113,7 +114,6 @@ async function downloadAndInstall(host: string, downloadPath: string, targetDir:
                 // Unzip
                 try {
                     // Try unzip command
-                    const { execSync } = require('child_process');
                     ensureDir(targetDir);
                     execSync(`unzip -o "${tempZip}" -d "${targetDir}"`, { stdio: 'ignore' });
                     fs.unlinkSync(tempZip);

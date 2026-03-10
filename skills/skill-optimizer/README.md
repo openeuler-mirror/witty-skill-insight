@@ -6,7 +6,7 @@
 
 ## 1. 框架概览
 
-`skill-optimizer` 采用了 **"Cold/Warm" 双模优化架构**，旨在通过静态代码分析和动态运行时反馈来持续改进 Agent 的 Skill。该框架不仅支持传统的文本重写，还引入了 Agentic Workflow 来执行复杂的代码修改任务。
+`skill-optimizer` 采用了 **"Static/Dynamic" 双模优化架构**，旨在通过静态代码分析和动态运行时反馈来持续改进 Agent 的 Skill。该框架不仅支持传统的文本重写，还引入了 Agentic Workflow 来执行复杂的代码修改任务。
 
 ### 核心组件
 
@@ -70,7 +70,7 @@
 
 `SkillOptimizer` 是一个门面（Facade），它屏蔽了底层组件的复杂性。它提供统一的入口方法：
 * `optimize_static`: 执行 Linter -> 5D Evaluation -> Mutation 的冷启动循环。
-* `optimize_warm`: 执行 Report Parsing -> Crystallization -> Mutation 的热运行循环。
+* `optimize_dynamic`: 执行 Report Parsing -> Crystallization -> Mutation 的动态运行循环。
 * `optimize_hybrid`: 先冷后热，全流程优化。
 
 ### 4.2 DiagnosticMutator (Agentic Workflow)
@@ -100,7 +100,7 @@
 
 | 参数         | 缩写 | 必选 | 说明                                                                  |
 | :----------- | :--- | :--- | :-------------------------------------------------------------------- |
-| `--mode`     | -    | 是   | 优化模式：`static` (冷启动), `warm` (基于 Trace), `hybrid` (混合)     |
+| `--mode`     | -    | 是   | 优化模式：`static` (静态), `dynamic` (基于 Trace), `hybrid` (混合)     |
 | `--input`    | `-i` | 是   | 输入路径（包含 `SKILL.md` 的目录或文件路径）                          |
 | `--output`   | `-o` | 否   | 输出目录（默认为输入目录的同级或子目录）                              |
 | `--feedback` | `-f` | 否   | 人工反馈文件路径（可选，也可通过环境变量 `HUMAN_FEEDBACK_FILE` 指定） |
@@ -115,12 +115,12 @@
 python scripts/main.py --mode static --input path/to/your/skill_dir
 ```
 
-#### 2. 热启动优化 (Warm/Experience Crystallization)
+#### 2. 动态优化 (Dynamic/Experience Crystallization)
 
 适用于已有运行日志 (Trace/Logs)，希望根据历史运行结果进行针对性优化。
 
 ```bash
-python scripts/main.py --mode warm --input path/to/your/skill_dir
+python scripts/main.py --mode dynamic --input path/to/your/skill_dir
 ```
 
 #### 3. 混合优化 (Hybrid)
@@ -165,7 +165,7 @@ pip install langchain langchain-openai langfuse python-dotenv httpx
 
 #### Witty Insight 平台对接
 
-用于上传优化后的 Skill 版本以及获取历史运行日志（Warm Start 模式必需）。
+用于上传优化后的 Skill 版本以及获取历史运行日志（Dynamic 模式必需）。
 
 | 变量名               | 必选 | 说明                             |
 | :------------------- | :--- | :------------------------------- |
@@ -232,4 +232,4 @@ pip install langchain langchain-openai langfuse python-dotenv httpx
 2. **环境配置**: 确保所有必需的环境变量已正确配置，特别是 API 密钥和平台地址。
 3. **备份原始文件**: 优化会生成新版本，建议保留原始 Skill 文件作为备份。
 4. **人工审核**: 优化后的建议仅供参考，建议人工审核后再正式使用。
-5. **平台依赖**: Warm Start 和混合模式依赖 Witty Insight 平台的运行日志，确保平台服务可用。
+5. **平台依赖**: Dynamic 模式和混合模式依赖 Witty Insight 平台的运行日志，确保平台服务可用。

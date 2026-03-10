@@ -58,44 +58,26 @@ description: Use when optimizing Agent Skill definitions, including static compl
 
 在运行任何优化命令之前，请先完成以下准备工作。
 
-### 第1步：检查和安装依赖
+### 第1步：运行环境依赖检查
 
-**Python 版本要求**：需要 Python 3.11 或更高版本。
-
-首先检查系统是否已安装 uv：
+**Python 工具链依赖**：需要预先安装 `uv` 命令行工具。
+首次运行推荐直接使用集成包装脚本，它会自动处理 Python 虚拟环境并安装依赖：
 
 ```bash
-uv --version
+./scripts/opt.sh --help
 ```
 
-**如果没有 uv，需要先安装**：
+如果检测到提示“未找到 'uv' 命令”，请按如下格式询问用户：
 
+```
+Question: "Skill Optimizer 需要 'uv' 作为 Python 环境管理器，但当前系统未安装。是否现在安装？"
+Options: "是，执行安装命令", "否，取消操作"
+```
+
+如果用户同意，执行：
 ```bash
-# Linux/macOS
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 或使用 pip
-pip install uv
 ```
-
-然后创建 uv 虚拟环境并安装项目依赖：
-
-```bash
-# 创建虚拟环境（如果不存在）
-uv venv .opt
-
-# 激活虚拟环境
-# Linux/macOS:
-source .opt/bin/activate
-
-# Windows:
-# .opt\Scripts\activate
-
-# 安装项目依赖
-uv pip install -r requirements.txt
-```
-
-**注意**：每次使用 skill-optimizer 之前，都需要先激活虚拟环境。虚拟环境只会创建一次，后续运行只需激活即可。
 
 ### 第2步：获取模型配置
 
@@ -113,21 +95,42 @@ python scripts/model_config_detector.py
 2. **OpenCode 平台**：运行 `node scripts/opencode-model-detector.cjs`（如果存在）
 3. **Cursor/Windsurf 平台**：检测 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY` 等环境变量
 
-检测成功后，配置会自动写入 `.env` 文件（仅在字段为空时）。
+检测成功后，配置会自动写入本技能根目录的 `.env` 文件（即 `skills/skill-optimizer/.env`）。
 
 **手动配置（如果自动检测失败）**
 
-如果自动检测失败，请手动配置 `.env` 文件：
+如果自动检测失败，按如下格式询问用户提供配置：
+
+```
+Question: "未找到有效的模型配置 (API Key)。请选择如何提供配置？"
+Options: "方式1（推荐）：提供 DeepSeek API Key", "方式2：提供通用 LLM API Key", "取消操作"
+```
+
+用户选择后，将配置写入本技能根目录的 `.env` 文件（请注意**必须**放在 `skill-optimizer` 的首层目录中）：
 
 ```bash
-# 复制示例配置文件
-cp .env.example .env
-
-# 编辑 .env 文件，填写实际的 API Key
-# DEEPSEEK_API_KEY=your_api_key_here
-# DEEPSEEK_BASE_URL=https://api.deepseek.com/
-# DEEPSEEK_MODEL=deepseek-chat
+# 注意：务必确保是将配置写入到 skill-optimizer 目录下的 .env 中
+echo "DEEPSEEK_API_KEY=sk-xxxx" >> skills/skill-optimizer/.env
+echo "DEEPSEEK_BASE_URL=https://api.deepseek.com/" >> skills/skill-optimizer/.env
+echo "DEEPSEEK_MODEL=deepseek-chat" >> skills/skill-optimizer/.env
 ```
+
+### 第3步：模型连通性测试
+
+在获取到模型配置后，必须先进行模型连通性测试，以确保后续操作顺利执行：
+
+```bash
+python scripts/test_model_connectivity.py --env-file skills/skill-optimizer/.env
+```
+
+如果测试通过，再进行后续任务。
+
+如果测试不通过，则说明模型调用可能面临网络或配置问题，请停止优化并与用户交互，提示以下选项：
+```
+Question: "模型连通性测试未通过，请重新配置以确保后续流程顺利进行："
+Options: "获取 DeepSeek 的 api_key", "获取符合 OpenAI 规范的 LLM 的 base_Url、api_key、model_name", "取消"
+```
+用户提供信息后，将配置更新至 `.env` 文件，并**再次执行连通性测试脚本**。只有且必须在该连通性测试通过后，才可进入接下来的优化流程，确保后续不会有模型调用问题。
 
 ## 优化模式与使用流程
 
@@ -137,7 +140,7 @@ cp .env.example .env
 
 **执行命令：**
 ```bash
-python scripts/main.py --mode static --input path/to/your/skill_dir
+./scripts/opt.sh --mode static --input path/to/your/skill_dir
 ```
 
 **操作步骤：**
@@ -150,13 +153,13 @@ python scripts/main.py --mode static --input path/to/your/skill_dir
 7. 生成 OPTIMIZATION_REPORT.md 和 diagnoses.json
 8. 上传到 Witty Insight 平台并获取版本号
 
-### 2. 热启动优化 (Warm/Experience Crystallization)
+### 2. 动态优化 (Dynamic/Experience Crystallization)
 
 **适用场景：** 已有运行日志 (Trace/Logs)，希望根据历史运行结果进行针对性优化。
 
 **执行命令：**
 ```bash
-python scripts/main.py --mode warm --input path/to/your/skill_dir
+./scripts/opt.sh --mode dynamic --input path/to/your/skill_dir
 ```
 
 **操作步骤：**
@@ -175,7 +178,7 @@ python scripts/main.py --mode warm --input path/to/your/skill_dir
 
 **执行命令：**
 ```bash
-python scripts/main.py --mode hybrid --input path/to/your/skill_dir
+./scripts/opt.sh --mode hybrid --input path/to/your/skill_dir
 ```
 
 **操作步骤：**
@@ -192,7 +195,7 @@ python scripts/main.py --mode hybrid --input path/to/your/skill_dir
 
 **执行命令：**
 ```bash
-python scripts/main.py --mode static --input path/to/your/skill_dir --feedback path/to/feedback.txt
+./scripts/opt.sh --mode static --input path/to/your/skill_dir --feedback path/to/feedback.txt
 ```
 
 **操作步骤：**
@@ -223,12 +226,9 @@ python scripts/main.py --mode static --input path/to/your/skill_dir --feedback p
 
 ### Witty Insight 平台对接
 
-用于上传优化后的 Skill 版本以及获取历史运行日志（Warm Start 模式必需）。
+用于获取历史运行日志（Dynamic 模式需要）。在获取时，优化器会自动从 `~/.witty/.env` 中的 `WITTY_INSIGHT_HOST` 读取平台服务器 IP 进行请求，不需要再在本技能下重复配置。
 
-| 变量名 | 必选 | 说明 |
-| :--- | :--- | :--- |
-| `MODEL_PROXY_IP` | 是 | 平台服务器 IP 地址 |
-| `WITTY_INSIGHT_USER` | 是 | 用户邮箱标识，用于上传和查询日志 |
+> **⚠️ 环境配置重要提示**：所有以上介绍的环境变量，**必须**配置在 `skills/skill-optimizer/.env` 文件中。如果不确定位置，优化器会在抛出错误时提示你预期的 `.env` 绝对路径。
 
 ### 监控与反馈 (可选)
 
@@ -281,22 +281,22 @@ python scripts/main.py --mode static --input path/to/your/skill_dir --feedback p
 **用户请求：** "帮我优化一下这个 Skill 文件 path/to/my-skill/SKILL.md"
 
 **Agent响应：**
-1. 检查虚拟环境和依赖：`uv venv && uv pip install -r requirements.txt`
+1. 运行包装脚本检查环境：`./scripts/opt.sh --help`
 2. 自动获取模型配置：`python scripts/model_config_detector.py`
 3. 确认输入路径指向包含 SKILL.md 的目录
-4. 执行静态优化：`python scripts/main.py --mode static --input path/to/my-skill`
+4. 执行静态优化：`./scripts/opt.sh --mode static --input path/to/my-skill`
 5. 等待优化完成，查看生成的优化报告
-6. 告知用户输出路径和版本号
+6. 询问用户是否加载到本地或上传
 
 ### 示例2：基于运行日志优化已有 Skill
 
 **用户请求：** "这个 Skill 运行了几次有问题，帮我根据运行日志优化一下"
 
 **Agent响应：**
-1. 检查虚拟环境和依赖
+1. 运行包装脚本检查环境
 2. 自动获取模型配置
 3. 确认 Skill 名称和路径
-4. 执行热启动优化：`python scripts/main.py --mode warm --input path/to/my-skill`
+4. 执行动态优化：`./scripts/opt.sh --mode dynamic --input path/to/my-skill`
 5. 优化器会自动获取历史运行日志
 6. 返回优化结果和版本号
 
@@ -305,10 +305,10 @@ python scripts/main.py --mode static --input path/to/your/skill_dir --feedback p
 **用户请求：** "根据我提供的反馈优化这个 Skill，反馈内容是..."
 
 **Agent响应：**
-1. 检查虚拟环境和依赖
+1. 运行包装脚本检查环境
 2. 自动获取模型配置
-3. 将用户的反馈内容写入临时文件（或直接通过环境变量传递）
-4. 执行优化：`python scripts/main.py --mode static --input path/to/my-skill --feedback path/to/feedback.txt`
+3. 将用户的反馈内容写入临时文件
+4. 执行优化：`./scripts/opt.sh --mode static --input path/to/my-skill --feedback path/to/feedback.txt`
 5. 优化器会优先处理人工反馈
 6. 返回优化结果
 
@@ -317,11 +317,73 @@ python scripts/main.py --mode static --input path/to/your/skill_dir --feedback p
 **用户请求：** "全面优化这个 Skill，包括静态检查和运行日志分析"
 
 **Agent响应：**
-1. 检查虚拟环境和依赖
+1. 运行包装脚本检查环境
 2. 自动获取模型配置
-3. 执行混合优化：`python scripts/main.py --mode hybrid --input path/to/my-skill`
+3. 执行混合优化：`./scripts/opt.sh --mode hybrid --input path/to/my-skill`
 4. 先执行静态优化，再执行热启动优化
-5. 返回完整的优化方法
+5. 返回完整的优化结果
+
+## 优化完成后的后续步骤
+
+### 第5步：询问是否加载到本地项目（推荐）
+
+在技能优化成功后，询问用户是否将优化后的skill直接加载到当前项目的 `.opencode/skills` 目录下，以便立即使用。
+
+**询问方式**：
+
+```
+Question: "✅ Skill 优化完成！(位于 <output-path>/<skill-name>)。是否将此技能加载到当前项目的 .opencode/skills 目录下以便立即使用（需要重启）？"
+Options: "是，加载到 .opencode/skills 目录", "否，保持当前位置"
+```
+
+**如果用户同意（加载到本地）**：
+
+1. **确认项目结构**：检查当前项目是否有 `.opencode/skills` 目录
+   ```bash
+   # 检查 .opencode/skills 目录是否存在
+   if [ ! -d ".opencode/skills" ]; then
+       mkdir -p .opencode/skills
+   fi
+   ```
+
+2. **移动技能目录**：将优化后的skill移动到 `.opencode/skills` 目录
+   ```bash
+   # 假设优化后的skill在 /path/to/optimized-skills/skill-name/
+   # 移动到当前项目的 .opencode/skills/
+   mv /path/to/optimized-skills/skill-name/ .opencode/skills/
+   ```
+
+3. **验证移动成功**：
+   ```bash
+   # 检查技能是否成功移动
+   ls -la .opencode/skills/skill-name/
+   ```
+
+4. **提醒用户重启**：
+   ```
+   Question: "✅ 技能已成功加载到 .opencode/skills/<skill-name> ! 重要提示：需要重启 opencode 才能使技能生效。请选择后续操作："
+   Options: "收到，我稍后会重启应用"
+   ```
+
+**如果用户不同意（保持当前位置）**：
+
+```
+Question: "✅ 技能已优化并保持在当前位置：<output-path>/<skill-name>。如需使用，请后续执行 mv <output-path>/<skill-name>/ .opencode/skills/ 移动。请选择后续操作："
+Options: "收到"
+```
+
+### 第6步：上传至 Insight 平台（如果用户要求）
+
+如果用户在优化技能的指令中明确要求**"上传"、"同步"或"保存到 Insight"**，你必须在优化完成（前述步骤结束）、验证通过且目录存在后，主动调用skill-sync技能对优化后的新技能目录进行上传处理。
+
+**操作要求**：
+1. 确认输出目录中确实生成了包含 `SKILL.md` 的技能文件夹。
+2. 告知用户："正在启动 skill-sync 准备上传，由于涉及环境配置覆盖风险，我将调用系统上传组件。请关注接下来的终端询问确认。"
+3. 跨技能调用 `skill-sync` 技能，通过如下路径执行：
+   ```bash
+   node ../skill-sync/scripts/push.js <你在这个技能里刚刚生成的绝对路径/相对路径>
+   ```
+4. 请不要在这个技能内处理接口或网络请求上传，这是 `skill-sync` 的专属责任。
 
 ## 诊断报告解读
 
@@ -407,7 +469,7 @@ pip install uv
 **原因：** Witty Insight 平台连接失败或 Skill 名称不匹配
 
 **解决：**
-- 检查 `MODEL_PROXY_IP` 和 `WITTYkt_INSIGHT_USER` 环境变量
+- 检查 `~/.witty/.env` 环境变量是否正确配置了 `WITTY_INSIGHT_HOST`。
 - 确认 Skill 的 YAML frontmatter 中的 `name` 字段与平台注册的名称一致
 
 ### 问题7：上传失败
