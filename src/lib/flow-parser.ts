@@ -269,7 +269,9 @@ export function generateDynamicMermaidCode(
   
   const actualSteps: { id: string; label: string; status: string; targetStep?: string }[] = [];
   
-  matches.forEach((match, idx) => {
+  const sortedMatches = [...matches].sort((a, b) => a.actualStepIndex - b.actualStepIndex);
+  
+  sortedMatches.forEach((match, idx) => {
     const nodeId = `A${idx + 1}`;
     const status = match.matchStatus;
     const label = sanitizeMermaidLabel(`${idx + 1}. ${match.actualAction.substring(0, 20)}`);

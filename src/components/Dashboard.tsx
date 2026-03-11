@@ -1069,7 +1069,7 @@ export default function Dashboard() {
                         <XAxis dataKey="shortQuery" stroke="#94a3b8" fontSize={11} angle={-20} textAnchor="end" height={60} />
                         <YAxis stroke="#94a3b8" tickFormatter={yFormatter} />
                         <Tooltip
-                            formatter={(val: any, name: any) => [val !== undefined ? val + unit : '-', name || '']}
+                            formatter={(val: number | undefined, name: string | undefined) => [val !== undefined ? (yFormatter ? yFormatter(val) : val + unit) : '-', name || '']}
                             contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }}
                         />
                         <Legend />
@@ -1533,7 +1533,7 @@ export default function Dashboard() {
                                         Tag: <span style={{ color: '#38bdf8' }}>{group.label}</span>
                                     </h3>
                                     <div className="analysis-grid">
-                                        <ChartLayout title="平均时延" unit="s" dataKey="lat" data={group.data} frameworks={comparisonSeries} />
+                                        <ChartLayout title="平均时延" unit="m" dataKey="lat" data={group.data} frameworks={comparisonSeries} yFormatter={(v) => (v / 60000).toFixed(2) + 'm'} />
                                         <ChartLayout title="平均消耗 (Tokens)" dataKey="tok" data={group.data} frameworks={comparisonSeries} yFormatter={formatTokens} />
                                         <ChartLayout title="平均准确率" dataKey="score" unit="" data={group.data} frameworks={comparisonSeries} />
                                     </div>
@@ -1546,12 +1546,12 @@ export default function Dashboard() {
                         comparisonData.length > 0 ? (
                             <div className="analysis-grid">
                                 <ChartLayout
-                                    title={<span>平均时延 <CustomTooltip content="基于选中查询的所有执行结果计算出的平均总响应耗时（秒）" /></span>}
+                                    title={<span>平均时延 <CustomTooltip content="基于选中查询的所有执行结果计算出的平均总响应耗时（分钟）" /></span>}
                                     dataKey="lat"
-                                    unit="s"
+                                    unit="m"
                                     data={comparisonData}
                                     frameworks={comparisonSeries}
-                                    yFormatter={(v) => Number(v).toFixed(1) + 's'}
+                                    yFormatter={(v) => (v / 60000).toFixed(2) + 'm'}
                                 />
                                 <ChartLayout
                                     title={<span>平均消耗 (Tokens) <CustomTooltip content="基于选中查询的所有执行结果计算出的平均 Token 消耗总额" /></span>}
