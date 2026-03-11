@@ -204,7 +204,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
   const incomingTokens = data.Token || data.token || data.tokens;
   if (incomingTokens !== undefined) targetRecord.tokens = Number(incomingTokens);
 
-  const NO_MATCH_REASON = '未找到匹配的评测配置，分数已归零';
+   const NO_MATCH_REASON = '未找到匹配的评测配置';
 
   let isSkillCorrect = targetRecord.is_skill_correct || false;
   let isAnswerCorrect = targetRecord.is_answer_correct || false;
@@ -273,20 +273,20 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                     judgmentReason = judgment.reason || 'Judged by Evaluation Model';
                }
           }
-      } else {
-          if ((!isUpdate || data.force_judgment) && !targetRecord.answer_score) {
-              isAnswerCorrect = false;
-              judgmentReason = NO_MATCH_REASON;
-              targetRecord.answer_score = 0;
-          }
-      }
-  } else if (targetRecord.query) {
-      if ((!isUpdate || data.force_judgment) && !targetRecord.answer_score) {
-          isAnswerCorrect = false;
-          judgmentReason = NO_MATCH_REASON;
-          targetRecord.answer_score = 0;
-      }
-  }
+       } else {
+           if ((!isUpdate || data.force_judgment) && !targetRecord.answer_score) {
+               isAnswerCorrect = false;
+               judgmentReason = NO_MATCH_REASON;
+               targetRecord.answer_score = null;
+           }
+       }
+   } else if (targetRecord.query) {
+       if ((!isUpdate || data.force_judgment) && !targetRecord.answer_score) {
+           isAnswerCorrect = false;
+           judgmentReason = NO_MATCH_REASON;
+           targetRecord.answer_score = null;
+       }
+   }
 
   if (data.skip_evaluation) {
       targetRecord.answer_score = null;
