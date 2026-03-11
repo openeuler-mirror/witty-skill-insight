@@ -589,7 +589,7 @@ export default function Dashboard() {
                     latency: Number(data.record.latency || 0),
                     framework: data.record.framework || 'Unknown',
                     skill_score: data.record.skill_score !== undefined ? Number(data.record.skill_score) : undefined,
-                    answer_score: data.record.answer_score !== undefined ? Number(data.record.answer_score) : (data.record.is_answer_correct ? 1.0 : 0.0)
+                    answer_score: data.record.answer_score !== null ? Number(data.record.answer_score) : (data.record.is_answer_correct ? 1.0 : 0.0)
                 };
 
                 setRawData(prev => prev.map(r =>

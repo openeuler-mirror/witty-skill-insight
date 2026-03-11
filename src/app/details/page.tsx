@@ -955,12 +955,12 @@ function DetailPage() {
             const filtered = data.filter(d =>
                 d.query === query &&
                 (!framework || d.framework === framework)
-            ).map(x => ({
-                ...x,
-                tokens: Number(x.tokens || x.Token || 0),
-                latency: Number(x.latency || 0),
-                answer_score: x.answer_score !== undefined ? Number(x.answer_score) : (x.is_answer_correct ? 1.0 : 0.0)
-            }));
+                ).map(x => ({
+                    ...x,
+                    tokens: Number(x.tokens || x.Token || 0),
+                    latency: Number(x.latency || 0),
+                    answer_score: x.answer_score !== null ? Number(x.answer_score) : (x.is_answer_correct ? 1.0 : 0.0)
+                }));
             filtered.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
             setAllData(filtered);
         } catch (e) {
