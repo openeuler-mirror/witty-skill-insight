@@ -123,6 +123,34 @@ TABLE_DEFINITIONS = {
             ("updatedAt", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
         ],
         "unique_constraints": []
+    },
+    "ParsedFlow": {
+        "columns": [
+            ("id", "TEXT PRIMARY KEY"),
+            ("skillId", "TEXT NOT NULL"),
+            ("version", "INTEGER NOT NULL"),
+            ("user", "TEXT"),
+            ("flowJson", "TEXT NOT NULL"),
+            ("mermaidCode", "TEXT NOT NULL"),
+            ("parsedAt", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+        ],
+        "unique_constraints": ["UNIQUE(\"skillId\", version, \"user\")"]
+    },
+    "ExecutionMatch": {
+        "columns": [
+            ("id", "TEXT PRIMARY KEY"),
+            ("executionId", "TEXT UNIQUE NOT NULL"),
+            ("skillId", "TEXT NOT NULL"),
+            ("skillVersion", "INTEGER NOT NULL"),
+            ("user", "TEXT"),
+            ("matchJson", "TEXT NOT NULL"),
+            ("staticMermaid", "TEXT NOT NULL"),
+            ("dynamicMermaid", "TEXT NOT NULL"),
+            ("analysisText", "TEXT"),
+            ("interactionCount", "INTEGER NOT NULL"),
+            ("matchedAt", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+        ],
+        "unique_constraints": []
     }
 }
 

@@ -47,6 +47,14 @@ export interface DatabaseAdapter {
     findUserSettings(user: string): Promise<any>;
     upsertUserSettings(user: string, settingsJson: string): Promise<any>;
 
+    // ParsedFlow operations
+    findParsedFlow(skillId: string, version: number, user: string | null): Promise<any>;
+    upsertParsedFlow(data: any): Promise<any>;
+
+    // ExecutionMatch operations
+    findExecutionMatch(executionId: string): Promise<any>;
+    upsertExecutionMatch(data: any): Promise<any>;
+
     // Raw access if needed (use sparingly)
     getClient(): PrismaClient | Pool;
 }
@@ -205,6 +213,36 @@ class PrismaAdapter implements DatabaseAdapter {
             where: { user },
             update: { settingsJson },
             create: { user, settingsJson }
+        });
+    }
+
+    async findParsedFlow(skillId: string, version: number, user: string | null) {
+        return this.client.parsedFlow.findFirst({
+            where: { skillId, version, user }
+        });
+    }
+
+    async upsertParsedFlow(data: any) {
+        const { skillId, version, user } = data;
+        return this.client.parsedFlow.upsert({
+            where: { skillId_version_user: { skillId, version, user } },
+            create: data,
+            update: data
+        });
+    }
+
+    async findExecutionMatch(executionId: string) {
+        return this.client.executionMatch.findUnique({
+            where: { executionId }
+        });
+    }
+
+    async upsertExecutionMatch(data: any) {
+        const { executionId } = data;
+        return this.client.executionMatch.upsert({
+            where: { executionId },
+            create: data,
+            update: data
         });
     }
 }
@@ -682,6 +720,105 @@ class OpenGaussAdapter implements DatabaseAdapter {
                 );
                 result = cRes.rows[0];
             }
+            await client.query('COMMIT');
+            return result;
+        } catch (e) {
+            await client.query('ROLLBACK');
+            throw e;
+        } finally {
+            client.release();
+        }
+    }
+
+    async findParsedFlow(skillId: string, version: number, user: string | null) {
+        let sql = 'SELECT * FROM "ParsedFlow" WHERE "skillId" = $1 AND version = $2';
+        const params: any[] = [skillId, version];
+        
+        if (user) {
+            sql += ' AND "user" = $3';
+            params.push(user);
+        } else {
+            sql += ' AND "user" IS NULL';
+        }
+        
+        const res = await this.query(sql, params);
+        return res.rows[0] || null;
+    }
+
+    async upsertParsedFlow(data: any) {
+        const { skillId, version, user, flowJson, mermaidCode } = data;
+        const client = await this.pool.connect();
+        
+        try {
+            await client.query('BEGIN');
+            
+            let sql = 'SELECT * FROM "ParsedFlow" WHERE "skillId" = $1 AND version = $2';
+            const params: any[] = [skillId, version];
+            
+            if (user) {
+                sql += ' AND "user" = $3';
+                params.push(user);
+            } else {
+                sql += ' AND "user" IS NULL';
+            }
+            
+            const checkRes = await client.query(sql, params);
+            
+            let result;
+            if (checkRes.rows.length > 0) {
+                const uRes = await client.query(
+                    'UPDATE "ParsedFlow" SET "flowJson" = $1, "mermaidCode" = $2, "parsedAt" = CURRENT_TIMESTAMP WHERE id = $3 RETURNING *',
+                    [flowJson, mermaidCode, checkRes.rows[0].id]
+                );
+                result = uRes.rows[0];
+            } else {
+                const id = uuidv4();
+                const cRes = await client.query(
+                    'INSERT INTO "ParsedFlow" (id, "skillId", version, "user", "flowJson", "mermaidCode") VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+                    [id, skillId, version, user, flowJson, mermaidCode]
+                );
+                result = cRes.rows[0];
+            }
+            
+            await client.query('COMMIT');
+            return result;
+        } catch (e) {
+            await client.query('ROLLBACK');
+            throw e;
+        } finally {
+            client.release();
+        }
+    }
+
+    async findExecutionMatch(executionId: string) {
+        const res = await this.query('SELECT * FROM "ExecutionMatch" WHERE "executionId" = $1', [executionId]);
+        return res.rows[0] || null;
+    }
+
+    async upsertExecutionMatch(data: any) {
+        const { executionId, skillId, skillVersion, user, mode, matchJson, staticMermaid, dynamicMermaid, analysisText, interactionCount } = data;
+        const client = await this.pool.connect();
+        
+        try {
+            await client.query('BEGIN');
+            const checkRes = await client.query('SELECT * FROM "ExecutionMatch" WHERE "executionId" = $1', [executionId]);
+            
+            let result;
+            if (checkRes.rows.length > 0) {
+                const uRes = await client.query(
+                    'UPDATE "ExecutionMatch" SET "skillId" = $1, "skillVersion" = $2, "user" = $3, "mode" = $4, "matchJson" = $5, "staticMermaid" = $6, "dynamicMermaid" = $7, "analysisText" = $8, "interactionCount" = $9, "matchedAt" = CURRENT_TIMESTAMP WHERE "executionId" = $10 RETURNING *',
+                    [skillId, skillVersion, user, mode, matchJson, staticMermaid, dynamicMermaid, analysisText, interactionCount, executionId]
+                );
+                result = uRes.rows[0];
+            } else {
+                const id = uuidv4();
+                const cRes = await client.query(
+                    'INSERT INTO "ExecutionMatch" (id, "executionId", "skillId", "skillVersion", "user", "mode", "matchJson", "staticMermaid", "dynamicMermaid", "analysisText", "interactionCount") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *',
+                    [id, executionId, skillId, skillVersion, user, mode, matchJson, staticMermaid, dynamicMermaid, analysisText, interactionCount]
+                );
+                result = cRes.rows[0];
+            }
+            
             await client.query('COMMIT');
             return result;
         } catch (e) {

@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useState } from 'react';
+import ExecutionFlowComparison from '@/components/ExecutionFlowComparison';
 
 const Line = dynamic(() => import('recharts').then(mod => mod.Line), { ssr: false });
 const LineChart = dynamic(() => import('recharts').then(mod => mod.LineChart), { ssr: false });
@@ -47,6 +48,7 @@ interface Execution {
     task_id?: string;
     upload_id?: string;
     version?: string;
+    user?: string;
     user_feedback?: {
         type: 'like' | 'dislike' | null;
         comment: string;
@@ -1981,6 +1983,13 @@ function DetailPage() {
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* Execution Flow Comparison */}
+                                <ExecutionFlowComparison 
+                                    executionId={taskId}
+                                    skillId={(item.skill && item.skill.trim()) || (Array.isArray(item.skills) && item.skills.length > 0 ? item.skills[0] : undefined)}
+                                    user={item.user}
+                                />
 
                                 {/* User Feedback */}
                                 <div style={{ marginBottom: '2rem', padding: '1.5rem', background: '#1e293b', borderRadius: '8px', border: '1px solid #334155' }}>

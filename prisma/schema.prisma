@@ -115,3 +115,35 @@ model UserSettings {
   updatedAt      DateTime @updatedAt
 }
 
+model ParsedFlow {
+  id          String   @id @default(cuid())
+  skillId     String
+  version     Int
+  user        String?
+  
+  flowJson    String   // JSON: { steps, branches }
+  mermaidCode String   // Generated Mermaid code
+  
+  parsedAt    DateTime @default(now())
+  
+  @@unique([skillId, version, user])
+}
+
+model ExecutionMatch {
+  id              String   @id @default(cuid())
+  executionId     String   @unique
+  skillId         String?
+  skillVersion    Int?
+  user            String?
+  
+  mode            String   @default("compare")  // "compare" or "dynamic"
+  matchJson       String?  // JSON: { matches, summary }
+  staticMermaid   String?  // Static flow Mermaid code
+  dynamicMermaid  String   // Dynamic flow Mermaid code
+  analysisText    String?  // LLM analysis text
+  
+  interactionCount Int    // Number of interactions at analysis time
+  
+  matchedAt       DateTime @default(now())
+}
+

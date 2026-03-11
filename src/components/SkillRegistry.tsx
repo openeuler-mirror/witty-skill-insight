@@ -120,6 +120,8 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
   const { user } = useAuth();
   const [detail, setDetail] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [parsing, setParsing] = useState(false);
+  const [parsedFlow, setParsedFlow] = useState<any>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -133,29 +135,82 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
         alert("Failed to load details");
         setLoading(false);
       });
+    
+    fetch(`/api/skills/${skillId}/versions/${version}/parse-flow?user=${encodeURIComponent(user || '')}`)
+      .then(res => res.json())
+      .then(d => {
+        if (d.parsed) {
+          setParsedFlow(d);
+        }
+      })
+      .catch(() => {});
   }, [skillId, version]);
+
+  const handleParseFlow = async () => {
+    setParsing(true);
+    try {
+      const res = await fetch(`/api/skills/${skillId}/versions/${version}/parse-flow`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user })
+      });
+      const result = await res.json();
+      if (result.success) {
+        setParsedFlow({
+          parsed: true,
+          flowJson: JSON.stringify(result.flow),
+          mermaidCode: result.mermaidCode,
+          parsedAt: new Date().toISOString()
+        });
+      } else {
+        alert(`解析失败: ${result.error}`);
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : '未知错误';
+      alert(`解析出错: ${message}`);
+    } finally {
+      setParsing(false);
+    }
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
-      <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ width: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
+      <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ width: '1200px', maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
         
-        {/* Header - Styled like parent modal */}
         <div className="modal-header-new" style={{ padding: '1rem 1.5rem', background: '#0f172a', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: 'white' }}>Version Details (v{version})</h3>
-          <button 
-            onClick={onClose} 
-            style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '1.5rem', cursor: 'pointer', padding: '0 0.5rem', lineHeight: 1 }}
-          >
-            &times;
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <button
+              onClick={handleParseFlow}
+              disabled={parsing}
+              style={{
+                padding: '6px 16px',
+                background: parsing ? '#334155' : '#38bdf8',
+                color: parsing ? '#94a3b8' : '#0f172a',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: parsing ? 'not-allowed' : 'pointer',
+                fontWeight: 'bold',
+                fontSize: '0.9rem'
+              }}
+            >
+              {parsing ? '解析中...' : (parsedFlow ? '重新解析' : '解析流程')}
+            </button>
+            <button 
+              onClick={onClose} 
+              style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '1.5rem', cursor: 'pointer', padding: '0 0.5rem', lineHeight: 1 }}
+            >
+              &times;
+            </button>
+          </div>
         </div>
         
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
+        <div style={{ flex: 1, display: 'flex', gap: '1.5rem', padding: '1.5rem', minHeight: 0, overflowY: 'auto' }}>
           {loading ? (
-             <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>Loading details...</div>
+             <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8', flex: 1 }}>Loading details...</div>
           ) : detail ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                {/* Meta Info - Removed Asset Path */}
+            <>
+              <div style={{ flex: '1 1 50%', display: 'flex', flexDirection: 'column', gap: '1.5rem', minWidth: 0 }}>
                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155' }}>
                     <div>
                         <span style={{ color: '#94a3b8', fontSize: '0.85rem', display: 'block', marginBottom: '4px' }}>Created At</span>
@@ -163,7 +218,6 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                     </div>
                 </div>
 
-                {/* Changelog */}
                 <div>
                     <h4 style={{ color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Changelog</h4>
                     <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', color: '#e2e8f0', whiteSpace: 'pre-wrap', border: '1px solid #334155', fontSize: '0.9rem', lineHeight: 1.6 }}>
@@ -171,7 +225,6 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                     </div>
                 </div>
 
-                {/* Content (SKILL.md) */}
                 <div>
                      <h4 style={{ color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill Content (SKILL.md)</h4>
                      <pre style={{ 
@@ -183,14 +236,13 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                          fontFamily: 'monospace', 
                          fontSize: '0.85rem',
                          border: '1px solid #334155',
-                         maxHeight: '400px',
+                         maxHeight: '300px',
                          whiteSpace: 'pre-wrap'
                      }}>
                          {detail.content || <span style={{ color: '#64748b', fontStyle: 'italic' }}>(Empty content)</span>}
                      </pre>
                 </div>
 
-                {/* Files List */}
                 <div>
                     <h4 style={{ color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Included Files</h4>
                     <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', border: '1px solid #334155' }}>
@@ -209,13 +261,91 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                         })()}
                     </div>
                 </div>
-            </div>
+              </div>
+
+              <div style={{ flex: '1 1 50%', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                <h4 style={{ color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>预期执行流程</h4>
+                {parsedFlow ? (
+                  <div style={{ 
+                    background: '#0f172a', 
+                    padding: '1rem', 
+                    borderRadius: '6px', 
+                    border: '1px solid #334155', 
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column'
+                  }}>
+                    <div style={{ marginBottom: '0.5rem', fontSize: '0.8rem', color: '#64748b', flexShrink: 0 }}>
+                      解析时间: {new Date(parsedFlow.parsedAt).toLocaleString()}
+                    </div>
+                    <div style={{ flex: 1, overflow: 'auto' }}>
+                      <MermaidFlowChart code={parsedFlow.mermaidCode} />
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ 
+                    background: '#0f172a', 
+                    padding: '2rem', 
+                    borderRadius: '6px', 
+                    border: '1px solid #334155', 
+                    flex: 1, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    color: '#64748b'
+                  }}>
+                    点击「解析流程」按钮生成预期执行流程图
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
-            <div style={{ color: '#ef4444', textAlign: 'center', padding: '2rem' }}>Failed to load details.</div>
+            <div style={{ color: '#ef4444', textAlign: 'center', padding: '2rem', flex: 1 }}>Failed to load details.</div>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+function MermaidFlowChart({ code }: { code: string }) {
+  const [svg, setSvg] = useState<string>('');
+  const [error, setError] = useState<string>('');
+
+  useEffect(() => {
+    const renderMermaid = async () => {
+      try {
+        const mermaid = (await import('mermaid')).default;
+        mermaid.initialize({ 
+          startOnLoad: false, 
+          theme: 'dark',
+          flowchart: { useMaxWidth: false }
+        });
+        const { svg } = await mermaid.render('mermaid-' + Date.now(), code);
+        setSvg(svg);
+        setError('');
+      } catch (e) {
+        console.error('Mermaid render error:', e);
+        setError('流程图渲染失败');
+      }
+    };
+    if (code) renderMermaid();
+  }, [code]);
+
+  if (error) {
+    return <div style={{ color: '#f87171' }}>{error}</div>;
+  }
+
+  return (
+    <div 
+      style={{ 
+        width: '100%', 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'flex-start'
+      }}
+      dangerouslySetInnerHTML={{ __html: svg }} 
+    />
   );
 }
 
