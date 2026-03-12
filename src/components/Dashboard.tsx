@@ -1069,7 +1069,7 @@ export default function Dashboard() {
                         <XAxis dataKey="shortQuery" stroke="#94a3b8" fontSize={11} angle={-20} textAnchor="end" height={60} />
                         <YAxis stroke="#94a3b8" tickFormatter={yFormatter} />
                         <Tooltip
-                            formatter={(val: number | undefined, name: string | undefined) => [val !== undefined ? val + unit : '-', name || '']}
+                            formatter={(val: any, name: any) => [val !== undefined ? val + unit : '-', name || '']}
                             contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }}
                         />
                         <Legend />
