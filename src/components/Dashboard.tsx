@@ -1755,7 +1755,10 @@ export default function Dashboard() {
                                                             Score: {best.answer_score?.toFixed(2) || '-'}
                                                         </div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(best.framework)}&query=${encodeURIComponent(best.query)}&expandTaskId=${best.task_id || best.upload_id}`, '_blank')}>View Log &gt;</div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
+                                                        const url = `/details?framework=${encodeURIComponent(best.framework)}&expandTaskId=${best.task_id || best.upload_id}`;
+                                                        window.open(url, '_blank');
+                                                    }}>View Log &gt;</div>
                                                 </div>
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
@@ -1821,7 +1824,10 @@ export default function Dashboard() {
                                             Time: {formatDateTime(singleQueryStats.worst.timestamp)}
                                         </div>
                                     </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(singleQueryStats.worst.framework)}&query=${encodeURIComponent(singleQueryStats.worst.query)}&expandTaskId=${singleQueryStats.worst.task_id || singleQueryStats.worst.upload_id}`, '_blank')}>View Log &gt;</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
+                                        const url = `/details?framework=${encodeURIComponent(singleQueryStats.worst.framework)}&expandTaskId=${singleQueryStats.worst.task_id || singleQueryStats.worst.upload_id}`;
+                                        window.open(url, '_blank');
+                                    }}>View Log &gt;</div>
                                 </div>
                             </div>
                         ) : (
@@ -1925,7 +1931,10 @@ export default function Dashboard() {
                                             </td>
                                             <td className="p-2">
                                                 <div style={{ display: 'flex', gap: '8px', whiteSpace: 'nowrap' }}>
-                                                    <button onClick={() => window.open(`/details?framework=${encodeURIComponent(row.framework)}&query=${encodeURIComponent(row.query)}&expandTaskId=${recordId}`, '_blank')} className="btn-sm" style={{ background: '#3b82f6' }}>
+                                                    <button onClick={() => {
+                                                        const url = `/details?framework=${encodeURIComponent(row.framework)}&expandTaskId=${recordId}`;
+                                                        window.open(url, '_blank');
+                                                    }} className="btn-sm" style={{ background: '#3b82f6' }}>
                                                         详情
                                                     </button>
                                                     <button
