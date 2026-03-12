@@ -2065,7 +2065,7 @@ function DetailPage() {
                                                             fontWeight: 'bold',
                                                             color: metric.color
                                                         }}>
-                                                            {metric.value != null ? ('format' in metric && metric.format ? metric.format(metric.value) : metric.value.toLocaleString()) : '-'}
+                                                            {metric.value != null ? metric.value.toLocaleString() : '-'}
                                                         </div>
                                                         <div style={{
                                                             fontSize: '0.75rem',

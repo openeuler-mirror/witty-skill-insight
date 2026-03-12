@@ -2,7 +2,6 @@ import fs from 'fs';
 import path from 'path';
 import { judgeAnswer } from './judge';
 import { db, prisma } from './prisma';
-import { getModelPricing, calculateCost } from './model-pricing';
 
 export interface ExecutionRecord {
     upload_id?: string;
@@ -224,16 +223,6 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
     if (data.input_tokens !== undefined) targetRecord.input_tokens = Number(data.input_tokens);
     if (data.output_tokens !== undefined) targetRecord.output_tokens = Number(data.output_tokens);
     if (data.tool_call_error_count !== undefined) targetRecord.tool_call_error_count = Number(data.tool_call_error_count);
-
-    // Calculate cost from token breakdown + model pricing (only if not already provided)
-    if (targetRecord.cost == null && targetRecord.input_tokens != null && targetRecord.output_tokens != null && targetRecord.model) {
-        const pricing = getModelPricing(targetRecord.model);
-        if (pricing) {
-            targetRecord.cost = calculateCost(targetRecord.input_tokens, targetRecord.output_tokens, pricing);
-        } else {
-            console.warn(`[Data-Service] No pricing found for model: ${targetRecord.model}`);
-        }
-    }
 
     const NO_MATCH_REASON = '未找到匹配的评测配置';
 
