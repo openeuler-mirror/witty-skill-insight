@@ -16,6 +16,11 @@ export interface ClaudeExecutionRecord {
   skills: string[];
   interactions: any[];
   cwd?: string;
+  tool_call_count: number;
+  llm_call_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  tool_call_error_count: number;
 }
 
 export class ClaudeParser {
@@ -66,6 +71,10 @@ export class ClaudeParser {
     let model = "";
     const cwd = entries.find(e => e.cwd)?.cwd || "";
     let totalTokens = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let llmCallCount = 0;
+    let toolCallErrorCount = 0;
     let totalActiveLatencyMs = 0;
     const skills = new Set<string>();
     const interactions: any[] = [];
@@ -117,12 +126,16 @@ export class ClaudeParser {
             }
 
             if (entry.type === 'assistant') {
+                llmCallCount++;
                 if (entry.message.model) model = entry.message.model;
                 if (entry.message.usage) {
-                    totalTokens += (entry.message.usage.input_tokens || 0) + 
-                                   (entry.message.usage.output_tokens || 0) + 
-                                   (entry.message.usage.cache_read_input_tokens || 0) + 
+                    const inToks = (entry.message.usage.input_tokens || 0) +
+                                   (entry.message.usage.cache_read_input_tokens || 0) +
                                    (entry.message.usage.cache_creation_input_tokens || 0);
+                    const outToks = entry.message.usage.output_tokens || 0;
+                    totalInputTokens += inToks;
+                    totalOutputTokens += outToks;
+                    totalTokens += inToks + outToks;
                 }
 
                 if (Array.isArray(entry.message.content)) {
@@ -153,6 +166,15 @@ export class ClaudeParser {
                 }
             }
             
+            // Count tool call errors from tool_result content blocks
+            if (entry.type === 'user' && Array.isArray(entry.message?.content)) {
+                for (const block of entry.message.content) {
+                    if (block.type === 'tool_result' && block.is_error) {
+                        toolCallErrorCount++;
+                    }
+                }
+            }
+
             // Process tool results and add timing information
             if (entry.toolUseResult && entry.toolUseResult.durationMs) {
                 const toolUseId = entry.toolUseID;
@@ -197,7 +219,12 @@ export class ClaudeParser {
       model: model,
       skills: Array.from(skills),
       interactions: interactions,
-      cwd: cwd
+      cwd: cwd,
+      tool_call_count: toolCallMap.size,
+      llm_call_count: llmCallCount,
+      input_tokens: totalInputTokens,
+      output_tokens: totalOutputTokens,
+      tool_call_error_count: toolCallErrorCount
     };
   }
 }

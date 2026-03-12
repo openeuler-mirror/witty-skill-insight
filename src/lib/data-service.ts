@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { judgeAnswer } from './judge';
 import { db, prisma } from './prisma';
+import { getModelPricing, calculateCost } from './model-pricing';
 
 export interface ExecutionRecord {
     upload_id?: string;
@@ -37,6 +38,11 @@ export interface ExecutionRecord {
     user?: string | null;
     model?: string | null;
     skip_evaluation?: boolean;
+    tool_call_count?: number;
+    llm_call_count?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+    tool_call_error_count?: number;
     [key: string]: any;
 }
 
@@ -86,7 +92,12 @@ export async function readRecords(user?: string): Promise<ExecutionRecord[]> {
         user: r.user ?? null,
         skill_issues: r.skillIssues ? JSON.parse(r.skillIssues) : [],
         skill_version: r.skillVersion ?? null,
-        model: r.model ?? null
+        model: r.model ?? null,
+        tool_call_count: r.toolCallCount ?? undefined,
+        llm_call_count: r.llmCallCount ?? undefined,
+        input_tokens: r.inputTokens ?? undefined,
+        output_tokens: r.outputTokens ?? undefined,
+        tool_call_error_count: r.toolCallErrorCount ?? undefined,
     }));
 }
 
@@ -159,6 +170,11 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             user: dbRecord.user || undefined,
             skill_version: dbRecord.skillVersion || undefined,
             model: dbRecord.model || undefined,
+            tool_call_count: dbRecord.toolCallCount ?? undefined,
+            llm_call_count: dbRecord.llmCallCount ?? undefined,
+            input_tokens: dbRecord.inputTokens ?? undefined,
+            output_tokens: dbRecord.outputTokens ?? undefined,
+            tool_call_error_count: dbRecord.toolCallErrorCount ?? undefined,
         };
     }
 
@@ -202,6 +218,22 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
 
     const incomingTokens = data.Token || data.token || data.tokens;
     if (incomingTokens !== undefined) targetRecord.tokens = Number(incomingTokens);
+
+    if (data.tool_call_count !== undefined) targetRecord.tool_call_count = Number(data.tool_call_count);
+    if (data.llm_call_count !== undefined) targetRecord.llm_call_count = Number(data.llm_call_count);
+    if (data.input_tokens !== undefined) targetRecord.input_tokens = Number(data.input_tokens);
+    if (data.output_tokens !== undefined) targetRecord.output_tokens = Number(data.output_tokens);
+    if (data.tool_call_error_count !== undefined) targetRecord.tool_call_error_count = Number(data.tool_call_error_count);
+
+    // Calculate cost from token breakdown + model pricing (only if not already provided)
+    if (targetRecord.cost == null && targetRecord.input_tokens != null && targetRecord.output_tokens != null && targetRecord.model) {
+        const pricing = getModelPricing(targetRecord.model);
+        if (pricing) {
+            targetRecord.cost = calculateCost(targetRecord.input_tokens, targetRecord.output_tokens, pricing);
+        } else {
+            console.warn(`[Data-Service] No pricing found for model: ${targetRecord.model}`);
+        }
+    }
 
     const NO_MATCH_REASON = '未找到匹配的评测配置';
 
@@ -327,7 +359,12 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             label: targetRecord.label,
             user: targetRecord.user,
             skillVersion: targetRecord.skill_version,
-            model: targetRecord.model
+            model: targetRecord.model,
+            toolCallCount: targetRecord.tool_call_count,
+            llmCallCount: targetRecord.llm_call_count,
+            inputTokens: targetRecord.input_tokens,
+            outputTokens: targetRecord.output_tokens,
+            toolCallErrorCount: targetRecord.tool_call_error_count,
         },
         update: {
             taskId: targetRecord.task_id,
@@ -350,7 +387,12 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             label: targetRecord.label,
             user: targetRecord.user,
             skillVersion: targetRecord.skill_version,
-            model: targetRecord.model
+            model: targetRecord.model,
+            toolCallCount: targetRecord.tool_call_count,
+            llmCallCount: targetRecord.llm_call_count,
+            inputTokens: targetRecord.input_tokens,
+            outputTokens: targetRecord.output_tokens,
+            toolCallErrorCount: targetRecord.tool_call_error_count,
         }
     });
 
