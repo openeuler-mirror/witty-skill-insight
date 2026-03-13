@@ -1032,6 +1032,32 @@ export default function Dashboard() {
 
         const correctSkillCount = relevant.filter(d => d.is_skill_correct).length;
 
+        // Calculate success rates by label
+        const labels = Array.from(new Set(relevant.map(d => d.label || 'Other')));
+        const labelSuccessRates: Record<string, number> = {};
+        
+        labels.forEach(label => {
+            const labelData = relevant.filter(d => (d.label || 'Other') === label);
+            const successful = labelData.filter(d => d.is_answer_correct).length;
+            labelSuccessRates[label] = labelData.length > 0 ? (successful / labelData.length) : 0;
+        });
+
+        // Calculate Skill Lift for each skill label
+        const passNoSkill = labelSuccessRates['without-skill'] || 0;
+        const skillLifts: Record<string, number> = {};
+        
+        labels.forEach(label => {
+            if (label !== 'without-skill' && label !== 'Other') {
+                const passSkill = labelSuccessRates[label] || 0;
+                // Skill Lift formula: (pass_skill - pass_no_skill) / (1 - pass_no_skill)
+                if (passNoSkill < 1) {
+                    skillLifts[label] = (passSkill - passNoSkill) / (1 - passNoSkill);
+                } else {
+                    skillLifts[label] = 0; // Avoid division by zero
+                }
+            }
+        });
+
         return {
             count: relevant.length,
             avgLatency: totalLat / relevant.length,
@@ -1040,9 +1066,50 @@ export default function Dashboard() {
             avgAnsScore: relevant.filter(d => d.answer_score !== null).length ? (relevant.filter(d => d.answer_score !== null).reduce((sum, d) => sum + (d.answer_score || 0), 0) / relevant.filter(d => d.answer_score !== null).length) : 0,
             best: sorted[0], // Best by Latency
             worst: sorted[sorted.length - 1], // Worst by Latency
-            avgSkillScore: (relevant.reduce((sum, d) => sum + (d.skill_score || 0), 0) / relevant.filter(d => d.skill_score !== undefined).length) || 0
+            avgSkillScore: (relevant.reduce((sum, d) => sum + (d.skill_score || 0), 0) / relevant.filter(d => d.skill_score !== undefined).length) || 0,
+            skillLifts
         };
     }, [filteredData, selectedFramework, selectedQuery]);
+
+    // Task Success Rate by Label
+    const taskSuccessRates = useMemo(() => {
+        const result: {
+            query: string;
+            shortQuery: string;
+            labelStats: {
+                label: string;
+                total: number;
+                successful: number;
+                successRate: number;
+            }[];
+        }[] = [];
+
+        const uniqueQueries = Array.from(new Set(filteredData.map(d => d.query)));
+
+        uniqueQueries.forEach(query => {
+            const queryData = filteredData.filter(d => d.query === query);
+            const labels = Array.from(new Set(queryData.map(d => d.label || 'Other')));
+
+            const labelStats = labels.map(label => {
+                const labelData = queryData.filter(d => (d.label || 'Other') === label);
+                const successful = labelData.filter(d => d.is_answer_correct).length;
+                return {
+                    label,
+                    total: labelData.length,
+                    successful,
+                    successRate: labelData.length > 0 ? (successful / labelData.length) * 100 : 0
+                };
+            });
+
+            result.push({
+                query,
+                shortQuery: query.length > 30 ? query.substring(0, 30) + '...' : query,
+                labelStats
+            });
+        });
+
+        return result;
+    }, [filteredData]);
 
     // Derived Table Data
     const tableFilteredData = useMemo(() => {
@@ -1069,7 +1136,7 @@ export default function Dashboard() {
                         <XAxis dataKey="shortQuery" stroke="#94a3b8" fontSize={11} angle={-20} textAnchor="end" height={60} />
                         <YAxis stroke="#94a3b8" tickFormatter={yFormatter} />
                         <Tooltip
-                            formatter={(val: number | undefined, name: string | undefined) => [val !== undefined ? val + unit : '-', name || '']}
+                            formatter={(val: any, name: any) => [val !== undefined ? val + unit : '-', name || '']}
                             contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }}
                         />
                         <Legend />
@@ -1703,7 +1770,7 @@ export default function Dashboard() {
                                     if (selectedFramework) relevant = relevant.filter(d => d.framework === selectedFramework);
 
                                     if (relevant.length === 0) return null;
-
+                                    
                                     // Calc Stats
                                     const counts = relevant.length;
                                     const avgLat = relevant.reduce((sum, d) => sum + d.latency, 0) / counts;
@@ -1713,6 +1780,33 @@ export default function Dashboard() {
                                     const avgSc = evaluatedRelevant.length ? (evaluatedRelevant.reduce((sum, d) => sum + (d.answer_score || 0), 0) / evaluatedRelevant.length) : 0;
                                     const best = [...relevant].sort((a, b) => a.latency - b.latency)[0];
                                     const worst = [...relevant].sort((a, b) => b.latency - a.latency)[0];
+
+                                    // Calculate Skill Lift for grouped view
+                                    const skillLifts: Record<string, number> = {};
+                                    if (drillDownGroupByLabel && selectedQuery) {
+                                        const queryData = filteredData.filter(d => d.query === selectedQuery);
+                                        const labels = Array.from(new Set(queryData.map(d => d.label || 'Other')));
+                                        const labelSuccessRates: Record<string, number> = {};
+                                        
+                                        labels.forEach(label => {
+                                            const labelData = queryData.filter(d => (d.label || 'Other') === label);
+                                            const successful = labelData.filter(d => d.is_answer_correct).length;
+                                            labelSuccessRates[label] = labelData.length > 0 ? (successful / labelData.length) : 0;
+                                        });
+
+                                        const passNoSkill = labelSuccessRates['without-skill'] || 0;
+                                        
+                                        labels.forEach(label => {
+                                            if (label !== 'without-skill' && label !== 'Other') {
+                                                const passSkill = labelSuccessRates[label] || 0;
+                                                if (passNoSkill < 1) {
+                                                    skillLifts[label] = (passSkill - passNoSkill) / (1 - passNoSkill);
+                                                } else {
+                                                    skillLifts[label] = 0;
+                                                }
+                                            }
+                                        });
+                                    }
 
                                     return (
                                         <div key={val} style={{ marginBottom: '2rem' }}>
@@ -1768,6 +1862,30 @@ export default function Dashboard() {
                                                     </div>
                                                     <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(worst.framework)}&query=${encodeURIComponent(worst.query)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>View Log &gt;</div>
                                                 </div>
+                                                {drillDownGroupByLabel && Object.keys(skillLifts).length > 0 && (
+                                                    <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                                        <div>
+                                                            <div className="card-title text-purple-400" style={{ fontSize: '0.85rem' }}>技能提升 (Skill Lift)</div>
+                                                            <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                                                                {Object.entries(skillLifts).map(([label, lift]) => (
+                                                                    <div key={label} style={{ marginBottom: '0.5rem' }}>
+                                                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{label}</div>
+                                                                        <div style={{ 
+                                                                            fontSize: '1.2rem', 
+                                                                            fontWeight: 'bold',
+                                                                            color: lift > 0 ? '#4ade80' : lift < 0 ? '#f87171' : '#94a3b8'
+                                                                        }}>
+                                                                            {lift > 0 ? '+' : ''}{lift.toFixed(2)}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 'auto', textAlign: 'center' }}>
+                                                            基于 without-skill 基线
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     );
@@ -1822,6 +1940,35 @@ export default function Dashboard() {
                                         </div>
                                     </div>
                                     <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(singleQueryStats.worst.framework)}&query=${encodeURIComponent(singleQueryStats.worst.query)}&expandTaskId=${singleQueryStats.worst.task_id || singleQueryStats.worst.upload_id}`, '_blank')}>View Log &gt;</div>
+                                </div>
+                                {/* Skill Lift Panel */}
+                                <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                    <div>
+                                        <div className="card-title text-purple-400">技能提升 (Skill Lift)</div>
+                                        <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                                            {Object.keys(singleQueryStats.skillLifts || {}).length > 0 ? (
+                                                Object.entries(singleQueryStats.skillLifts || {}).map(([label, lift]) => (
+                                                    <div key={label} style={{ marginBottom: '0.5rem' }}>
+                                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{label}</div>
+                                                        <div style={{ 
+                                                            fontSize: '1.2rem', 
+                                                            fontWeight: 'bold',
+                                                            color: lift > 0 ? '#4ade80' : lift < 0 ? '#f87171' : '#94a3b8'
+                                                        }}>
+                                                            {lift > 0 ? '+' : ''}{lift.toFixed(2)}
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+                                                    无技能数据
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 'auto', textAlign: 'center' }}>
+                                        基于 without-skill 基线
+                                    </div>
                                 </div>
                             </div>
                         ) : (
