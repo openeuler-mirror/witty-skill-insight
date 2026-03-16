@@ -443,27 +443,79 @@ export default async function WittySkillInsightPlugin(input) {
               const body = JSON.stringify(payload);
               logDebug(`Payload Body Size: ${Buffer.byteLength(body)} bytes`);
               
-              await new Promise((resolve) => {
-                  const options = getRequestOptions(parsedHost, apiKey, Buffer.byteLength(body));
-                  const req = requestModule.request(options, (res) => {
-                      let resData = "";
-                      res.on('data', (chunk) => { resData += chunk; });
-                      res.on('end', () => {
-                          logDebug(`Upload Status: ${res.statusCode}, Response: ${resData}`);
-                          resolve();
-                      });
-                  });
-                  req.on('error', (e) => {
-                      logDebug(`Upload Error: ${e.message}`);
-                      resolve();
-                  });
-                  req.setTimeout(10000, () => {
-                      logDebug(`Upload Timeout`);
-                      req.destroy();
-                      resolve();
-                  });
-                  req.end(body);
-              });
+              const options = getRequestOptions(parsedHost, apiKey, Buffer.byteLength(body));
+              const isHttps = parsedHost.protocol === 'https:';
+
+              const cp = require('child_process');
+              const reqId = Date.now() + '_' + Math.floor(Math.random() * 10000);
+              const tmpDir = os.tmpdir();
+              const payloadPath = path.join(tmpDir, `witty_req_${reqId}.json`);
+              const scriptPath = path.join(tmpDir, `witty_upload_${reqId}.js`);
+              const logPath = path.join(tmpDir, `witty_upload_${reqId}.log`);
+
+              const uploaderScript = `
+const http = require('http');
+const https = require('https');
+const fs = require('fs');
+
+try {
+    const reqModule = ${isHttps ? 'https' : 'http'};
+    const options = ${JSON.stringify(options)};
+    const payloadPath = ${JSON.stringify(payloadPath)};
+    const scriptPath = ${JSON.stringify(scriptPath)};
+    const logPath = ${JSON.stringify(logPath)};
+    const body = fs.readFileSync(payloadPath);
+    options.headers['Content-Length'] = body.length;
+
+    const req = reqModule.request(options, (res) => {
+        let resBody = '';
+        res.on('data', (chunk) => { resBody += chunk; });
+        res.on('end', () => {
+            try { fs.appendFileSync(logPath, new Date().toISOString() + ' Upload OK status=' + res.statusCode + ' body=' + resBody + '\\n'); } catch(e){}
+            try { fs.unlinkSync(payloadPath); } catch(e){}
+            try { fs.unlinkSync(scriptPath); } catch(e){}
+        });
+    });
+    
+    req.on('error', (err) => {
+        try { fs.appendFileSync(logPath, new Date().toISOString() + ' Upload ERROR: ' + err.message + '\\n'); } catch(e){}
+        try { fs.unlinkSync(payloadPath); } catch(e){}
+        try { fs.unlinkSync(scriptPath); } catch(e){}
+    });
+    
+    req.setTimeout(15000, () => {
+        req.destroy();
+        try { fs.appendFileSync(logPath, new Date().toISOString() + ' Upload TIMEOUT\\n'); } catch(e){}
+        try { fs.unlinkSync(payloadPath); } catch(e){}
+        try { fs.unlinkSync(scriptPath); } catch(e){}
+    });
+    
+    req.end(body);
+} catch (e) {
+    try { fs.appendFileSync(${JSON.stringify(path.join(os.tmpdir(), 'witty_upload_crash.log'))}, new Date().toISOString() + ' CRASH: ' + e.message + '\\n'); } catch(x){}
+    process.exit(1);
+}
+`;
+
+              fs.writeFileSync(payloadPath, body);
+              fs.writeFileSync(scriptPath, uploaderScript);
+
+              // process.execPath in OpenCode's plugin runtime points to the
+              // OpenCode binary itself (e.g. ~/.opencode/bin/opencode), NOT node.
+              // We must explicitly resolve the node binary path.
+              let nodeBin = 'node';
+              try {
+                  nodeBin = cp.execSync('which node', { encoding: 'utf8', timeout: 3000 }).trim() || 'node';
+              } catch (e) {
+                  logDebug(`Could not resolve node path, falling back to 'node'`);
+              }
+              const shellCmd = `nohup "${nodeBin}" "${scriptPath}" > "${logPath}" 2>&1 &`;
+              logDebug(`Launching uploader via shell: ${shellCmd}`);
+              try {
+                  cp.execSync(shellCmd, { stdio: 'ignore', timeout: 5000 });
+              } catch (spawnErr) {
+                  logDebug(`execSync uploader error: ${spawnErr.message}`);
+              }
 
               /* 
               // Cleanup - DISABLED
