@@ -348,10 +348,16 @@ export default async function WittySkillInsightPlugin(input) {
               let firstUserQuery = "";
               let lastAssistantContent = "";
               let model = "";
+              let totalInputTokens = 0;
+              let totalOutputTokens = 0;
+              let llmCallCount = 0;
+              let toolCallCount = 0;
+              let toolCallErrorCount = 0;
 
               for (const m of messages) {
                   if (m.role === 'user' && !firstUserQuery) firstUserQuery = m.content;
                   if (m.role === 'assistant') {
+                      llmCallCount++;
                       lastAssistantContent = m.content;
                       if (m.model) model = m.model;
                       else if (m.modelID) model = m.modelID;
@@ -368,6 +374,13 @@ export default async function WittySkillInsightPlugin(input) {
                               }
                               totalTokens += Number(u.cache_creation_input_tokens || 0) + Number(u.cache_read_input_tokens || 0);
                           }
+                          // Extended metrics: separate input/output token counts
+                          const inputToks = Number(u.input_tokens || u.input || 0)
+                              + Number(u.cache?.read || u.cache_read_input_tokens || 0)
+                              + Number(u.cache?.write || u.cache_creation_input_tokens || 0);
+                          const outputToks = Number(u.output_tokens || u.output || 0);
+                          totalInputTokens += inputToks;
+                          totalOutputTokens += outputToks;
                       }
                       
                       // Latency Logic
@@ -378,8 +391,18 @@ export default async function WittySkillInsightPlugin(input) {
                            mDuration = m.partBasedDuration + 100;
                       }
 
-                      if (mDuration > 0 && mDuration < 3600000) { 
+                      if (mDuration > 0 && mDuration < 3600000) {
                           totalLatencyMs += mDuration;
+                      }
+
+                      // Count tool calls from this message
+                      if (m.tool_calls && Array.isArray(m.tool_calls)) {
+                          toolCallCount += m.tool_calls.length;
+                          for (const tc of m.tool_calls) {
+                              if (tc.state === 'error' || tc.state === 'failed') {
+                                  toolCallErrorCount++;
+                              }
+                          }
                       }
                   }
               }
@@ -392,7 +415,12 @@ export default async function WittySkillInsightPlugin(input) {
                   framework: 'opencode', 
                   model: model,
                   tokens: totalTokens,
-                  latency: totalLatencyMs / 1000, 
+                  latency: totalLatencyMs / 1000,
+                  input_tokens: totalInputTokens,
+                  output_tokens: totalOutputTokens,
+                  tool_call_count: toolCallCount,
+                  tool_call_error_count: toolCallErrorCount,
+                  llm_call_count: llmCallCount,
                   final_result: lastAssistantContent,
                   interactions: messages.map(m => ({
                       role: m.role,

@@ -60,6 +60,11 @@ model Execution {
   tokens          Int?
   cost            Float?
   latency         Float?
+  toolCallCount      Int?
+  llmCallCount       Int?
+  inputTokens        Int?
+  outputTokens       Int?
+  toolCallErrorCount Int?
   timestamp       DateTime @default(now())
   model           String?
   finalResult     String?

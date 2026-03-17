@@ -79,6 +79,11 @@ TABLE_DEFINITIONS = {
             ("skillVersion", "INTEGER"),
             ("label", "TEXT"),
             ("user", "TEXT"),
+            ("toolCallCount", "INTEGER"),
+            ("llmCallCount", "INTEGER"),
+            ("inputTokens", "INTEGER"),
+            ("outputTokens", "INTEGER"),
+            ("toolCallErrorCount", "INTEGER"),
         ],
         "unique_constraints": []
     },
