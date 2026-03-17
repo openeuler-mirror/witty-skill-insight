@@ -1051,7 +1051,7 @@ export default function Dashboard() {
                 const passSkill = labelSuccessRates[label] || 0;
                 // Skill Lift formula: (pass_skill - pass_no_skill) / (1 - pass_no_skill)
                 if (passNoSkill < 1) {
-                    skillLifts[label] = (passSkill - passNoSkill) / (1 - passNoSkill);
+                    skillLifts[label] = ((passSkill - passNoSkill) / (1 - passNoSkill)) * 100;
                 } else {
                     skillLifts[label] = 0; // Avoid division by zero
                 }
@@ -1070,46 +1070,6 @@ export default function Dashboard() {
             skillLifts
         };
     }, [filteredData, selectedFramework, selectedQuery]);
-
-    // Task Success Rate by Label
-    const taskSuccessRates = useMemo(() => {
-        const result: {
-            query: string;
-            shortQuery: string;
-            labelStats: {
-                label: string;
-                total: number;
-                successful: number;
-                successRate: number;
-            }[];
-        }[] = [];
-
-        const uniqueQueries = Array.from(new Set(filteredData.map(d => d.query)));
-
-        uniqueQueries.forEach(query => {
-            const queryData = filteredData.filter(d => d.query === query);
-            const labels = Array.from(new Set(queryData.map(d => d.label || 'Other')));
-
-            const labelStats = labels.map(label => {
-                const labelData = queryData.filter(d => (d.label || 'Other') === label);
-                const successful = labelData.filter(d => d.is_answer_correct).length;
-                return {
-                    label,
-                    total: labelData.length,
-                    successful,
-                    successRate: labelData.length > 0 ? (successful / labelData.length) * 100 : 0
-                };
-            });
-
-            result.push({
-                query,
-                shortQuery: query.length > 30 ? query.substring(0, 30) + '...' : query,
-                labelStats
-            });
-        });
-
-        return result;
-    }, [filteredData]);
 
     // Derived Table Data
     const tableFilteredData = useMemo(() => {
@@ -1781,9 +1741,9 @@ export default function Dashboard() {
                                     const best = [...relevant].sort((a, b) => a.latency - b.latency)[0];
                                     const worst = [...relevant].sort((a, b) => b.latency - a.latency)[0];
 
-                                    // Calculate Skill Lift for grouped view
-                                    const skillLifts: Record<string, number> = {};
-                                    if (drillDownGroupByLabel && selectedQuery) {
+                                    // Calculate Skill Lift for grouped view (only for current label)
+                                    let skillLift: number | null = null;
+                                    if (drillDownGroupByLabel && selectedQuery && val !== 'without-skill' && val !== 'Other') {
                                         const queryData = filteredData.filter(d => d.query === selectedQuery);
                                         const labels = Array.from(new Set(queryData.map(d => d.label || 'Other')));
                                         const labelSuccessRates: Record<string, number> = {};
@@ -1795,17 +1755,13 @@ export default function Dashboard() {
                                         });
 
                                         const passNoSkill = labelSuccessRates['without-skill'] || 0;
+                                        const passSkill = labelSuccessRates[val] || 0;
                                         
-                                        labels.forEach(label => {
-                                            if (label !== 'without-skill' && label !== 'Other') {
-                                                const passSkill = labelSuccessRates[label] || 0;
-                                                if (passNoSkill < 1) {
-                                                    skillLifts[label] = (passSkill - passNoSkill) / (1 - passNoSkill);
-                                                } else {
-                                                    skillLifts[label] = 0;
-                                                }
-                                            }
-                                        });
+                                        if (passNoSkill < 1) {
+                                            skillLift = ((passSkill - passNoSkill) / (1 - passNoSkill)) * 100;
+                                        } else {
+                                            skillLift = 0;
+                                        }
                                     }
 
                                     return (
@@ -1862,23 +1818,22 @@ export default function Dashboard() {
                                                     </div>
                                                     <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(worst.framework)}&query=${encodeURIComponent(worst.query)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>View Log &gt;</div>
                                                 </div>
-                                                {drillDownGroupByLabel && Object.keys(skillLifts).length > 0 && (
+                                                {/*Skill Lift*/}
+                                                {drillDownGroupByLabel && skillLift !== null && (
                                                     <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                         <div>
                                                             <div className="card-title text-purple-400" style={{ fontSize: '0.85rem' }}>技能提升 (Skill Lift)</div>
                                                             <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
-                                                                {Object.entries(skillLifts).map(([label, lift]) => (
-                                                                    <div key={label} style={{ marginBottom: '0.5rem' }}>
-                                                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{label}</div>
-                                                                        <div style={{ 
-                                                                            fontSize: '1.2rem', 
-                                                                            fontWeight: 'bold',
-                                                                            color: lift > 0 ? '#4ade80' : lift < 0 ? '#f87171' : '#94a3b8'
-                                                                        }}>
-                                                                            {lift > 0 ? '+' : ''}{lift.toFixed(2)}
-                                                                        </div>
+                                                                <div style={{ marginBottom: '0.5rem' }}>
+                                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{val}</div>
+                                                                    <div style={{ 
+                                                                        fontSize: '1.2rem', 
+                                                                        fontWeight: 'bold',
+                                                                        color: skillLift > 0 ? '#4ade80' : skillLift < 0 ? '#f87171' : '#94a3b8'
+                                                                    }}>
+                                                                        {skillLift > 0 ? '+' : ''}{skillLift.toFixed(2)}%
                                                                     </div>
-                                                                ))}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                         <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 'auto', textAlign: 'center' }}>
@@ -1955,7 +1910,7 @@ export default function Dashboard() {
                                                             fontWeight: 'bold',
                                                             color: lift > 0 ? '#4ade80' : lift < 0 ? '#f87171' : '#94a3b8'
                                                         }}>
-                                                            {lift > 0 ? '+' : ''}{lift.toFixed(2)}
+                                                            {lift > 0 ? '+' : ''}{lift.toFixed(2)}%
                                                         </div>
                                                     </div>
                                                 ))
