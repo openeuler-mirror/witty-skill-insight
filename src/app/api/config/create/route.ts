@@ -18,7 +18,7 @@ async function processConfigAsync(
 ) {
     try {
         const settings = await getActiveConfig(user);
-        if (!settings || !settings.apiKey) {
+        if (!settings) {
             console.error(`[ConfigCreate] No model configuration for user: ${user}`);
             await db.updateConfig(configId, { parseStatus: 'failed' });
             return;
@@ -26,7 +26,7 @@ async function processConfigAsync(
 
         const { customFetch } = getProxyConfig();
         const openaiClient = new OpenAI({
-            apiKey: settings.apiKey,
+            apiKey: settings.apiKey || 'no-api-key-required',
             baseURL: settings.baseUrl || 'https://api.deepseek.com',
             fetch: customFetch,
         });

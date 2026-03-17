@@ -12,15 +12,19 @@ export async function POST(request: Request) {
         const baseUrl = body.baseUrl || body.evalBaseUrl;
         let normalizedBaseUrl = baseUrl;
         if (normalizedBaseUrl) {
-            normalizedBaseUrl = normalizedBaseUrl.replace(/\/chat\/completions\/?$/, '').replace(/\/v1\/?$/, '');
+            // Normalize: strip /chat/completions if user pasted full endpoint
+            // Keep /v1 suffix as it's required by many OpenAI-compatible APIs
+            normalizedBaseUrl = normalizedBaseUrl.replace(/\/chat\/completions\/?$/, '');
         }
 
-        if (!apiKey) return NextResponse.json({ success: false, error: 'API Key is required' }, { status: 400 });
+        // Allow empty API Key for services that don't require authentication
+        // Use a placeholder if not provided
+        const finalApiKey = apiKey || 'no-api-key-required';
 
         const { customFetch } = getProxyConfig();
 
         const client = new OpenAI({
-             apiKey,
+             apiKey: finalApiKey,
              baseURL: normalizedBaseUrl || 
                       (provider === 'deepseek' ? "https://api.deepseek.com" : 
                        provider === 'siliconflow' ? "https://api.siliconflow.cn/v1" : 

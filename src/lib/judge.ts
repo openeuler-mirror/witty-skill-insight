@@ -28,9 +28,7 @@ async function getLlmClient(user?: string | null) {
         return { client: null, model: null };
     }
 
-    const apiKey = config.apiKey;
-    if (!apiKey) return { client: null, model: null };
-
+    const apiKey = config.apiKey || 'no-api-key-required';
     const baseURL = config.baseUrl || "https://api.deepseek.com";
     const { customFetch } = getProxyConfig();
     
@@ -293,7 +291,7 @@ export async function analyzeEvaluationItems(
     user?: string | null
 ): Promise<SkillImprovementItem[]> {
     const { client, model } = await getLlmClient(user);
-    if (!client || !client.apiKey || !skillDef || !judgmentReason) {
+    if (!client || !skillDef || !judgmentReason) {
         return [];
     }
     

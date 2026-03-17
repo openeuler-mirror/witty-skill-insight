@@ -1338,8 +1338,9 @@ export default function Dashboard() {
                                         value={tempConfig.baseUrl || ''}
                                         onChange={e => {
                                             let val = e.target.value;
-                                            // Normalize: strip /chat/completions or /v1 if user pasted full endpoint
-                                            val = val.replace(/\/chat\/completions\/?$/, '').replace(/\/v1\/?$/, '');
+                                            // Normalize: strip /chat/completions if user pasted full endpoint
+                                            // Keep /v1 suffix as it's required by many OpenAI-compatible APIs
+                                            val = val.replace(/\/chat\/completions\/?$/, '');
                                             setTempConfig({ ...tempConfig, baseUrl: val });
                                         }}
                                         style={{ width: '100%', padding: '10px', background: '#0f172a', border: '1px solid #334155', color: 'white', borderRadius: '4px' }}
