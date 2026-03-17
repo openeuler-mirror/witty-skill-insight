@@ -1032,32 +1032,6 @@ export default function Dashboard() {
 
         const correctSkillCount = relevant.filter(d => d.is_skill_correct).length;
 
-        // Calculate success rates by label
-        const labels = Array.from(new Set(relevant.map(d => d.label || 'Other')));
-        const labelSuccessRates: Record<string, number> = {};
-        
-        labels.forEach(label => {
-            const labelData = relevant.filter(d => (d.label || 'Other') === label);
-            const successful = labelData.filter(d => d.is_answer_correct).length;
-            labelSuccessRates[label] = labelData.length > 0 ? (successful / labelData.length) : 0;
-        });
-
-        // Calculate Skill Lift for each skill label
-        const passNoSkill = labelSuccessRates['without-skill'] || 0;
-        const skillLifts: Record<string, number> = {};
-        
-        labels.forEach(label => {
-            if (label !== 'without-skill' && label !== 'Other') {
-                const passSkill = labelSuccessRates[label] || 0;
-                // Skill Lift formula: (pass_skill - pass_no_skill) / (1 - pass_no_skill)
-                if (passNoSkill < 1) {
-                    skillLifts[label] = ((passSkill - passNoSkill) / (1 - passNoSkill)) * 100;
-                } else {
-                    skillLifts[label] = 0; // Avoid division by zero
-                }
-            }
-        });
-
         return {
             count: relevant.length,
             avgLatency: totalLat / relevant.length,
@@ -1066,8 +1040,7 @@ export default function Dashboard() {
             avgAnsScore: relevant.filter(d => d.answer_score !== null).length ? (relevant.filter(d => d.answer_score !== null).reduce((sum, d) => sum + (d.answer_score || 0), 0) / relevant.filter(d => d.answer_score !== null).length) : 0,
             best: sorted[0], // Best by Latency
             worst: sorted[sorted.length - 1], // Worst by Latency
-            avgSkillScore: (relevant.reduce((sum, d) => sum + (d.skill_score || 0), 0) / relevant.filter(d => d.skill_score !== undefined).length) || 0,
-            skillLifts
+            avgSkillScore: (relevant.reduce((sum, d) => sum + (d.skill_score || 0), 0) / relevant.filter(d => d.skill_score !== undefined).length) || 0
         };
     }, [filteredData, selectedFramework, selectedQuery]);
 
