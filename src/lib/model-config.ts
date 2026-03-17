@@ -24,37 +24,53 @@ const BUILTIN_MODEL_PRICING: Record<string, ModelPricing> = {
   'minimax-m2.5-free': { inputTokenPrice: 0, outputTokenPrice: 0 },
 };
 
+// Built-in context window sizes (max tokens)
+const BUILTIN_CONTEXT_WINDOWS: Record<string, number> = {
+  'claude-opus-4-6':   1000000,
+  'claude-sonnet-4-6': 1000000,
+  'deepseek-chat':     128000,
+  'deepseek-reasoner': 128000,
+  'minimax-m2.5-free': 196608,
+};
+
 const CUSTOM_MODELS_PATH = path.join(process.cwd(), 'custom-models.json');
 
 let customPricingCache: Record<string, ModelPricing> = {};
+let customContextWindowCache: Record<string, number> = {};
 let customPricingMtime: number = -1;
 
-function loadCustomPricing(): Record<string, ModelPricing> {
+function loadCustomModels(): { pricing: Record<string, ModelPricing>; contextWindows: Record<string, number> } {
   try {
     const mtime = fs.statSync(CUSTOM_MODELS_PATH).mtimeMs;
-    if (mtime === customPricingMtime) return customPricingCache;
+    if (mtime === customPricingMtime) return { pricing: customPricingCache, contextWindows: customContextWindowCache };
     const raw = JSON.parse(fs.readFileSync(CUSTOM_MODELS_PATH, 'utf-8'));
     const entries: Record<string, ModelPricing> = {};
+    const ctxWindows: Record<string, number> = {};
     for (const [key, value] of Object.entries(raw)) {
       if (key.startsWith('_')) continue; // skip meta keys like _readme
       const v = value as Record<string, unknown>;
       if (typeof v.inputTokenPrice === 'number' && typeof v.outputTokenPrice === 'number') {
         entries[key] = v as unknown as ModelPricing;
       }
+      if (typeof v.contextWindow === 'number') {
+        ctxWindows[key] = v.contextWindow;
+      }
     }
     customPricingCache = entries;
+    customContextWindowCache = ctxWindows;
     customPricingMtime = mtime;
   } catch (e) {
     if (e instanceof SyntaxError) {
       console.warn('[model-config] Failed to parse custom-models.json:', e.message);
     }
     customPricingCache = {};
+    customContextWindowCache = {};
     customPricingMtime = -1;
   }
-  return customPricingCache;
+  return { pricing: customPricingCache, contextWindows: customContextWindowCache };
 }
 
-function findPricing(modelName: string, table: Record<string, ModelPricing>): ModelPricing | null {
+function findByPrefix<T>(modelName: string, table: Record<string, T>): T | null {
   if (table[modelName]) return table[modelName];
   const sorted = Object.entries(table).sort((a, b) => b[0].length - a[0].length);
   for (const [key, value] of sorted) {
@@ -72,10 +88,25 @@ export interface ModelPricingResult {
 
 export function getModelPricing(modelName: string): ModelPricingResult | null {
   // Custom pricing takes precedence over built-in
-  const custom = findPricing(modelName, loadCustomPricing());
+  const { pricing: customPricing } = loadCustomModels();
+  const custom = findByPrefix(modelName, customPricing);
   if (custom) return { pricing: custom, source: 'custom' };
-  const builtin = findPricing(modelName, BUILTIN_MODEL_PRICING);
+  const builtin = findByPrefix(modelName, BUILTIN_MODEL_PRICING);
   if (builtin) return { pricing: builtin, source: 'default' };
+  return null;
+}
+
+export interface ModelContextWindowResult {
+  contextWindow: number;
+  source: PricingSource;
+}
+
+export function getModelContextWindow(modelName: string): ModelContextWindowResult | null {
+  const { contextWindows } = loadCustomModels();
+  const customCw = findByPrefix(modelName, contextWindows);
+  if (customCw != null) return { contextWindow: customCw, source: 'custom' };
+  const builtinCw = findByPrefix(modelName, BUILTIN_CONTEXT_WINDOWS);
+  if (builtinCw != null) return { contextWindow: builtinCw, source: 'default' };
   return null;
 }
 
