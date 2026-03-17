@@ -1825,7 +1825,6 @@ export default function Dashboard() {
                                                             <div className="card-title text-purple-400" style={{ fontSize: '0.85rem' }}>技能提升 (Skill Lift)</div>
                                                             <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
                                                                 <div style={{ marginBottom: '0.5rem' }}>
-                                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{val}</div>
                                                                     <div style={{ 
                                                                         fontSize: '1.2rem', 
                                                                         fontWeight: 'bold',
@@ -1836,8 +1835,8 @@ export default function Dashboard() {
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 'auto', textAlign: 'center' }}>
-                                                            基于 without-skill 基线
+                                                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 'auto', textAlign: 'center', whiteSpace: 'pre-wrap' }}>
+                                                            基于 without-skill 基线. 公式: (pass_skill - pass_no_skill) / (1 - pass_no_skill)
                                                         </div>
                                                     </div>
                                                 )}
@@ -1892,40 +1891,11 @@ export default function Dashboard() {
                                         <div className="text-sm text-slate-400 mt-2">
                                             Token: {formatTokens(singleQueryStats.worst.tokens)} <br />
                                             Time: {formatDateTime(singleQueryStats.worst.timestamp)}
-                                        </div>
-                                    </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(singleQueryStats.worst.framework)}&query=${encodeURIComponent(singleQueryStats.worst.query)}&expandTaskId=${singleQueryStats.worst.task_id || singleQueryStats.worst.upload_id}`, '_blank')}>View Log &gt;</div>
-                                </div>
-                                {/* Skill Lift Panel */}
-                                <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                                    <div>
-                                        <div className="card-title text-purple-400">技能提升 (Skill Lift)</div>
-                                        <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
-                                            {Object.keys(singleQueryStats.skillLifts || {}).length > 0 ? (
-                                                Object.entries(singleQueryStats.skillLifts || {}).map(([label, lift]) => (
-                                                    <div key={label} style={{ marginBottom: '0.5rem' }}>
-                                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{label}</div>
-                                                        <div style={{ 
-                                                            fontSize: '1.2rem', 
-                                                            fontWeight: 'bold',
-                                                            color: lift > 0 ? '#4ade80' : lift < 0 ? '#f87171' : '#94a3b8'
-                                                        }}>
-                                                            {lift > 0 ? '+' : ''}{lift.toFixed(2)}%
-                                                        </div>
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-                                                    无技能数据
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 'auto', textAlign: 'center' }}>
-                                        基于 without-skill 基线
-                                    </div>
-                                </div>
-                            </div>
+                                         </div>
+                                     </div>
+                                     <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(singleQueryStats.worst.framework)}&query=${encodeURIComponent(singleQueryStats.worst.query)}&expandTaskId=${singleQueryStats.worst.task_id || singleQueryStats.worst.upload_id}`, '_blank')}>View Log &gt;</div>
+                                 </div>
+                             </div>
                         ) : (
                             <div className="card" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
                                 {selectedQuery ? '该组合下暂无数据' : '请选择一个问题进行分析'}
