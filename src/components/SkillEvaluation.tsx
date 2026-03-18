@@ -305,7 +305,7 @@ export function SkillEvaluation({ skillId }: { skillId?: string }) {
                   <YAxis stroke="#9ca3af" domain={[0, 100]} />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#1f2937', borderColor: '#4b5563' }}
-                    formatter={(value: any) => [`${value}分`, '质量评分']}
+                    formatter={(value) => [`${value}分`, '质量评分']}
                   />
                   <Bar
                     dataKey="score"
