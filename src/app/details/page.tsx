@@ -12,6 +12,7 @@ const YAxis = dynamic(() => import('recharts').then(mod => mod.YAxis), { ssr: fa
 const CartesianGrid = dynamic(() => import('recharts').then(mod => mod.CartesianGrid), { ssr: false });
 const Tooltip = dynamic(() => import('recharts').then(mod => mod.Tooltip), { ssr: false });
 const Legend = dynamic(() => import('recharts').then(mod => mod.Legend), { ssr: false });
+const ReferenceLine = dynamic(() => import('recharts').then(mod => mod.ReferenceLine), { ssr: false });
 const ResponsiveContainer = dynamic(() => import('recharts').then(mod => mod.ResponsiveContainer), { ssr: false });
 
 const ReactJson = dynamic(() => import('react-json-view'), { ssr: false });
@@ -70,6 +71,10 @@ interface Execution {
     cost_pricing?: { inputTokenPrice: number; outputTokenPrice: number; cacheReadInputTokenPrice?: number; cacheCreationInputTokenPrice?: number; source?: 'default' | 'custom' } | null;
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
+    max_single_call_tokens?: number;
+    context_window_pct?: number;
+    context_window_limit?: number;
+    context_window_source?: string;
 }
 
 interface Interaction {
@@ -662,6 +667,7 @@ function DetailPage() {
 
     const [feedbackComments, setFeedbackComments] = useState<Record<string, string>>({});
     const [focusedStep, setFocusedStep] = useState<number | null>(null);
+    const [showContextWindowChart, setShowContextWindowChart] = useState(false);
 
     const submitDetailFeedback = async (item: Execution, type: 'like' | 'dislike' | null, comment?: string) => {
         const taskId = item.task_id || item.upload_id || '';
@@ -861,10 +867,22 @@ function DetailPage() {
             };
         });
 
+        const ctxWindowData = items.map(item => {
+            const records = filteredData.filter(d => d[key] === item && d.context_window_pct != null);
+            const avgPct = records.length > 0
+                ? records.reduce((sum, r) => sum + (r.context_window_pct || 0), 0) / records.length
+                : undefined;
+            return {
+                name: item,
+                context_window_pct: avgPct
+            };
+        }).filter(d => d.context_window_pct != null);
+
         return {
             latency: latencyData,
             tokens: tokensData,
-            accuracy: accuracyData
+            accuracy: accuracyData,
+            contextWindow: ctxWindowData
         };
     }, [filteredData, comparisonDim]);
 
@@ -1479,8 +1497,48 @@ function DetailPage() {
                 )}
             </div>
 
-            {/* Charts Section */}
-
+            {/* Context Window Trend Chart (Collapsible) */}
+            {filteredData.some(d => d.context_window_pct != null) && (
+                <div style={{ marginBottom: '1rem' }}>
+                    <button
+                        onClick={() => setShowContextWindowChart(!showContextWindowChart)}
+                        style={{
+                            background: 'transparent',
+                            border: '1px solid #334155',
+                            color: '#94a3b8',
+                            padding: '6px 14px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            marginBottom: '0.5rem'
+                        }}
+                    >
+                        <span style={{ fontSize: '0.7rem' }}>{showContextWindowChart ? '▲' : '▼'}</span>
+                        上下文窗口利用率趋势 (%)
+                    </button>
+                    {showContextWindowChart && (
+                        <div className="card" style={cardStyle}>
+                            <h3 style={chartTitleStyle}>
+                                上下文窗口利用率趋势 (%)
+                                <CustomTooltip content="单次 LLM 调用中最大 token 数 / 模型上下文窗口限制 × 100。超过 90% 时推理质量可能下降。" />
+                            </h3>
+                            <ResponsiveContainer width="100%" height={200}>
+                                <LineChart data={filteredData.filter(d => d.context_window_pct != null)}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                                    <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="#64748b" fontSize={11} />
+                                    <YAxis stroke="#64748b" fontSize={11} domain={[0, 100]} />
+                                    <Tooltip contentStyle={{ background: '#1e293b', borderColor: '#334155' }} />
+                                    <ReferenceLine y={90} stroke="#f87171" strokeDasharray="4 4" label={{ value: '90%', fill: '#f87171', fontSize: 11 }} />
+                                    <Line type="monotone" dataKey="context_window_pct" stroke="#a78bfa" dot={true} strokeWidth={2} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+                    )}
+                </div>
+            )}
 
 
 
@@ -1585,6 +1643,24 @@ function DetailPage() {
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>
+                        {compareDimData.contextWindow.length > 0 && (
+                            <div className="card" style={cardStyle}>
+                                <h3 style={chartTitleStyle}>
+                                    平均窗口% - {comparisonDim === 'label' ? '标签' : '模型'}
+                                    <CustomTooltip content="平均上下文窗口利用率 (%)" />
+                                </h3>
+                                <ResponsiveContainer width="100%" height={200}>
+                                    <LineChart data={compareDimData.contextWindow}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                                        <XAxis dataKey="name" tickFormatter={(v) => String(v)} stroke="#64748b" fontSize={11} />
+                                        <YAxis stroke="#64748b" fontSize={11} domain={[0, 100]} />
+                                        <Tooltip contentStyle={{ background: '#1e292b', borderColor: '#334155' }} />
+                                        <ReferenceLine y={90} stroke="#f87171" strokeDasharray="4 4" />
+                                        <Line type="monotone" dataKey="context_window_pct" stroke="#a78bfa" dot={true} strokeWidth={2} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -1593,12 +1669,13 @@ function DetailPage() {
             <div className="list-container">
                 <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>执行记录详情</h2>
                 {/* Headers */}
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', borderBottom: '1px solid #334155', color: '#94a3b8', fontSize: '0.9rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', borderBottom: '1px solid #334155', color: '#94a3b8', fontSize: '0.9rem' }}>
                     <div>时间 / ID</div>
                     <div>状态</div>
                     <div>标签</div>
                     <div>时延</div>
                     <div>消耗</div>
+                    <div>窗口%</div>
                     <div>评分</div>
                     <div></div>
                 </div>
@@ -1619,7 +1696,7 @@ function DetailPage() {
                             {/* Summary Row */}
                             <div
                                 className="record-summary"
-                                style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', alignItems: 'center', cursor: 'pointer', transition: 'background 0.2s' }}
+                                style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', alignItems: 'center', cursor: 'pointer', transition: 'background 0.2s' }}
                                 onClick={() => toggleExpand(taskId)}
                                 onMouseOver={(e: any) => e.currentTarget.style.background = '#334155'}
                                 onMouseOut={(e: any) => e.currentTarget.style.background = 'transparent'}
@@ -1642,6 +1719,9 @@ function DetailPage() {
                                 </div>
                                 <div>{item.latency ? (item.latency < 1 ? (item.latency * 1000).toFixed(0) + 'ms' : item.latency.toFixed(2) + 's') : '-'}</div>
                                 <div>{item.tokens}</div>
+                                <div style={{ color: item.context_window_pct != null ? (item.context_window_pct > 90 ? '#f87171' : '#4ade80') : '#94a3b8' }}>
+                                    {item.context_window_pct != null ? `${item.context_window_pct.toFixed(1)}%` : '-'}
+                                </div>
                                 <div style={{ color: item.answer_score === null ? '#94a3b8' : ((item.answer_score || 0) > 0.8 ? '#4ade80' : '#f87171') }}>{item.answer_score === null ? '--' : item.answer_score?.toFixed(2)}</div>
                                 <div style={{ textAlign: 'center', color: '#94a3b8' }} className="expand-icon">
                                     {isExpanded ? '▲' : '▼'}
@@ -2068,6 +2148,18 @@ function DetailPage() {
                                                     { label: 'Tool Errors', value: item.tool_call_error_count ?? 0, color: item.tool_call_error_count ? '#f87171' : '#4ade80' },
                                                     { label: 'Input Tokens', value: item.input_tokens, color: '#38bdf8' },
                                                     { label: 'Output Tokens', value: item.output_tokens, color: '#38bdf8' },
+                                                    {
+                                                        label: 'Context Window %',
+                                                        value: item.context_window_pct,
+                                                        color: item.context_window_pct != null ? (item.context_window_pct > 90 ? '#f87171' : '#4ade80') : '#38bdf8',
+                                                        format: (v: number) => `${v.toFixed(1)}%`,
+                                                        fallback: (item.context_window_pct == null && item.max_single_call_tokens != null) ? 'N/A' : undefined,
+                                                        tooltip: item.context_window_pct != null
+                                                            ? `max_single_call_tokens (${item.max_single_call_tokens?.toLocaleString()}) / context_window_limit (${item.context_window_limit?.toLocaleString()}) × 100` + (item.model ? ` (${item.model})` : '') + `. Source: ${item.context_window_source || 'default'}.`
+                                                            : item.model
+                                                                ? `Context window not configured for model: ${item.model}.`
+                                                                : 'Model unknown. Context window % cannot be calculated.'
+                                                    },
                                                     {
                                                         label: 'Est. Cost',
                                                         value: item.cost,

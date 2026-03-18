@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { judgeAnswer } from './judge';
 import { db, prisma } from './prisma';
-import { getModelPricing, calculateCost, DEFAULT_CACHE_READ_RATIO, DEFAULT_CACHE_CREATION_RATIO } from './model-config';
+import { getModelPricing, calculateCost, getModelContextWindow, DEFAULT_CACHE_READ_RATIO, DEFAULT_CACHE_CREATION_RATIO } from './model-config';
 
 export interface ExecutionRecord {
     upload_id?: string;
@@ -45,6 +45,10 @@ export interface ExecutionRecord {
     tool_call_error_count?: number;
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
+    max_single_call_tokens?: number;
+    context_window_pct?: number;
+    context_window_limit?: number;
+    context_window_source?: string;
     [key: string]: any;
 }
 
@@ -75,6 +79,7 @@ export async function readRecords(user?: string): Promise<ExecutionRecord[]> {
         const model = r.model ?? null;
         const pricingResult = model ? getModelPricing(model) : null;
         const pricing = pricingResult?.pricing ?? null;
+        const cwResult = (model && r.maxSingleCallTokens != null) ? getModelContextWindow(model) : null;
         return {
             ...r,
             upload_id: r.id,
@@ -108,6 +113,12 @@ export async function readRecords(user?: string): Promise<ExecutionRecord[]> {
             tool_call_error_count: r.toolCallErrorCount ?? undefined,
             cache_read_input_tokens: r.cacheReadInputTokens ?? undefined,
             cache_creation_input_tokens: r.cacheCreationInputTokens ?? undefined,
+            max_single_call_tokens: r.maxSingleCallTokens ?? undefined,
+            context_window_pct: (r.maxSingleCallTokens != null && cwResult)
+                ? Math.round((r.maxSingleCallTokens / cwResult.contextWindow) * 1000) / 10
+                : undefined,
+            context_window_limit: cwResult?.contextWindow,
+            context_window_source: cwResult?.source,
             cost_pricing: pricing ? {
                 inputTokenPrice: pricing.inputTokenPrice,
                 outputTokenPrice: pricing.outputTokenPrice,
@@ -195,6 +206,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             tool_call_error_count: dbRecord.toolCallErrorCount ?? undefined,
             cache_read_input_tokens: dbRecord.cacheReadInputTokens ?? undefined,
             cache_creation_input_tokens: dbRecord.cacheCreationInputTokens ?? undefined,
+            max_single_call_tokens: dbRecord.maxSingleCallTokens ?? undefined,
         };
     }
 
@@ -246,6 +258,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
     if (data.tool_call_error_count !== undefined) targetRecord.tool_call_error_count = Number(data.tool_call_error_count);
     if (data.cache_read_input_tokens !== undefined) targetRecord.cache_read_input_tokens = Number(data.cache_read_input_tokens);
     if (data.cache_creation_input_tokens !== undefined) targetRecord.cache_creation_input_tokens = Number(data.cache_creation_input_tokens);
+    if (data.max_single_call_tokens !== undefined) targetRecord.max_single_call_tokens = Number(data.max_single_call_tokens);
 
     const NO_MATCH_REASON = '未找到匹配的评测配置';
 
@@ -379,6 +392,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             toolCallErrorCount: targetRecord.tool_call_error_count,
             cacheReadInputTokens: targetRecord.cache_read_input_tokens,
             cacheCreationInputTokens: targetRecord.cache_creation_input_tokens,
+            maxSingleCallTokens: targetRecord.max_single_call_tokens,
         },
         update: {
             taskId: targetRecord.task_id,
@@ -409,6 +423,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             toolCallErrorCount: targetRecord.tool_call_error_count,
             cacheReadInputTokens: targetRecord.cache_read_input_tokens,
             cacheCreationInputTokens: targetRecord.cache_creation_input_tokens,
+            maxSingleCallTokens: targetRecord.max_single_call_tokens,
         }
     });
 

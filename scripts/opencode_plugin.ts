@@ -355,6 +355,7 @@ export default async function WittySkillInsightPlugin(input) {
               let llmCallCount = 0;
               let toolCallCount = 0;
               let toolCallErrorCount = 0;
+              let maxSingleCallTokens = 0;
 
               for (const m of messages) {
                   if (m.role === 'user' && !firstUserQuery) firstUserQuery = m.content;
@@ -385,6 +386,8 @@ export default async function WittySkillInsightPlugin(input) {
                           totalOutputTokens += outputToks;
                           totalCacheReadInputTokens += cacheReadToks;
                           totalCacheCreationInputTokens += cacheCreateToks;
+                          const callTotal = inputToks + cacheReadToks + cacheCreateToks + outputToks;
+                          if (callTotal > maxSingleCallTokens) maxSingleCallTokens = callTotal;
                       }
                       
                       // Latency Logic
@@ -427,6 +430,7 @@ export default async function WittySkillInsightPlugin(input) {
                   llm_call_count: llmCallCount,
                   cache_read_input_tokens: totalCacheReadInputTokens,
                   cache_creation_input_tokens: totalCacheCreationInputTokens,
+                  max_single_call_tokens: maxSingleCallTokens,
                   final_result: lastAssistantContent,
                   interactions: messages.map(m => ({
                       role: m.role,

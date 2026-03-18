@@ -67,6 +67,7 @@ model Execution {
   toolCallErrorCount Int?
   cacheReadInputTokens    Int?
   cacheCreationInputTokens Int?
+  maxSingleCallTokens     Int?
   timestamp       DateTime @default(now())
   model           String?
   finalResult     String?

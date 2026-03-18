@@ -86,6 +86,7 @@ TABLE_DEFINITIONS = {
             ("toolCallErrorCount", "INTEGER"),
             ("cacheReadInputTokens", "INTEGER"),
             ("cacheCreationInputTokens", "INTEGER"),
+            ("maxSingleCallTokens", "INTEGER"),
         ],
         "unique_constraints": []
     },
