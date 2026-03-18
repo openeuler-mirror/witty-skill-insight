@@ -173,13 +173,15 @@ bash scripts/restart_dev.sh
 
 ## 📡 接入数据采集
 
-### 方式一：一键配置（推荐）
+### 一键配置
 
-无需克隆代码，在任意终端运行以下命令即可自动完成 **OpenCode** **OpenClaw** 和 **Claude Code** 的自动采集装载与配置：
+无需克隆代码，在任意终端运行以下命令即可自动完成数据采集组件的安装与配置：
 
 ```bash
 curl -sSf http://<DASHBOARD_IP>:3000/api/setup | bash
 ```
+
+💡 **隐私保护**：您可以选择性安装，避免不需要的框架数据被采集上传。
 
 安装过程会提示输入您的 `WITTY_INSIGHT_API_KEY`（可在看板右上角获取）。
 
@@ -187,85 +189,6 @@ curl -sSf http://<DASHBOARD_IP>:3000/api/setup | bash
   <img src="docs/images/api_key_modal.png" width="60%" />
 </p>
 <p align="center"><em>在看板右上角获取您的专属 API Key</em></p>
-
-#### 安装后目录结构
-
-一键配置完成后，`~/.witty/` 目录结构如下：
-
-```
-~/.witty/
-├── .env                              # 配置文件（API Key、Host）
-├── claude_watcher_client.ts          # Claude Code 监控脚本
-├── openclaw_watcher_client.ts        # OpenClaw 监控脚本
-├── sync_skills.ts                    # Skill 同步工具
-├── start_claude_watcher.sh           # Claude watcher 启动脚本
-├── start_openclaw_watcher.sh         # OpenClaw watcher 启动脚本
-├── start_watchers.sh                 # 一键启动所有 watcher
-├── stop_watchers.sh                  # 一键停止所有 watcher
-├── logs/                             # 日志目录
-│   ├── claude_watcher.log
-│   └── openclaw_watcher.log
-└── node_modules/                     # 依赖包
-```
-
-#### Watcher 管理命令
-
-```bash
-# 启动所有 watcher
-~/.witty/start_watchers.sh
-
-# 停止所有 watcher
-~/.witty/stop_watchers.sh
-
-# 单独启动 Claude watcher
-~/.witty/start_claude_watcher.sh
-
-# 单独启动 OpenClaw watcher
-~/.witty/start_openclaw_watcher.sh
-
-# 查看日志
-tail -f ~/.witty/logs/claude_watcher.log
-tail -f ~/.witty/logs/openclaw_watcher.log
-```
-
-### 方式二：手动配置
-
-1. **获取 API Key**：登录看板，点击右上角头像获取 API Key
-
-2. **配置身份文件** `~/.witty/.env`：
-
-   ```env
-   WITTY_INSIGHT_API_KEY=sk-xxxx-xxxx
-   WITTY_INSIGHT_HOST=<DASHBOARD_IP>:3000
-   ```
-
-3. **安装 OpenCode 插件**：将 `scripts/opencode_plugin.ts` 复制到 `~/.opencode/plugins/`：
-
-   ```bash
-   cp scripts/opencode_plugin.ts ~/.opencode/plugins/Witty-Skill-Insight.ts
-   ```
-
-4. **安装 Watcher 依赖**（用于 Claude Code 和 OpenClaw 监控）：
-
-   ```bash
-   cd ~/.witty
-   # 创建 package.json（如果不存在）
-   echo '{"name": "witty-watcher", "version": "1.0.0", "type": "module", "dependencies": {}}' > package.json
-   # 安装依赖
-   npm install chokidar --save
-   ```
-
-5. **下载并启动 Watcher**：
-
-   ```bash
-   # 下载 watcher 脚本
-   curl -sSf http://<DASHBOARD_IP>:3000/api/setup/claude-watcher -o ~/.witty/claude_watcher_client.ts
-   curl -sSf http://<DASHBOARD_IP>:3000/api/setup/openclaw-watcher -o ~/.witty/openclaw_watcher_client.ts
-   
-   # 启动 watcher
-   cd ~/.witty && npx -y tsx ~/.witty/claude_watcher_client.ts &
-   cd ~/.witty && npx -y tsx ~/.witty/openclaw_watcher_client.ts &
-   ```
 
 ### 开始使用
 
@@ -382,73 +305,6 @@ npm run lint
 ```
 
 ---
-
-## 📦 NPM 发布
-
-本项目已配置为 npm 包，可发布到 npm 官方仓库。
-
-### 发布命令
-
-```bash
-# 查看帮助
-node scripts/publish-npm.js --help
-
-# 指定具体版本号
-node scripts/publish-npm.js --version 0.1.0-beta
-
-# 自动递增 patch 版本（1.0.0 → 1.0.1）
-node scripts/publish-npm.js --type patch
-
-# 自动递增 minor 版本（1.0.0 → 1.1.0）
-node scripts/publish-npm.js --type minor
-
-# 自动递增 major 版本（1.0.0 → 2.0.0）
-node scripts/publish-npm.js --type major
-
-# 添加预发布后缀（1.0.0 → 1.1.0-beta.1）
-node scripts/publish-npm.js --type minor --prerelease beta
-
-# 发布 beta 版本并打标签
-node scripts/publish-npm.js --version 1.0.0-beta.1 --tag beta
-
-# 测试模式（生成压缩包但不发布）
-node scripts/publish-npm.js --version 1.0.0 --dry-run
-```
-
-### 参数说明
-
-| 参数 | 说明 | 示例 |
-|------|------|------|
-| `--version <version>` | 指定具体版本号 | `--version 0.1.0-beta` |
-| `--type <type>` | 自动递增版本类型：patch, minor, major | `--type patch` |
-| `--prerelease <type>` | 添加预发布后缀：alpha, beta, rc | `--prerelease beta` |
-| `--tag <tag>` | npm 发布标签（默认 latest） | `--tag beta` |
-| `--dry-run` | 测试模式，生成压缩包但不发布 | `--dry-run` |
-| `--help` | 显示帮助信息 | `--help` |
-
-### 版本号格式
-
-支持标准语义化版本号：
-
-| 格式 | 说明 | 示例 |
-|------|------|------|
-| `X.Y.Z` | 正式版本 | `1.0.0` |
-| `X.Y.Z-beta` | 预发布版本 | `0.1.0-beta` |
-| `X.Y.Z-alpha.1` | 带编号的预发布版本 | `1.0.0-alpha.1` |
-| `X.Y.Z-rc.1` | 候选版本 | `1.0.0-rc.1` |
-
-### 发布流程
-
-脚本会自动执行以下步骤：
-
-1. **版本更新** - 更新 package.json 中的版本号
-2. **依赖安装** - `npm ci` 安装依赖
-3. **代码检查** - 运行 ESLint（失败不阻止发布）
-4. **项目构建** - `npm run build` 构建项目
-5. **静态文件** - 复制静态文件到 standalone 目录
-6. **打包** - `npm pack` 生成压缩包
-7. **npm 发布** - 发布到 npm 官方仓库（dry-run 模式跳过）
-
 ### 安装已发布的包
 
 ```bash
@@ -460,19 +316,6 @@ npm install witty-skill-insight@beta
 
 # 安装指定版本
 npm install witty-skill-insight@1.0.0
-```
-
-### 文件过滤
-
-已配置 `.npmignore` 排除以下内容：
-- `skills/` - Skill 示例库
-- `docs/` - 文档目录
-- `.env`、`data/` - 环境配置和数据
-- `.next/cache` - 构建缓存
-
-**验证打包内容：**
-```bash
-npm pack --dry-run
 ```
 
 ---

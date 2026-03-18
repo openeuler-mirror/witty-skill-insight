@@ -1,4 +1,3 @@
-
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
@@ -26,20 +25,133 @@ mkdir -p "$HOME/.openclaw/agents"
 mkdir -p ".opencode/skills"
 echo "📂 Created necessary directories"
 
-# 2. Download Components
-echo "⏬ Downloading OpenCode Plugin..."
-curl -sSf "$WITTY_BASE_URL/api/setup/opencode" -o "$HOME/.opencode/plugins/Witty-Skill-Insight.ts"
+# 2. Interactive Framework Selection with inquirer
+echo ""
 
-echo "⏬ Downloading Skill Sync Tool..."
-curl -sSf "$WITTY_BASE_URL/sync_skills.ts" -o "$HOME/.witty/sync_skills.ts"
+SELECTOR_SCRIPT="$HOME/.witty/framework_selector.mjs"
+SELECTOR_RESULT="$HOME/.witty/.selector_result"
 
-echo "⏬ Downloading Claude Code Watcher..."
-curl -sSf "$WITTY_BASE_URL/api/setup/claude-watcher" -o "$HOME/.witty/claude_watcher_client.ts"
+# Install inquirer if not already installed
+cd "$HOME/.witty"
+if [ ! -d "node_modules/inquirer" ]; then
+    echo "📦 Installing inquirer for interactive selection..."
+    npm install inquirer --save 2>/dev/null
+fi
 
-echo "⏬ Downloading OpenClaw Watcher..."
-curl -sSf "$WITTY_BASE_URL/api/setup/openclaw-watcher" -o "$HOME/.witty/openclaw_watcher_client.ts"
+cat > "$SELECTOR_SCRIPT" << 'SELECTOR_EOF'
+import inquirer from 'inquirer';
+import fs from 'fs';
 
-# 3. Configure ~/.witty/.env
+const frameworks = [
+    { name: 'OpenCode', value: 'opencode' },
+    { name: 'Claude Code', value: 'claude' },
+    { name: 'OpenClaw', value: 'openclaw' }
+];
+
+async function select() {
+    console.log('');
+    console.log('\\x1b[36m%s\\x1b[0m', '╔══════════════════════════════════════════════════════════╗');
+    console.log('\\x1b[36m%s\\x1b[0m', '║                                                          ║');
+    console.log('\\x1b[1m\\x1b[36m%s\\x1b[0m', '║                 ✨ witty-skill-insight ✨                ║');
+    console.log('\\x1b[36m%s\\x1b[0m', '║                                                          ║');
+    console.log('\\x1b[36m%s\\x1b[0m', '╚══════════════════════════════════════════════════════════╝');
+    console.log('');
+    console.log('\\x1b[90m%s\\x1b[0m', '  提示: ↑↓ 移动  |  空格 选择  |  a 全选  |  i 反选  |  Enter 确认');
+    console.log('');
+
+    const answers = await inquirer.prompt([
+        {
+            type: 'checkbox',
+            name: 'frameworks',
+            message: '集成到：',
+            choices: frameworks,
+            pageSize: 10,
+            loop: false
+        }
+    ]);
+
+    const selected = answers.frameworks;
+    
+    if (selected.length > 0) {
+        console.log('');
+        console.log('\\x1b[32m%s\\x1b[0m', '✅ 将安装以下组件:');
+        selected.forEach(fw => {
+            const name = frameworks.find(f => f.value === fw)?.name || fw;
+            console.log('\\x1b[32m%s\\x1b[0m', '   • ' + name);
+        });
+        console.log('');
+    } else {
+        console.log('');
+        console.log('\\x1b[33m%s\\x1b[0m', '⚠️  未选择任何组件，将不进行安装。');
+        console.log('');
+    }
+
+    // Write result to file for bash to read
+    const resultFile = process.env.SELECTOR_RESULT_FILE || process.env.HOME + '/.witty/.selector_result';
+    fs.writeFileSync(resultFile, selected.join(','));
+}
+
+select().catch(err => {
+    console.error('Error:', err);
+    process.exit(1);
+});
+SELECTOR_EOF
+
+# Run the selector interactively from /dev/tty
+# Export the result file path so the selector knows where to write
+export SELECTOR_RESULT_FILE="$SELECTOR_RESULT"
+cd "$HOME/.witty" && npx -y tsx "$SELECTOR_SCRIPT" < /dev/tty
+
+# Read the selection result from file
+if [ -f "$SELECTOR_RESULT" ]; then
+    SELECTED_FRAMEWORKS=$(cat "$SELECTOR_RESULT")
+    rm -f "$SELECTOR_RESULT"
+else
+    SELECTED_FRAMEWORKS=""
+fi
+
+# Set installation flags based on selection
+INSTALL_OPENCODE=false
+INSTALL_CLAUDE=false
+INSTALL_OPENCLAW=false
+
+if [[ "$SELECTED_FRAMEWORKS" == *"opencode"* ]]; then
+    INSTALL_OPENCODE=true
+fi
+if [[ "$SELECTED_FRAMEWORKS" == *"claude"* ]]; then
+    INSTALL_CLAUDE=true
+fi
+if [[ "$SELECTED_FRAMEWORKS" == *"openclaw"* ]]; then
+    INSTALL_OPENCLAW=true
+fi
+
+# Exit if nothing selected
+if [ "$INSTALL_OPENCODE" = "false" ] && [ "$INSTALL_CLAUDE" = "false" ] && [ "$INSTALL_OPENCLAW" = "false" ]; then
+    echo "⚠️  未选择任何框架组件，将跳过插件安装。"
+    echo "   继续执行配置步骤..."
+    echo ""
+fi
+
+# 3. Download Components
+if [ "$INSTALL_OPENCODE" = "true" ]; then
+    echo "⏬ Downloading OpenCode Plugin..."
+    curl -sSf "$WITTY_BASE_URL/api/setup/opencode" -o "$HOME/.opencode/plugins/Witty-Skill-Insight.ts"
+    
+    echo "⏬ Downloading Skill Sync Tool..."
+    curl -sSf "$WITTY_BASE_URL/sync_skills.ts" -o "$HOME/.witty/sync_skills.ts"
+fi
+
+if [ "$INSTALL_CLAUDE" = "true" ]; then
+    echo "⏬ Downloading Claude Code Watcher..."
+    curl -sSf "$WITTY_BASE_URL/api/setup/claude-watcher" -o "$HOME/.witty/claude_watcher_client.ts"
+fi
+
+if [ "$INSTALL_OPENCLAW" = "true" ]; then
+    echo "⏬ Downloading OpenClaw Watcher..."
+    curl -sSf "$WITTY_BASE_URL/api/setup/openclaw-watcher" -o "$HOME/.witty/openclaw_watcher_client.ts"
+fi
+
+# 4. Configure ~/.witty/.env
 WITTY_CONFIG_FILE="$HOME/.witty/.env"
 EXISTING_KEY=""
 EXISTING_HOST=""
@@ -87,35 +199,46 @@ echo "WITTY_INSIGHT_API_KEY=$FINAL_KEY" >> "$WITTY_CONFIG_FILE"
 rm "\${WITTY_CONFIG_FILE}.bak"
 echo "✅ Configuration updated at $WITTY_CONFIG_FILE"
 
-# 4. Sync Opencode Skills
-echo ""
-echo "🚀 Syncing Opencode Skills..."
-if command -v npx &> /dev/null; then
-  npx -y tsx "$HOME/.witty/sync_skills.ts" --agent opencode
-else
-  echo "⚠️  Node.js (npx) not found. Skipping skill sync."
+# 5. Sync Opencode Skills
+if [ "$INSTALL_OPENCODE" = "true" ]; then
+    echo ""
+    echo "🚀 Syncing Opencode Skills..."
+    if command -v npx &> /dev/null; then
+      npx -y tsx "$HOME/.witty/sync_skills.ts" --agent opencode
+    else
+      echo "⚠️  Node.js (npx) not found. Skipping skill sync."
+    fi
 fi
 
-# 5. Install Watcher Dependencies
-echo ""
-echo "📦 Installing watcher dependencies..."
-if command -v npm &> /dev/null; then
-  cd "$HOME/.witty"
-  if [ ! -f "package.json" ]; then
-    echo '{"name": "witty-watcher", "version": "1.0.0", "type": "module", "dependencies": {}}' > package.json
-  fi
-  npm install chokidar --save 2>/dev/null
-  echo "✅ Dependencies installed"
-else
-  echo "⚠️  npm not found. Skipping dependency installation."
+# 6. Install Watcher Dependencies (only if any watcher is selected)
+if [ "$INSTALL_CLAUDE" = "true" ] || [ "$INSTALL_OPENCLAW" = "true" ]; then
+    echo ""
+    echo "📦 Installing watcher dependencies..."
+    if command -v npm &> /dev/null; then
+      cd "$HOME/.witty"
+      if [ ! -f "package.json" ]; then
+        echo '{"name": "witty-watcher", "version": "1.0.0", "type": "module", "dependencies": {}}' > package.json
+      fi
+      npm install chokidar --save 2>/dev/null
+      echo "✅ Dependencies installed"
+    else
+      echo "⚠️  npm not found. Skipping dependency installation."
+    fi
 fi
 
-# 6. Create Watcher Startup Scripts
-echo ""
-echo "📝 Creating watcher startup scripts..."
+# 7. Create Watcher Startup/Stop Scripts
+NEEDS_WATCHER_SCRIPTS=false
+if [ "$INSTALL_CLAUDE" = "true" ] || [ "$INSTALL_OPENCLAW" = "true" ]; then
+    NEEDS_WATCHER_SCRIPTS=true
+fi
 
-# Claude Watcher Start Script
-cat > "$HOME/.witty/start_claude_watcher.sh" << 'WATCHER_EOF'
+if [ "$NEEDS_WATCHER_SCRIPTS" = "true" ]; then
+    echo ""
+    echo "📝 Creating watcher management scripts..."
+
+    # Claude Watcher Start Script
+    if [ "$INSTALL_CLAUDE" = "true" ]; then
+        cat > "$HOME/.witty/start_claude_watcher.sh" << 'WATCHER_EOF'
 #!/bin/bash
 # Stop existing watcher if running
 pkill -f "claude_watcher_client.ts" 2>/dev/null
@@ -125,10 +248,24 @@ cd "$HOME/.witty" && nohup npx -y tsx "$HOME/.witty/claude_watcher_client.ts" > 
 echo $! > "$HOME/.witty/claude_watcher.pid"
 echo "Claude watcher started with PID $(cat $HOME/.witty/claude_watcher.pid)"
 WATCHER_EOF
-chmod +x "$HOME/.witty/start_claude_watcher.sh"
+        chmod +x "$HOME/.witty/start_claude_watcher.sh"
+        echo "✅ Claude watcher start script created"
 
-# OpenClaw Watcher Start Script
-cat > "$HOME/.witty/start_openclaw_watcher.sh" << 'WATCHER_EOF'
+        # Claude Watcher Stop Script
+        cat > "$HOME/.witty/stop_claude_watcher.sh" << 'STOP_CLAUDE_EOF'
+#!/bin/bash
+echo "Stopping Claude watcher..."
+pkill -f "claude_watcher_client.ts" 2>/dev/null
+rm -f "$HOME/.witty/claude_watcher.pid"
+echo "Claude watcher stopped"
+STOP_CLAUDE_EOF
+        chmod +x "$HOME/.witty/stop_claude_watcher.sh"
+        echo "✅ Claude watcher stop script created"
+    fi
+
+    # OpenClaw Watcher Start Script
+    if [ "$INSTALL_OPENCLAW" = "true" ]; then
+        cat > "$HOME/.witty/start_openclaw_watcher.sh" << 'WATCHER_EOF'
 #!/bin/bash
 # Stop existing watcher if running
 pkill -f "openclaw_watcher_client.ts" 2>/dev/null
@@ -138,110 +275,72 @@ cd "$HOME/.witty" && nohup npx -y tsx "$HOME/.witty/openclaw_watcher_client.ts" 
 echo $! > "$HOME/.witty/openclaw_watcher.pid"
 echo "OpenClaw watcher started with PID $(cat $HOME/.witty/openclaw_watcher.pid)"
 WATCHER_EOF
-chmod +x "$HOME/.witty/start_openclaw_watcher.sh"
+        chmod +x "$HOME/.witty/start_openclaw_watcher.sh"
+        echo "✅ OpenClaw watcher start script created"
 
-# Combined Start Script
-cat > "$HOME/.witty/start_watchers.sh" << 'WATCHER_EOF'
+        # OpenClaw Watcher Stop Script
+        cat > "$HOME/.witty/stop_openclaw_watcher.sh" << 'STOP_OPENCLAW_EOF'
+#!/bin/bash
+echo "Stopping OpenClaw watcher..."
+pkill -f "openclaw_watcher_client.ts" 2>/dev/null
+rm -f "$HOME/.witty/openclaw_watcher.pid"
+echo "OpenClaw watcher stopped"
+STOP_OPENCLAW_EOF
+        chmod +x "$HOME/.witty/stop_openclaw_watcher.sh"
+        echo "✅ OpenClaw watcher stop script created"
+    fi
+
+    # Combined Start Script - Dynamic generation
+    cat > "$HOME/.witty/start_watchers.sh" << 'WATCHER_HEADER'
 #!/bin/bash
 echo "Starting Witty-Skill-Insight watchers..."
-"$HOME/.witty/start_claude_watcher.sh"
-"$HOME/.witty/start_openclaw_watcher.sh"
-echo "All watchers started!"
-WATCHER_EOF
-chmod +x "$HOME/.witty/start_watchers.sh"
+WATCHER_HEADER
 
-# Combined Stop Script
-cat > "$HOME/.witty/stop_watchers.sh" << 'WATCHER_EOF'
+    if [ "$INSTALL_CLAUDE" = "true" ]; then
+        echo '"$HOME/.witty/start_claude_watcher.sh"' >> "$HOME/.witty/start_watchers.sh"
+    fi
+    if [ "$INSTALL_OPENCLAW" = "true" ]; then
+        echo '"$HOME/.witty/start_openclaw_watcher.sh"' >> "$HOME/.witty/start_watchers.sh"
+    fi
+
+    echo 'echo "All watchers started!"' >> "$HOME/.witty/start_watchers.sh"
+    chmod +x "$HOME/.witty/start_watchers.sh"
+    echo "✅ Combined start script created"
+
+    # Combined Stop Script - Dynamic generation
+    cat > "$HOME/.witty/stop_watchers.sh" << 'STOP_HEADER'
 #!/bin/bash
 echo "Stopping Witty-Skill-Insight watchers..."
-pkill -f "claude_watcher_client.ts" 2>/dev/null
-pkill -f "openclaw_watcher_client.ts" 2>/dev/null
-rm -f "$HOME/.witty/claude_watcher.pid"
-rm -f "$HOME/.witty/openclaw_watcher.pid"
-echo "All watchers stopped!"
-WATCHER_EOF
-chmod +x "$HOME/.witty/stop_watchers.sh"
+STOP_HEADER
 
-echo "✅ Watcher scripts created"
+    if [ "$INSTALL_CLAUDE" = "true" ]; then
+        echo '"$HOME/.witty/stop_claude_watcher.sh"' >> "$HOME/.witty/stop_watchers.sh"
+    fi
+    if [ "$INSTALL_OPENCLAW" = "true" ]; then
+        echo '"$HOME/.witty/stop_openclaw_watcher.sh"' >> "$HOME/.witty/stop_watchers.sh"
+    fi
 
-# 6. Start Watchers Now
-echo ""
-echo "🚀 Starting telemetry watchers..."
-if command -v npx &> /dev/null; then
-    "$HOME/.witty/start_watchers.sh"
-else
-    echo "⚠️  Node.js (npx) not found. Skipping watcher startup."
+    echo 'echo "All watchers stopped!"' >> "$HOME/.witty/stop_watchers.sh"
+    chmod +x "$HOME/.witty/stop_watchers.sh"
+    echo "✅ Combined stop script created"
 fi
 
-# 7. Setup Auto-start on Login (systemd user service for Linux)
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+# 8. Start Watchers Now
+if [ "$NEEDS_WATCHER_SCRIPTS" = "true" ]; then
     echo ""
-    echo "🔧 Setting up systemd user service for auto-start..."
-    
-    # Create systemd user directory
-    mkdir -p "$HOME/.config/systemd/user"
-    
-    # Create systemd service file
-    cat > "$HOME/.config/systemd/user/witty-watchers.service" << 'SERVICE_EOF'
-[Unit]
-Description=Witty-Skill-Insight Telemetry Watchers
-After=network.target
-
-[Service]
-Type=forking
-ExecStart=%h/.witty/start_watchers.sh
-ExecStop=%h/.witty/stop_watchers.sh
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-SERVICE_EOF
-    
-    # Enable the service
-    systemctl --user daemon-reload
-    systemctl --user enable witty-watchers.service
-    echo "✅ Systemd service installed and enabled"
+    echo "🚀 Starting telemetry watchers..."
+    if command -v npx &> /dev/null; then
+        "$HOME/.witty/start_watchers.sh"
+    else
+        echo "⚠️  Node.js (npx) not found. Skipping watcher startup."
+    fi
 fi
 
-# Setup Auto-start on macOS (launchd)
-if [[ "$OSTYPE" == "darwin"* ]]; then
+# 9. Configure Claude Code Auto-Sync Wrapper
+if [ "$INSTALL_CLAUDE" = "true" ]; then
     echo ""
-    echo "🔧 Setting up launchd for auto-start on macOS..."
-    
-    cat > "$HOME/Library/LaunchAgents/com.witty.watchers.plist" << 'PLIST_EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.witty.watchers</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/bash</string>
-        <string>-c</string>
-        <string>$HOME/.witty/start_watchers.sh</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <false/>
-    <key>StandardOutPath</key>
-    <string>$HOME/.witty/logs/launchd_stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>$HOME/.witty/logs/launchd_stderr.log</string>
-</dict>
-</plist>
-PLIST_EOF
-    
-    launchctl load "$HOME/Library/LaunchAgents/com.witty.watchers.plist" 2>/dev/null || true
-    echo "✅ LaunchAgent installed"
-fi
-
-# 8. Configure Claude Code Auto-Sync Wrapper
-echo ""
-echo "🔄 Configuring Claude Code Auto-Sync Wrapper..."
-CLAUDE_WRAPPER='
+    echo "🔄 Configuring Claude Code Auto-Sync Wrapper..."
+    CLAUDE_WRAPPER='
 # Witty Insight Claude Alliance
 witty-claude() {
     if command -v npx &> /dev/null; then
@@ -252,32 +351,58 @@ witty-claude() {
 alias claude="witty-claude"
 '
 
-for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do
-    if [ -f "$rc_file" ]; then
-        if ! grep -q "witty-claude()" "$rc_file" 2>/dev/null; then
-            echo "$CLAUDE_WRAPPER" >> "$rc_file"
-            echo "✅ Installed Claude wrapper to $rc_file"
+    for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do
+        if [ -f "$rc_file" ]; then
+            if ! grep -q "witty-claude()" "$rc_file" 2>/dev/null; then
+                echo "$CLAUDE_WRAPPER" >> "$rc_file"
+                echo "✅ Installed Claude wrapper to $rc_file"
+            fi
         fi
-    fi
-done
+    done
+fi
 
+# 10. Final Summary
 echo ""
 echo "🌟 Witty-Skill-Insight Telemetry: READY"
 echo "------------------------------------------------"
 echo "Installed Components:"
-echo "  ✅ OpenCode Plugin: ~/.opencode/plugins/Witty-Skill-Insight.ts"
-echo "  ✅ Claude Watcher: ~/.witty/claude_watcher_client.ts"
-echo "  ✅ OpenClaw Watcher: ~/.witty/openclaw_watcher_client.ts"
-echo ""
-echo "Watcher Management:"
-echo "  Start:  ~/.witty/start_watchers.sh"
-echo "  Stop:   ~/.witty/stop_watchers.sh"
-echo "  Logs:   ~/.witty/logs/"
+if [ "$INSTALL_OPENCODE" = "true" ]; then
+    echo "  ✅ OpenCode Plugin: ~/.opencode/plugins/Witty-Skill-Insight.ts"
+fi
+if [ "$INSTALL_CLAUDE" = "true" ]; then
+    echo "  ✅ Claude Watcher: ~/.witty/claude_watcher_client.ts"
+fi
+if [ "$INSTALL_OPENCLAW" = "true" ]; then
+    echo "  ✅ OpenClaw Watcher: ~/.witty/openclaw_watcher_client.ts"
+fi
+
+if [ "$NEEDS_WATCHER_SCRIPTS" = "true" ]; then
+    echo ""
+    echo "Watcher Management:"
+    echo "  Start all:    ~/.witty/start_watchers.sh"
+    echo "  Stop all:     ~/.witty/stop_watchers.sh"
+    if [ "$INSTALL_CLAUDE" = "true" ]; then
+        echo "  Start Claude: ~/.witty/start_claude_watcher.sh"
+        echo "  Stop Claude:  ~/.witty/stop_claude_watcher.sh"
+    fi
+    if [ "$INSTALL_OPENCLAW" = "true" ]; then
+        echo "  Start OpenClaw: ~/.witty/start_openclaw_watcher.sh"
+        echo "  Stop OpenClaw:  ~/.witty/stop_openclaw_watcher.sh"
+    fi
+    echo "  Logs:         ~/.witty/logs/"
+fi
+
 echo ""
 echo "Usage:"
-echo "  1. Run: opencode run 'hello'"
-echo "  2. Run: claude (restart terminal first)"
-echo "  3. Watchers will automatically monitor and upload telemetry"
+if [ "$INSTALL_OPENCODE" = "true" ]; then
+    echo "  1. Run: opencode run 'hello'"
+fi
+if [ "$INSTALL_CLAUDE" = "true" ]; then
+    echo "  2. Run: claude (restart terminal first)"
+fi
+if [ "$INSTALL_OPENCLAW" = "true" ]; then
+    echo "  3. OpenClaw will automatically monitor and upload telemetry"
+fi
 echo "------------------------------------------------"
 `;
 
