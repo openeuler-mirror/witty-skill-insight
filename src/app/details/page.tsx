@@ -1770,42 +1770,6 @@ function DetailPage() {
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>
-                        {compareDimData.contextWindow.length > 0 && (
-                            <div className="card" style={cardStyle}>
-                                <h3 style={chartTitleStyle}>
-                                    平均窗口% - {comparisonDim === 'label' ? '标签' : '模型'}
-                                    <CustomTooltip content="平均上下文窗口利用率 (%)" />
-                                </h3>
-                                <ResponsiveContainer width="100%" height={200}>
-                                    <LineChart data={compareDimData.contextWindow}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                                        <XAxis dataKey="name" tickFormatter={(v) => String(v)} stroke="#64748b" fontSize={11} />
-                                        <YAxis stroke="#64748b" fontSize={11} domain={[0, 100]} />
-                                        <Tooltip contentStyle={{ background: '#1e292b', borderColor: '#334155' }} />
-                                        <ReferenceLine y={90} stroke="#f87171" strokeDasharray="4 4" />
-                                        <Line type="monotone" dataKey="context_window_pct" stroke="#a78bfa" dot={true} strokeWidth={2} />
-                                    </LineChart>
-                                </ResponsiveContainer>
-                            </div>
-                        )}
-                        {compareDimData.contextWindow.length > 0 && (
-                            <div className="card" style={cardStyle}>
-                                <h3 style={chartTitleStyle}>
-                                    平均窗口% - {comparisonDim === 'label' ? '标签' : '模型'}
-                                    <CustomTooltip content="平均上下文窗口利用率 (%)" />
-                                </h3>
-                                <ResponsiveContainer width="100%" height={200}>
-                                    <LineChart data={compareDimData.contextWindow}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                                        <XAxis dataKey="name" tickFormatter={(v) => String(v)} stroke="#64748b" fontSize={11} />
-                                        <YAxis stroke="#64748b" fontSize={11} domain={[0, 100]} />
-                                        <Tooltip contentStyle={{ background: '#1e292b', borderColor: '#334155' }} />
-                                        <ReferenceLine y={90} stroke="#f87171" strokeDasharray="4 4" />
-                                        <Line type="monotone" dataKey="context_window_pct" stroke="#a78bfa" dot={true} strokeWidth={2} />
-                                    </LineChart>
-                                </ResponsiveContainer>
-                            </div>
-                        )}
                     </div>
                 </div>
             )}
@@ -1873,9 +1837,6 @@ function DetailPage() {
                                 }}>
                                     {item.skill_recall_rate !== null && item.skill_recall_rate !== undefined ? 
                                      (item.skill_recall_rate * 100).toFixed(0) + '%' : '--'}
-                                </div>
-                                <div style={{ color: item.context_window_pct != null ? (item.context_window_pct > 90 ? '#f87171' : '#4ade80') : '#94a3b8' }}>
-                                    {item.context_window_pct != null ? `${item.context_window_pct.toFixed(1)}%` : '-'}
                                 </div>
                                 <div style={{ color: item.context_window_pct != null ? (item.context_window_pct > 90 ? '#f87171' : '#4ade80') : '#94a3b8' }}>
                                     {item.context_window_pct != null ? `${item.context_window_pct.toFixed(1)}%` : '-'}
