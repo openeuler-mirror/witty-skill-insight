@@ -1723,7 +1723,7 @@ export default function Dashboard() {
                                     if (selectedFramework) relevant = relevant.filter(d => d.framework === selectedFramework);
 
                                     if (relevant.length === 0) return null;
-
+                                    
                                     // Calc Stats
                                     const counts = relevant.length;
                                     const avgLat = relevant.reduce((sum, d) => sum + d.latency, 0) / counts;
@@ -1736,6 +1736,29 @@ export default function Dashboard() {
                                     const groupWithCost = relevant.filter(d => d.cost != null);
                                     const groupAvgCost = groupWithCost.length ? groupWithCost.reduce((sum, d) => sum + (d.cost || 0), 0) / groupWithCost.length : null;
 
+                                    // Calculate Skill Lift for grouped view (only for current label)
+                                    let skillLift: number | null = null;
+                                    if (drillDownGroupByLabel && selectedQuery && val !== 'without-skill' && val !== 'Other') {
+                                        const queryData = filteredData.filter(d => d.query === selectedQuery);
+                                        const labels = Array.from(new Set(queryData.map(d => d.label || 'Other')));
+                                        const labelSuccessRates: Record<string, number> = {};
+                                        
+                                        labels.forEach(label => {
+                                            const labelData = queryData.filter(d => (d.label || 'Other') === label);
+                                            const successful = labelData.filter(d => d.is_answer_correct).length;
+                                            labelSuccessRates[label] = labelData.length > 0 ? (successful / labelData.length) : 0;
+                                        });
+
+                                        const passNoSkill = labelSuccessRates['without-skill'] || 0;
+                                        const passSkill = labelSuccessRates[val] || 0;
+                                        
+                                        if (passNoSkill < 1) {
+                                            skillLift = ((passSkill - passNoSkill) / (1 - passNoSkill)) * 100;
+                                        } else {
+                                            skillLift = 0;
+                                        }
+                                    }
+
                                     return (
                                         <div key={val} style={{ marginBottom: '2rem' }}>
                                             <div style={{ marginBottom: '0.5rem' }}>
@@ -1743,7 +1766,10 @@ export default function Dashboard() {
                                                     {drillDownGroupByLabel ? '标签 (Label): ' : '模型 (Model): '} {val}
                                                 </h3>
                                             </div>
-                                            <div className="grid">
+                                            <div className="grid"style={{display: 'grid', 
+                                                                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                                                                        gap: '1rem',
+                                                                        }}>
                                                 {/* Stats Card */}
                                                 <div className="card" style={{ gridColumn: 'span 2' }}>
                                                     <div className="card-title">
@@ -1797,6 +1823,33 @@ export default function Dashboard() {
                                                     </div>
                                                     <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(worst.framework)}&query=${encodeURIComponent(worst.query)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>View Log &gt;</div>
                                                 </div>
+                                                {/*Skill Lift*/}
+                                                {drillDownGroupByLabel && skillLift !== null && (
+                                                <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                                    <div>
+                                                        <div className="card-title text-purple-400" style={{ fontSize: '0.85rem' }}>技能提升 (Skill Lift)</div>
+                                                        <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                                                            <div style={{ marginBottom: '0.5rem' }}>
+                                                                <div style={{ 
+                                                                    fontSize: '1.2rem', 
+                                                                    fontWeight: 'bold',
+                                                                    color: skillLift > 0 ? '#4ade80' : skillLift < 0 ? '#f87171' : '#94a3b8'
+                                                                }}>
+                                                                    {skillLift > 0 ? '+' : ''}{skillLift.toFixed(2)}%
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                        <div style={{fontSize: '0.75rem', color: '#64748b'}}>
+                                                        基于 without-skill 基线.
+                                                    </div>
+                                                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 'auto', textAlign: 'left', whiteSpace: 'pre-wrap', fontStyle: 'italic', opacity: 0, transition: 'opacity 0.2s ease-in-out' }} 
+                                                            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                                                            onMouseLeave={e => e.currentTarget.style.opacity = '0'}>
+                                                        公式: (skill_success_rate - no_skill_success_rate) / (1 - no_skill_success_rate)
+                                                    </div>
+                                                </div>
+                                                )}
                                             </div>
                                         </div>
                                     );
