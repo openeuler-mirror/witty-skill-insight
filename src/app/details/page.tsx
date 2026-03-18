@@ -42,6 +42,7 @@ interface Execution {
     model?: string;
     final_result?: string;
     is_skill_correct?: boolean;
+    skill_recall_rate?: number | null;
     is_answer_correct?: boolean;
     answer_score?: number;
     judgment_reason?: string;
@@ -868,6 +869,20 @@ function DetailPage() {
             };
         });
 
+        const skillRecallRateData = items.map(item => {
+            const records = filteredData.filter(d => d[key] === item);
+            // Filter to only records with skill recall rate (i.e., records with expected skills)
+            const recordsWithRecallRate = records.filter(r => r.skill_recall_rate !== null && r.skill_recall_rate !== undefined);
+            const totalCount = recordsWithRecallRate.length;
+            // Calculate average skill recall rate from individual record rates
+            const totalRecallRate = recordsWithRecallRate.reduce((sum, r) => sum + (r.skill_recall_rate || 0), 0);
+            const avgSkillRecallRate = totalCount > 0 ? (totalRecallRate / totalCount) : 0;
+            return {
+                name: item,
+                skill_recall_rate: avgSkillRecallRate
+            };
+        });
+
         const ctxWindowData = items.map(item => {
             const records = filteredData.filter(d => d[key] === item && d.context_window_pct != null);
             const avgPct = records.length > 0
@@ -883,6 +898,7 @@ function DetailPage() {
             latency: latencyData,
             tokens: tokensData,
             accuracy: accuracyData,
+            skillRecallRate: skillRecallRateData,
             contextWindow: ctxWindowData
         };
     }, [filteredData, comparisonDim]);
@@ -1544,7 +1560,7 @@ function DetailPage() {
 
 
             {/* Charts Section */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
                 <div className="card" style={cardStyle}>
                     <h3 style={chartTitleStyle}>
                         时延趋势 (秒)
@@ -1590,6 +1606,21 @@ function DetailPage() {
                         </LineChart>
                     </ResponsiveContainer>
                 </div>
+                <div className="card" style={cardStyle}>
+                    <h3 style={chartTitleStyle}>
+                            技能召回率趋势
+                        <CustomTooltip content="基于执行结果是否使用了预期技能计算出的值 (0-1)，表示正确调用技能的比例" />
+                    </h3>
+                    <ResponsiveContainer width="100%" height={200}>
+                        <LineChart data={filteredData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                            <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="#64748b" fontSize={11} />
+                            <YAxis stroke="#64748b" fontSize={11} domain={[0, 1]} />
+                            <Tooltip contentStyle={{ background: '#1e293b', borderColor: '#334155' }} />
+                            <Line type="monotone" dataKey="skill_recall_rate" stroke="#f472b6" dot={true} strokeWidth={2} />
+                        </LineChart>
+                    </ResponsiveContainer>
+                </div>
             </div>
 
             {/* Comparison Statistics Section */}
@@ -1598,7 +1629,7 @@ function DetailPage() {
                     <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>
                         按 {comparisonDim === 'label' ? '标签 (Label)' : '模型 (Model)'} 对比 (平均值)
                     </h2>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
                         <div className="card" style={cardStyle}>
                             <h3 style={chartTitleStyle}>
                                 平均时延 - {comparisonDim === 'label' ? '标签' : '模型'}
@@ -1644,6 +1675,39 @@ function DetailPage() {
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>
+                        <div className="card" style={cardStyle}>
+                            <h3 style={chartTitleStyle}>
+                                技能召回率 - {comparisonDim === 'label' ? '标签' : '模型'}
+                                <CustomTooltip content="基于执行结果是否使用了预期技能计算出的值 (0-1)，表示正确调用技能的比例" />
+                            </h3>
+                            <ResponsiveContainer width="100%" height={200}>
+                                <LineChart data={compareDimData.skillRecallRate}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                                    <XAxis dataKey="name" tickFormatter={(v) => String(v)} stroke="#64748b" fontSize={11} />
+                                    <YAxis stroke="#64748b" fontSize={11} domain={[0, 1]} />
+                                    <Tooltip contentStyle={{ background: '#1e292b', borderColor: '#334155' }} />
+                                    <Line type="monotone" dataKey="skill_recall_rate" stroke="#f472b6" dot={true} strokeWidth={2} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+                        {compareDimData.contextWindow.length > 0 && (
+                            <div className="card" style={cardStyle}>
+                                <h3 style={chartTitleStyle}>
+                                    平均窗口% - {comparisonDim === 'label' ? '标签' : '模型'}
+                                    <CustomTooltip content="平均上下文窗口利用率 (%)" />
+                                </h3>
+                                <ResponsiveContainer width="100%" height={200}>
+                                    <LineChart data={compareDimData.contextWindow}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                                        <XAxis dataKey="name" tickFormatter={(v) => String(v)} stroke="#64748b" fontSize={11} />
+                                        <YAxis stroke="#64748b" fontSize={11} domain={[0, 100]} />
+                                        <Tooltip contentStyle={{ background: '#1e292b', borderColor: '#334155' }} />
+                                        <ReferenceLine y={90} stroke="#f87171" strokeDasharray="4 4" />
+                                        <Line type="monotone" dataKey="context_window_pct" stroke="#a78bfa" dot={true} strokeWidth={2} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        )}
                         {compareDimData.contextWindow.length > 0 && (
                             <div className="card" style={cardStyle}>
                                 <h3 style={chartTitleStyle}>
@@ -1670,12 +1734,13 @@ function DetailPage() {
             <div className="list-container">
                 <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>执行记录详情</h2>
                 {/* Headers */}
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', borderBottom: '1px solid #334155', color: '#94a3b8', fontSize: '0.9rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', borderBottom: '1px solid #334155', color: '#94a3b8', fontSize: '0.9rem' }}>
                     <div>时间 / ID</div>
                     <div>状态</div>
                     <div>标签</div>
                     <div>时延</div>
                     <div>消耗</div>
+                    <div>技能召回率</div>
                     <div>窗口%</div>
                     <div>评分</div>
                     <div></div>
@@ -1697,7 +1762,7 @@ function DetailPage() {
                             {/* Summary Row */}
                             <div
                                 className="record-summary"
-                                style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', alignItems: 'center', cursor: 'pointer', transition: 'background 0.2s' }}
+                                style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', alignItems: 'center', cursor: 'pointer', transition: 'background 0.2s' }}
                                 onClick={() => toggleExpand(taskId)}
                                 onMouseOver={(e: any) => e.currentTarget.style.background = '#334155'}
                                 onMouseOut={(e: any) => e.currentTarget.style.background = 'transparent'}
@@ -1720,6 +1785,18 @@ function DetailPage() {
                                 </div>
                                 <div>{item.latency ? (item.latency < 1 ? (item.latency * 1000).toFixed(0) + 'ms' : item.latency.toFixed(2) + 's') : '-'}</div>
                                 <div>{item.tokens}</div>
+                                <div style={{ 
+                                    color: item.skill_recall_rate !== null && item.skill_recall_rate !== undefined ? 
+                                           (item.skill_recall_rate === 1.0 ? '#4ade80' : 
+                                            item.skill_recall_rate > 0 ? '#fbbf24' : '#f87171') : '#94a3b8',
+                                    fontWeight: 'bold'
+                                }}>
+                                    {item.skill_recall_rate !== null && item.skill_recall_rate !== undefined ? 
+                                     (item.skill_recall_rate * 100).toFixed(0) + '%' : '--'}
+                                </div>
+                                <div style={{ color: item.context_window_pct != null ? (item.context_window_pct > 90 ? '#f87171' : '#4ade80') : '#94a3b8' }}>
+                                    {item.context_window_pct != null ? `${item.context_window_pct.toFixed(1)}%` : '-'}
+                                </div>
                                 <div style={{ color: item.context_window_pct != null ? (item.context_window_pct > 90 ? '#f87171' : '#4ade80') : '#94a3b8' }}>
                                     {item.context_window_pct != null ? `${item.context_window_pct.toFixed(1)}%` : '-'}
                                 </div>

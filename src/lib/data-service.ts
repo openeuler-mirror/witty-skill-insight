@@ -43,6 +43,8 @@ export interface ExecutionRecord {
     input_tokens?: number;
     output_tokens?: number;
     tool_call_error_count?: number;
+    expected_skill_version?: number | null;
+    skill_recall_rate?: number | null;
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
     max_single_call_tokens?: number;
@@ -55,7 +57,9 @@ export interface ExecutionRecord {
 export interface ConfigItem {
     id: string;
     query: string;
-    skill: string;
+    skill: string; // Legacy
+    skillVersion?: number | null; // Legacy
+    expectedSkills?: { skill: string; version: number | null }[]; // New field
     standard_answer: string;
     root_causes?: { content: string; weight: number }[];
     key_actions?: { content: string; weight: number }[];
@@ -114,6 +118,8 @@ export async function readRecords(user?: string): Promise<ExecutionRecord[]> {
             cache_read_input_tokens: r.cacheReadInputTokens ?? undefined,
             cache_creation_input_tokens: r.cacheCreationInputTokens ?? undefined,
             max_single_call_tokens: r.maxSingleCallTokens ?? undefined,
+            expected_skill_version: r.expectedSkillVersion ?? null,
+            skill_recall_rate: r.skillRecallRate ?? null,
             context_window_pct: (r.maxSingleCallTokens != null && cwResult)
                 ? Math.round((r.maxSingleCallTokens / cwResult.contextWindow) * 1000) / 10
                 : undefined,
@@ -141,18 +147,25 @@ export async function readConfig(user?: string | null): Promise<ConfigItem[]> {
     }
 
     const configs = await db.findConfigs(where);
-    return configs.map((c: any) => {
-        const parse = (s: string | null) => {
+     return configs.map((c: any) => {
+        const parse = (s: string | null, fieldName: string) => {
             if (!s) return undefined;
-            try { return JSON.parse(s); } catch (e) { return undefined; }
+            try { 
+                return JSON.parse(s); 
+            } catch (e) { 
+                console.error(`[readConfig] Failed to parse ${fieldName} for config ${c.id}:`, e);
+                return undefined; 
+            }
         };
         return {
             id: c.id,
             query: c.query,
-            skill: c.skill,
+            skill: c.skill, // Legacy
+            skillVersion: c.skillVersion, // Legacy
+            expectedSkills: parse(c.expectedSkills, 'expectedSkills'), // New field
             standard_answer: c.standardAnswer,
-            root_causes: parse(c.rootCauses),
-            key_actions: parse(c.keyActions),
+            root_causes: parse(c.rootCauses, 'rootCauses'),
+            key_actions: parse(c.keyActions, 'keyActions'),
             parse_status: c.parseStatus || 'completed',
         };
     });
@@ -198,6 +211,8 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             label: dbRecord.label || undefined,
             user: dbRecord.user || undefined,
             skill_version: dbRecord.skillVersion || undefined,
+            expected_skill_version: dbRecord.expectedSkillVersion ?? null,
+            skill_recall_rate: dbRecord.skillRecallRate ?? null,
             model: dbRecord.model || undefined,
             tool_call_count: dbRecord.toolCallCount ?? undefined,
             llm_call_count: dbRecord.llmCallCount ?? undefined,
@@ -262,21 +277,121 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
 
     const NO_MATCH_REASON = '未找到匹配的评测配置';
 
-    let isSkillCorrect = targetRecord.is_skill_correct || false;
+    let isSkillCorrect = false; // Reset to false and recalculate based on current config
     let isAnswerCorrect = targetRecord.is_answer_correct || false;
     let judgmentReason = targetRecord.judgment_reason || NO_MATCH_REASON;
+    let expectedSkill: string | null = null;
+    let expectedSkillVersion: number | null = null;
 
     const configs = await readConfig(targetRecord.user);
     if (targetRecord.query && configs.length > 0) {
         const matchedConfig = configs.find(c => c.query.trim() === targetRecord.query?.trim());
 
         if (matchedConfig) {
-            const expectedSkill = (matchedConfig.skill || '').trim();
-            if (targetRecord.skills !== undefined && Array.isArray(targetRecord.skills)) {
-                isSkillCorrect = targetRecord.skills.some(
-                    (s) => (String(s || '').trim()) === expectedSkill
-                );
+            // Check new expectedSkills field first
+            const expectedSkillsList = matchedConfig.expectedSkills || [];
+            
+            if (expectedSkillsList.length > 0) {
+                // Check against multiple expected skills
+                if (targetRecord.skills !== undefined && Array.isArray(targetRecord.skills)) {
+                    let correctInvokedSkills = 0;
+                    const invokedSkills = targetRecord.skills;
+                    
+                    // Filter out empty skill names before counting
+                    const validExpectedSkills = expectedSkillsList.filter(e => e.skill?.trim());
+                    
+                    // Fetch all expected skills from database at once for efficiency
+                    const skillNames = validExpectedSkills.map(e => e.skill.trim());
+                    let skillsMap = new Map<string, any>();
+                    
+                    if (skillNames.length > 0) {
+                        try {
+                            const skills = await db.findSkills({
+                                name: { in: skillNames },
+                                user: targetRecord.user || null
+                            });
+                            
+                            // Create a map for quick lookup
+                            for (const skill of skills) {
+                                skillsMap.set(skill.name, skill);
+                            }
+                        } catch (err) {
+                            console.error('[Judgment] Error fetching skills for version check:', err);
+                        }
+                    }
+                    
+                    for (const expected of validExpectedSkills) {
+                        const expectedName = expected.skill.trim();
+                        
+                        const expectedVer = expected.version ?? null;
+                        
+                        // Check if this expected skill was correctly invoked
+                        const hasMatchingSkill = invokedSkills.some(
+                            (s) => (String(s || '').trim()) === expectedName
+                        );
+                        
+                        if (hasMatchingSkill) {
+                            // For multi-skill scenarios, we need to check each skill's version
+                            let isVersionMatch = false;
+                            
+                            if (expectedVer === null) {
+                                // Any version is acceptable
+                                isVersionMatch = true;
+                            } else {
+                                const skill = skillsMap.get(expectedName);
+                                if (skill) {
+                                    const actualVersion = skill.activeVersion || 0;
+                                    isVersionMatch = actualVersion === expectedVer;
+                                } else {
+                                    // Skill not found in database, can't check version
+                                    isVersionMatch = false;
+                                }
+                            }
+                            
+                            if (isVersionMatch) {
+                                correctInvokedSkills++;
+                                if (!isSkillCorrect) {
+                                    isSkillCorrect = true;
+                                    expectedSkill = expectedName;
+                                    expectedSkillVersion = expectedVer;
+                                    targetRecord.expected_skill_version = expectedVer;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Calculate skill recall rate: correct_invoked_skills / total_expected_skills
+                    if (validExpectedSkills.length > 0) {
+                        targetRecord.skill_recall_rate = correctInvokedSkills / validExpectedSkills.length;
+                    }
+                }
+            } else if (matchedConfig.skill && matchedConfig.skill.trim() !== '') {
+                // Fallback to legacy single skill
+                expectedSkill = matchedConfig.skill.trim();
+                expectedSkillVersion = matchedConfig.skillVersion || null;
+
+                if (targetRecord.skills !== undefined && Array.isArray(targetRecord.skills)) {
+                    const hasMatchingSkill = targetRecord.skills.some(
+                        (s) => (String(s || '').trim()) === expectedSkill
+                    );
+                    
+                    // Skill is correct if:
+                    // 1. The skill name matches expectedSkill
+                    // 2. AND (expectedSkillVersion is null OR skill_version matches expectedSkillVersion)
+                    // Treat NULL skill_version as matching version 0 (default)
+                    const actualVersion = targetRecord.skill_version ?? 0;
+                    isSkillCorrect = hasMatchingSkill && (
+                        expectedSkillVersion === null || 
+                        actualVersion === expectedSkillVersion
+                    );
+                }
+                targetRecord.expected_skill_version = expectedSkillVersion;
+                
+                // Calculate skill recall rate for legacy single skill case
+                // For single skill, recall rate is 1.0 if correct, 0.0 if incorrect
+                targetRecord.skill_recall_rate = isSkillCorrect ? 1.0 : 0.0;
             }
+            targetRecord.is_skill_correct = isSkillCorrect;
 
             if (targetRecord.final_result !== undefined) {
                 let needsJudgment = true;
@@ -396,6 +511,8 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             inputTokens: targetRecord.input_tokens,
             outputTokens: targetRecord.output_tokens,
             toolCallErrorCount: targetRecord.tool_call_error_count,
+            expectedSkillVersion: targetRecord.expected_skill_version,
+            skillRecallRate: targetRecord.skill_recall_rate,
             cacheReadInputTokens: targetRecord.cache_read_input_tokens,
             cacheCreationInputTokens: targetRecord.cache_creation_input_tokens,
             maxSingleCallTokens: targetRecord.max_single_call_tokens,
@@ -427,6 +544,8 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             inputTokens: targetRecord.input_tokens,
             outputTokens: targetRecord.output_tokens,
             toolCallErrorCount: targetRecord.tool_call_error_count,
+            expectedSkillVersion: targetRecord.expected_skill_version,
+            skillRecallRate: targetRecord.skill_recall_rate,
             cacheReadInputTokens: targetRecord.cache_read_input_tokens,
             cacheCreationInputTokens: targetRecord.cache_creation_input_tokens,
             maxSingleCallTokens: targetRecord.max_single_call_tokens,

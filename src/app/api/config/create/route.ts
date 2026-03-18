@@ -122,11 +122,55 @@ export async function POST(request: Request) {
         let user: string | null = null;
         let documentContent: string | null = null;
 
+        let skill: string | null = null;
+        let skillVersion: number | null = null;
+        let expectedSkills: { skill: string; version: number | null }[] | null = null;
+
         if (contentType.includes('multipart/form-data')) {
             const formData = await request.formData();
             query = formData.get('query') as string || '';
             standardAnswer = formData.get('standardAnswer') as string || '';
             user = formData.get('user') as string || null;
+            skill = formData.get('skill') as string || null;
+            const skillVersionStr = formData.get('skillVersion') as string || null;
+            if (skillVersionStr) {
+                const parsed = parseInt(skillVersionStr, 10);
+                if (!isNaN(parsed) && parsed >= 1) {
+                    skillVersion = parsed;
+                }
+            }
+            
+            // Parse expectedSkills from JSON string
+            const expectedSkillsStr = formData.get('expectedSkills') as string || null;
+            if (expectedSkillsStr) {
+                try {
+                    expectedSkills = JSON.parse(expectedSkillsStr);
+                    // Validate expectedSkills structure
+                    if (expectedSkills && Array.isArray(expectedSkills)) {
+                        // Validate each item has required fields
+                        for (const item of expectedSkills) {
+                            if (!item || typeof item !== 'object') {
+                                return NextResponse.json({ error: 'expectedSkills 数组中的每个元素必须是对象' }, { status: 400 });
+                            }
+                            if (!item.skill || typeof item.skill !== 'string' || !item.skill.trim()) {
+                                return NextResponse.json({ error: 'expectedSkills 中的每个技能必须包含 skill 名称' }, { status: 400 });
+                            }
+                        }
+                        
+                        // Normalize versions
+                        expectedSkills = expectedSkills.map((item: any) => ({
+                            ...item,
+                            version: item.version && item.version >= 1 ? item.version : null
+                        }));
+                    } else if (expectedSkills !== null) {
+                        // If expectedSkills is not null but also not an array, it's invalid
+                        return NextResponse.json({ error: 'expectedSkills 必须是 JSON 数组' }, { status: 400 });
+                    }
+                } catch (e) {
+                    console.error('Failed to parse expectedSkills:', e);
+                    return NextResponse.json({ error: 'expectedSkills JSON 格式无效' }, { status: 400 });
+                }
+            }
 
             const file = formData.get('document') as File | null;
             if (file) {
@@ -146,6 +190,16 @@ export async function POST(request: Request) {
             standardAnswer = body.standardAnswer || '';
             user = body.user || null;
             documentContent = body.documentContent || null;
+            skill = body.skill || null;
+            skillVersion = body.skillVersion && body.skillVersion >= 1 ? body.skillVersion : null;
+            expectedSkills = body.expectedSkills || null;
+            // Validate expectedSkills versions
+            if (expectedSkills && Array.isArray(expectedSkills)) {
+                expectedSkills = expectedSkills.map((item: any) => ({
+                    ...item,
+                    version: item.version && item.version >= 1 ? item.version : null
+                }));
+            }
         }
 
         if (!query) {
@@ -168,7 +222,9 @@ export async function POST(request: Request) {
 
         const newConfig = await db.createConfig({
             query,
-            skill: '',
+            skill: skill || '',
+            skillVersion: skillVersion || null,
+            expectedSkills: expectedSkills ? JSON.stringify(expectedSkills) : null,
             standardAnswer: standardAnswer || '',
             rootCauses: null,
             keyActions: null,
@@ -180,6 +236,8 @@ export async function POST(request: Request) {
             id: newConfig.id,
             query: newConfig.query,
             skill: newConfig.skill,
+            skillVersion: newConfig.skillVersion,
+            expectedSkills: expectedSkills,
             standard_answer: standardAnswer || (documentContent ? '正在从文档中提取...' : ''),
             root_causes: [],
             key_actions: [],

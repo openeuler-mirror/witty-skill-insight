@@ -43,11 +43,13 @@ export async function POST(request: Request) {
             for (const item of newConfig) {
                 const id = require('uuid').v4();
                 await pgClient.query(
-                    `INSERT INTO "Config" (id, query, skill, "standardAnswer", "rootCauses", "keyActions", "user", "parseStatus") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                    `INSERT INTO "Config" (id, query, skill, "skillVersion", "expectedSkills", "standardAnswer", "rootCauses", "keyActions", "user", "parseStatus") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
                     [
                         id,
                         item.query,
                         item.skill || '',
+                        item.skillVersion || null,
+                        item.expectedSkills ? JSON.stringify(item.expectedSkills) : (item.skills ? JSON.stringify(item.skills) : null),
                         item.standard_answer || '',
                         item.root_causes ? JSON.stringify(item.root_causes) : null,
                         item.key_actions ? JSON.stringify(item.key_actions) : null,
@@ -77,6 +79,8 @@ export async function POST(request: Request) {
                  const data: any = {
                      query: item.query,
                      skill: item.skill || '',
+                     skillVersion: item.skillVersion || null,
+                      expectedSkills: item.expectedSkills ? JSON.stringify(item.expectedSkills) : (item.skills ? JSON.stringify(item.skills) : null),
                      standardAnswer: item.standard_answer || '',
                      rootCauses: item.root_causes ? JSON.stringify(item.root_causes) : null,
                      keyActions: item.key_actions ? JSON.stringify(item.key_actions) : null,

@@ -262,9 +262,11 @@ export async function POST(
     for (const interaction of session.interactions) {
       const usage = interaction.usage || interaction.responseMessage?.usage;
       if (usage) {
-        let parsedUsage = usage;
+         let parsedUsage = usage;
         if (typeof usage === 'string') {
-             try { parsedUsage = JSON.parse(usage); } catch(e) {}
+             try { parsedUsage = JSON.parse(usage); } catch(e) {
+                 console.warn(`[ProxyEnd] Failed to parse usage JSON for task ${taskId}:`, e);
+             }
         }
         
         const anyUsage = parsedUsage as any;

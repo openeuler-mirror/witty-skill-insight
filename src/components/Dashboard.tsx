@@ -40,6 +40,8 @@ interface Execution {
         attribution_reason?: string;
     }[];
     model?: string;
+    expected_skill_version?: number | null;
+    skill_recall_rate?: number | null;
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
     input_tokens?: number;
@@ -50,10 +52,12 @@ interface ConfigItem {
     id: string;
     query: string;
     skill: string;
+    skillVersion?: number | null;
+    expectedSkills?: { skill: string; version: number | null }[];
     standard_answer: string;
     root_causes?: { content: string; weight: number }[];
     key_actions?: { content: string; weight: number }[];
-    parse_status?: 'parsing' | 'completed' | 'failed';
+    parse_status?: string;
 }
 
 interface SkillOption {
@@ -219,7 +223,7 @@ export default function Dashboard() {
 
     // Config States
     const [configs, setConfigs] = useState<ConfigItem[]>([]);
-    const [availableSkills, setAvailableSkills] = useState<SkillOption[]>([]); // New Skill Options
+    const [availableSkills, setAvailableSkills] = useState<SkillOption[]>([]); 
 
 
     // Rejudge State
@@ -240,7 +244,7 @@ export default function Dashboard() {
     // Drill-down Filters
     const [selectedFramework, setSelectedFramework] = useState<string>('');
     const [selectedQuery, setSelectedQuery] = useState<string>('');
-    const [selectedLabel, setSelectedLabel] = useState<string>(''); // New Label Filter
+    const [selectedLabel, setSelectedLabel] = useState<string>(''); 
 
     // Comparison Options
     const [comparisonGroupByLabel, setComparisonGroupByLabel] = useState(false);
@@ -262,7 +266,6 @@ export default function Dashboard() {
     const [isSavingSettings, setIsSavingSettings] = useState(false);
     const [settingsStatus, setSettingsStatus] = useState<{ type: 'success' | 'error', msg: string } | null>(null);
 
-    // New V2 Settings Structure
     interface EvalConfigItem {
         id: string;
         name: string;
@@ -347,7 +350,7 @@ export default function Dashboard() {
             if (res.ok) {
                 setAllConfigs(newConfigs);
                 setActiveConfigId(newActiveId);
-                setEditingConfigId(null); // Return to list view
+                setEditingConfigId(null); 
                 setSettingsStatus({ type: 'success', msg: 'Saved!' });
                 setTimeout(() => setSettingsStatus(null), 1500);
             } else {
@@ -385,7 +388,7 @@ export default function Dashboard() {
     };
 
     useEffect(() => {
-        fetchServerSettings(); // fetch on mount to show in header
+        fetchServerSettings();
     }, []);
 
     // When modal opens, if we have configs, show list. if empty, show edit new.
@@ -572,7 +575,7 @@ export default function Dashboard() {
         if (!id) return;
         if (!confirm('确定要重新评估这条记录吗?')) return;
 
-        console.log('Rejudging ID:', id); // Debug check
+        console.log('Rejudging ID:', id); 
         setRejudgingIds(prev => {
             const next = new Set(prev);
             next.add(id);
@@ -637,7 +640,6 @@ export default function Dashboard() {
 
     const handleUpdateLabel = async (record: Execution, newLabel: string) => {
         try {
-            // Use PATCH /api/data instead of POST /api/upload to avoid re-triggering judgment
             const payload = {
                 task_id: record.task_id,
                 upload_id: record.upload_id,
@@ -652,7 +654,7 @@ export default function Dashboard() {
 
             if (res.ok) {
                 setEditingLabelId(null);
-                fetchData(); // Refresh to reflect changes
+                fetchData();
             } else {
                 alert('更新标签失败');
             }
@@ -740,7 +742,6 @@ export default function Dashboard() {
 
         try {
             if (!editingConfig.id) {
-                // --- NEW CREATE MODE ---
                 // Validate: need standard answer OR document
                 if (configAnswerMode === 'manual' && !editingConfig.standard_answer?.trim()) {
                     setIsSavingConfig(false);
@@ -758,6 +759,9 @@ export default function Dashboard() {
                     formData.append('query', editingConfig.query);
                     formData.append('document', configDocumentFile);
                     if (user) formData.append('user', user);
+                    if (editingConfig.expectedSkills) {
+                        formData.append('expectedSkills', JSON.stringify(editingConfig.expectedSkills));
+                    }
                     res = await fetch('/api/config/create', { method: 'POST', body: formData });
                 } else {
                     res = await fetch('/api/config/create', {
@@ -766,6 +770,9 @@ export default function Dashboard() {
                         body: JSON.stringify({
                             query: editingConfig.query,
                             standardAnswer: editingConfig.standard_answer,
+                            skill: editingConfig.skill,
+                            skillVersion: editingConfig.skillVersion,
+                            expectedSkills: editingConfig.expectedSkills,
                             user
                         })
                     });
@@ -789,7 +796,6 @@ export default function Dashboard() {
                     alert(`保存失败: ${err.error || 'Unknown error'}`);
                 }
             } else {
-                // --- EDIT MODE ---
                 let newConfigs = [...configs];
                 newConfigs = newConfigs.map(c => c.id === editingConfig.id ? { ...c, ...editingConfig } as ConfigItem : c);
 
@@ -825,8 +831,6 @@ export default function Dashboard() {
         });
         if (res.ok) setConfigs(newConfigs);
     };
-
-    // --- Derived Data ---
     const allFrameworks = useMemo(() => Array.from(new Set(rawData.map(d => d.framework))).sort(), [rawData]);
 
     const allQueries = useMemo(() => Array.from(new Set(rawData.map(d => d.query))).sort(), [rawData]);
@@ -967,10 +971,11 @@ export default function Dashboard() {
                             const avgTok = fwOrModelData.reduce((s, x) => s + x.tokens, 0) / fwOrModelData.length;
                             const evaluatedDatas = fwOrModelData.filter(d => d.answer_score !== null);
                             const avgScore = evaluatedDatas.length ? evaluatedDatas.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedDatas.length : 0;
-
+                            const skillRecallRate = fwOrModelData.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / fwOrModelData.length * 100;
                             qRecord[`${seriesName}_lat`] = parseFloat(avgLat.toFixed(2));
                             qRecord[`${seriesName}_tok`] = Math.round(avgTok);
                             qRecord[`${seriesName}_score`] = parseFloat(avgScore.toFixed(2));
+                            qRecord[`${seriesName}_recall`] = parseFloat(skillRecallRate.toFixed(1));
                         }
                     });
                     if (Object.keys(qRecord).length > 1) { // Check if any series data was added
@@ -1006,13 +1011,13 @@ export default function Dashboard() {
                     if (fwOrModelData.length > 0) {
                         const avgLat = fwOrModelData.reduce((s, x) => s + x.latency, 0) / fwOrModelData.length;
                         const avgTok = fwOrModelData.reduce((s, x) => s + x.tokens, 0) / fwOrModelData.length;
-                        const recall = (fwOrModelData.filter(d => d.is_skill_correct).length / fwOrModelData.length) * 100;
+                        const skillRecallRate = fwOrModelData.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / fwOrModelData.length * 100;
                         const evaluatedDatas = fwOrModelData.filter(d => d.answer_score !== null);
                         const avgScore = evaluatedDatas.length ? evaluatedDatas.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedDatas.length : 0;
 
                         row[`${seriesName}_lat`] = parseFloat(avgLat.toFixed(2));
                         row[`${seriesName}_tok`] = Math.round(avgTok);
-                        row[`${seriesName}_recall`] = parseFloat(recall.toFixed(1));
+                        row[`${seriesName}_recall`] = parseFloat(skillRecallRate.toFixed(1));
                         row[`${seriesName}_score`] = parseFloat(avgScore.toFixed(2));
                         hasData = true;
                     }
@@ -1045,8 +1050,36 @@ export default function Dashboard() {
         const totalLat = relevant.reduce((sum, d) => sum + d.latency, 0);
         const sorted = [...relevant].sort((a, b) => a.latency - b.latency);
 
-        const correctSkillCount = relevant.filter(d => d.is_skill_correct).length;
-
+        // Calculate global skill recall rate (only for queries with expected skill info)
+        // First, identify queries that have expected skill info (check both legacy skill and new expectedSkills)
+        const queriesWithExpectedSkill = new Set(
+            configs
+                .filter(c => 
+                    (c.skill && c.skill.trim() !== '') ||
+                    (c.expectedSkills && c.expectedSkills.some((e: any) => e.skill && e.skill.trim() !== ''))
+                )
+                .map(c => c.query.trim())
+        );
+        
+        // Filter execution records to only include queries with expected skill info
+        const dataWithExpectedSkill = filteredData.filter(d => 
+            d.query && queriesWithExpectedSkill.has(d.query.trim())
+        );
+        // Further filter to only records with skill recall rate calculated
+        const dataWithRecallRate = dataWithExpectedSkill.filter(d => 
+            d.skill_recall_rate !== null && d.skill_recall_rate !== undefined
+        );
+        
+        const globalSkillRecallRate = dataWithRecallRate.length > 0 
+            ? dataWithRecallRate.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / dataWithRecallRate.length * 100 
+            : 0;
+        
+        // Calculate query-level skill recall rate (only for records with expected skills)
+        const relevantWithExpectedSkill = relevant.filter(d => d.skill_recall_rate !== null && d.skill_recall_rate !== undefined);
+        const querySkillRecallRate = relevantWithExpectedSkill.length > 0 
+            ? relevantWithExpectedSkill.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / relevantWithExpectedSkill.length * 100 
+            : 0;
+        
         const withCost = relevant.filter(d => d.cost != null);
         const avgCost = withCost.length ? withCost.reduce((sum, d) => sum + (d.cost || 0), 0) / withCost.length : null;
 
@@ -1055,13 +1088,14 @@ export default function Dashboard() {
             avgLatency: totalLat / relevant.length,
             avgTokens: Math.round(relevant.reduce((sum, d) => sum + d.tokens, 0) / relevant.length),
             avgCost,
-            skillRecall: (correctSkillCount / relevant.length) * 100,
+            globalSkillRecallRate: globalSkillRecallRate,
+            querySkillRecallRate: querySkillRecallRate,
             avgAnsScore: relevant.filter(d => d.answer_score !== null).length ? (relevant.filter(d => d.answer_score !== null).reduce((sum, d) => sum + (d.answer_score || 0), 0) / relevant.filter(d => d.answer_score !== null).length) : 0,
-            best: sorted[0], // Best by Latency
-            worst: sorted[sorted.length - 1], // Worst by Latency
+            best: sorted[0],
+            worst: sorted[sorted.length - 1],
             avgSkillScore: (relevant.reduce((sum, d) => sum + (d.skill_score || 0), 0) / relevant.filter(d => d.skill_score !== undefined).length) || 0
         };
-    }, [filteredData, selectedFramework, selectedQuery]);
+    }, [filteredData, selectedFramework, selectedQuery, configs]);
 
     // Derived Table Data
     const tableFilteredData = useMemo(() => {
@@ -1077,7 +1111,6 @@ export default function Dashboard() {
     const totalTablePages = Math.ceil(tableFilteredData.length / TABLE_PAGE_SIZE);
     const currentTableData = tableFilteredData.slice((tablePage - 1) * TABLE_PAGE_SIZE, tablePage * TABLE_PAGE_SIZE);
 
-    // --- External Components ---
     const ChartLayout = ({ title, dataKey, unit = '', data, frameworks, yFormatter }: { title: React.ReactNode, dataKey: string, unit?: string, data: any[], frameworks: string[], yFormatter?: (val: number) => string }) => (
         <div className="card" style={{ height: '350px', display: 'flex', flexDirection: 'column' }}>
             <div className="card-title" style={{ marginBottom: '10px' }}>{title}</div>
@@ -1415,11 +1448,23 @@ export default function Dashboard() {
                     <div className="grid">
                         {allFrameworks.map((fw, idx) => {
                             const fwData = filteredData.filter(d => d.framework === fw);
+                            // Filter for queries with expected skill info (check both legacy skill and new expectedSkills)
+                            const queriesWithExpectedSkill = new Set(
+                                configs
+                                    .filter(c => 
+                                        (c.skill && c.skill.trim() !== '') ||
+                                        (c.expectedSkills && c.expectedSkills.some((e: any) => e.skill && e.skill.trim() !== ''))
+                                    )
+                                    .map(c => c.query.trim())
+                            );
+                            const fwDataWithExpectedSkill = fwData.filter(d => 
+                                d.query && queriesWithExpectedSkill.has(d.query.trim())
+                            );
                             const avgLat = fwData.length ? (fwData.reduce((s, x) => s + x.latency, 0) / fwData.length) : 0;
                             const avgTok = fwData.length ? (fwData.reduce((s, x) => s + x.tokens, 0) / fwData.length) : 0;
-                            const skillRecall = fwData.length ? (fwData.filter(d => d.is_skill_correct).length / fwData.length * 100) : 0;
                             const evaluatedFwData = fwData.filter(d => d.answer_score !== null);
                             const avgScore = evaluatedFwData.length ? (evaluatedFwData.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedFwData.length) : 0;
+                            const skillRecallRate = fwDataWithExpectedSkill.length ? fwDataWithExpectedSkill.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / fwDataWithExpectedSkill.length * 100 : 0;
 
                             return (
                                 <div className="card" key={fw} style={{ borderLeft: `4px solid ${COLORS[idx % COLORS.length]}` }}>
@@ -1437,18 +1482,20 @@ export default function Dashboard() {
                                             <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f1f5f9' }}>{formatTokens(Math.round(avgTok))}</span>
                                         </div>
                                     </div>
-                                    <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid #334155' }}>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.2rem', alignItems: 'center' }}>
-                                            {/* Accuracy Label - Aligned with Latency (Left) */}
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontSize: '0.9rem', color: '#cbd5e1' }}>准确率</span>
-                                            </div>
-                                            {/* Score Value - Aligned with Token (Right) */}
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontSize: '1.8rem', fontWeight: 800, color: avgScore > 0.8 ? '#4ade80' : '#fbbf24' }}>
-                                                    {(avgScore * 100).toFixed(1)}%
-                                                </span>
-                                            </div>
+                                    <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid #334155', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.2rem' }}>
+                                        {/* Accuracy */}
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>准确率</span>
+                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: avgScore > 0.8 ? '#4ade80' : '#fbbf24' }}>
+                                                {(avgScore * 100).toFixed(1)}%
+                                            </span>
+                                        </div>
+                                        {/* Skill Recall Rate */}
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>技能召回率</span>
+                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#fbbf24' }}>
+                                                {skillRecallRate.toFixed(1)}%
+                                            </span>
                                         </div>
                                     </div>
                                 </div>
@@ -1556,6 +1603,7 @@ export default function Dashboard() {
                                         <ChartLayout title="平均时延" unit="m" dataKey="lat" data={group.data} frameworks={comparisonSeries} yFormatter={(v) => (v / 60000).toFixed(2) + 'm'} />
                                         <ChartLayout title="平均消耗 (Tokens)" dataKey="tok" data={group.data} frameworks={comparisonSeries} yFormatter={formatTokens} />
                                         <ChartLayout title="平均准确率" dataKey="score" unit="" data={group.data} frameworks={comparisonSeries} />
+                                            <ChartLayout title="平均技能召回率" dataKey="recall" unit="%" data={group.data} frameworks={comparisonSeries} yFormatter={(v) => Number(v).toFixed(1) + '%'} />
                                     </div>
                                 </div>
                             ))}
@@ -1587,6 +1635,14 @@ export default function Dashboard() {
                                     unit=""
                                     data={comparisonData}
                                     frameworks={comparisonSeries}
+                                />
+                                <ChartLayout
+                                    title={<span>平均技能召回率 <CustomTooltip content={<div>基于执行结果是否使用了预期技能计算出的百分比，表示正确调用技能的比例。<br />这是全局指标，反映技能路由的准确性。</div>} /></span>}
+                                    dataKey="recall"
+                                    unit="%"
+                                    data={comparisonData}
+                                    frameworks={comparisonSeries}
+                                    yFormatter={(v) => Number(v).toFixed(1) + '%'}
                                 />
                             </div>
                         ) : (
@@ -1728,7 +1784,7 @@ export default function Dashboard() {
                                     const counts = relevant.length;
                                     const avgLat = relevant.reduce((sum, d) => sum + d.latency, 0) / counts;
                                     const avgTok = Math.round(relevant.reduce((sum, d) => sum + d.tokens, 0) / counts);
-                                    const recall = (relevant.filter(d => d.is_skill_correct).length / counts) * 100;
+                                    const recall = relevant.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / counts * 100;
                                     const evaluatedRelevant = relevant.filter(d => d.answer_score !== null);
                                     const avgSc = evaluatedRelevant.length ? (evaluatedRelevant.reduce((sum, d) => sum + (d.answer_score || 0), 0) / evaluatedRelevant.length) : 0;
                                     const best = [...relevant].sort((a, b) => a.latency - b.latency)[0];
@@ -1874,6 +1930,10 @@ export default function Dashboard() {
                                         <div>
                                             <div className="text-sm text-slate-400">平均 Token</div>
                                             <div className="text-xl font-bold">{formatTokens(singleQueryStats.avgTokens)}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-sm text-slate-400">平均技能召回率</div>
+                                            <div className="text-xl font-bold" style={{ color: '#f1f5f9' }}>{singleQueryStats.querySkillRecallRate?.toFixed(2)}%</div>
                                         </div>
                                         <div>
                                             <div className="text-sm text-slate-400">平均准确率</div>
@@ -2161,6 +2221,23 @@ export default function Dashboard() {
                                     }}>
                                         {(c.standard_answer || '').length > 100 ? (c.standard_answer || '').substring(0, 100) + '...' : (c.standard_answer || '暂无标准答案')}
                                     </div>
+                                     {(c.expectedSkills && c.expectedSkills.length > 0) ? (
+                                        <div style={{
+                                            color: '#94a3b8',
+                                            fontSize: '0.75rem',
+                                            marginTop: '2px'
+                                        }}>
+                                            预期技能: {c.expectedSkills.map(s => `${s.skill}${s.version !== null && s.version !== undefined ? ` (v${s.version})` : ''}`).join(', ')}
+                                        </div>
+                                    ) : c.skill && (
+                                        <div style={{
+                                            color: '#94a3b8',
+                                            fontSize: '0.75rem',
+                                            marginTop: '2px'
+                                        }}>
+                                            预期技能: {c.skill}{c.skillVersion !== null && c.skillVersion !== undefined ? ` (v${c.skillVersion})` : ''}
+                                        </div>
+                                    )}
                                 </div>
                                 {/* 状态标签 */}
                                 <div style={{ flexShrink: 0 }}>
@@ -2188,7 +2265,14 @@ export default function Dashboard() {
                                 {/* 操作按钮 */}
                                 <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                                     <button
-                                        onClick={() => { setEditingConfig(c); setIsEditModalOpen(true) }}
+                                        onClick={() => { 
+                                            const configToEdit = { ...c };
+                                            if (!configToEdit.expectedSkills && configToEdit.skill) {
+                                                configToEdit.expectedSkills = [{ skill: configToEdit.skill, version: configToEdit.skillVersion ?? null }];
+                                            }
+                                            setEditingConfig(configToEdit); 
+                                            setIsEditModalOpen(true) 
+                                        }}
                                         style={{
                                             padding: '5px 12px',
                                             background: '#1e3a5f',
@@ -2208,6 +2292,7 @@ export default function Dashboard() {
                                             setEditingConfig({
                                                 query: c.query,
                                                 skill: '',
+                                                expectedSkills: c.expectedSkills ? [...c.expectedSkills] : (c.skill ? [{ skill: c.skill, version: c.skillVersion ?? null }] : undefined),
                                                 standard_answer: c.standard_answer,
                                             });
                                             setConfigAnswerMode('manual');
@@ -2276,9 +2361,7 @@ export default function Dashboard() {
                             />
                         </div>
 
-                        {!editingConfig.id ? (
-                            // --- NEW CONFIG FORM ---
-                            <>
+                        {!editingConfig.id ? (                            <>
                                 {/* 标准答案 - 突出显示 */}
                                 <div className="form-group">
                                     <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>标准答案 <span style={{ color: '#ef4444' }}>*</span></label>
@@ -2370,20 +2453,75 @@ export default function Dashboard() {
                                                     </div>
                                                 </div>
                                             )}
-                                        </div>
+                                         </div>
                                     )}
                                 </div>
 
-                                <div style={{ marginTop: '1rem', padding: '12px 16px', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: '#94a3b8', fontSize: '0.85rem' }}>
-                                    <p style={{ margin: 0 }}>
-                                        💡 保存后，系统将基于标准答案自动提取<strong style={{ color: '#bae6fd' }}>关键观点</strong>（回答中必须包含的核心信息）和<strong style={{ color: '#bae6fd' }}>关键动作</strong>（Agent 必须执行的操作步骤），用于后续的细致评估打分。此过程在后台执行，无需等待。
-                                    </p>
+                                {/* Expected Skills (Optional) */}
+                                <div className="form-group" style={{ marginTop: '1rem' }}>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>预期技能 (Expected Skills) <span style={{ color: '#64748b', fontWeight: 400 }}>(可选)</span></label>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {(editingConfig.expectedSkills || []).map((item, index) => (
+                                            <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                <input
+                                                    type="text"
+                                                    value={item.skill}
+                                                    onChange={e => {
+                                                        const newSkills = [...(editingConfig.expectedSkills || [])];
+                                                        newSkills[index] = { ...newSkills[index], skill: e.target.value };
+                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                    }}
+                                                    placeholder="技能名称"
+                                                    style={{ flex: 2, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                                />
+                                            <input
+                                                type="number"
+                                                value={item.version ?? 0}
+                                                onChange={e => {
+                                                    const value = e.target.value;
+                                                    const newSkills = [...(editingConfig.expectedSkills || [])];
+                                                    newSkills[index] = { 
+                                                        ...newSkills[index], 
+                                                        version: value === '' ? 0 : Math.max(0, parseInt(value, 10) || 0)
+                                                    };
+                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                }}
+                                                placeholder="版本 (默认: 0)"
+                                                style={{ flex: 1, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const newSkills = (editingConfig.expectedSkills || []).filter((_, i) => i !== index);
+                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                }}
+                                                style={{ padding: '10px', background: '#3b1c1c', color: '#ef4444', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const newSkills = [...(editingConfig.expectedSkills || []), { skill: '', version: 0 }];
+                                            setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                        }}
+                                        style={{ padding: '8px', background: '#1e3a5f', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
+                                    >
+                                        + 添加预期技能
+                                    </button>
                                 </div>
-                            </>
-                        ) : (
-                            // --- VIEW/EDIT FORM ---
-                            <>
-                                {/* 标准答案 - 突出显示 */}
+                            </div>
+
+                            <div style={{ marginTop: '1rem', padding: '12px 16px', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: '#94a3b8', fontSize: '0.85rem' }}>
+                                <p style={{ margin: 0 }}>
+                                    💡 保存后，系统将基于标准答案自动提取<strong style={{ color: '#bae6fd' }}>关键观点</strong>（回答中必须包含的核心信息）和<strong style={{ color: '#bae6fd' }}>关键动作</strong>（Agent 必须执行的操作步骤），用于后续的细致评估打分。此过程在后台执行，无需等待。
+                                </p>
+                            </div>
+                        </>
+                    ) : (                            <>
+                                 {/* 标准答案 - 突出显示 */}
                                 <div className="form-group">
                                     <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>标准答案</label>
                                     <textarea
@@ -2391,6 +2529,63 @@ export default function Dashboard() {
                                         onChange={e => setEditingConfig({ ...editingConfig, standard_answer: e.target.value })}
                                         style={{ width: '100%', padding: '10px', minHeight: '120px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.9rem' }}
                                     />
+                                </div>
+
+                                {/* Expected Skills (Optional) */}
+                                <div className="form-group" style={{ marginTop: '1rem' }}>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>预期技能 (Expected Skills) <span style={{ color: '#64748b', fontWeight: 400 }}>(可选)</span></label>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {(editingConfig.expectedSkills || []).map((item, index) => (
+                                            <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                <input
+                                                    type="text"
+                                                    value={item.skill}
+                                                    onChange={e => {
+                                                        const newSkills = [...(editingConfig.expectedSkills || [])];
+                                                        newSkills[index] = { ...newSkills[index], skill: e.target.value };
+                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                    }}
+                                                    placeholder="技能名称"
+                                                    style={{ flex: 2, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                                />
+                                                <input
+                                                    type="number"
+                                                    value={item.version ?? 0}
+                                                    onChange={e => {
+                                                        const value = e.target.value;
+                                                        const newSkills = [...(editingConfig.expectedSkills || [])];
+                                                        newSkills[index] = { 
+                                                            ...newSkills[index], 
+                                                            version: value === '' ? 0 : Math.max(0, parseInt(value, 10) || 0)
+                                                        };
+                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                    }}
+                                                    placeholder="版本 (默认: 0)"
+                                                    style={{ flex: 1, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const newSkills = (editingConfig.expectedSkills || []).filter((_, i) => i !== index);
+                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                    }}
+                                                    style={{ padding: '10px', background: '#3b1c1c', color: '#ef4444', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                                                >
+                                                    ✕
+                                                </button>
+                                            </div>
+                                        ))}
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const newSkills = [...(editingConfig.expectedSkills || []), { skill: '', version: 0 }];
+                                                setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                            }}
+                                            style={{ padding: '8px', background: '#1e3a5f', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
+                                        >
+                                            + 添加预期技能
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* 关键观点 - 默认折叠 */}

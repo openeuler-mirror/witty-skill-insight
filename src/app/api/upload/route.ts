@@ -141,8 +141,17 @@ async function processUploadAsync(data: any, username: any, normalized: any, int
     if (primarySkillName) {
           const skillRecord = await db.findSkill(primarySkillName, username || null);
           if (skillRecord && skillRecord.versions && skillRecord.versions.length > 0) {
-             skillDef = skillRecord.versions[0].content;
-             data.skill_version = skillRecord.versions[0].version;
+             // Use activeVersion if available, otherwise use the first/latest version
+             const targetVersion = skillRecord.activeVersion || 0;
+             const sv = skillRecord.versions.find((v: any) => v.version === targetVersion);
+             if (sv && sv.content) {
+                 skillDef = sv.content;
+                 data.skill_version = sv.version;
+             } else {
+                 // Fallback to first/latest version
+                 skillDef = skillRecord.versions[0].content;
+                 data.skill_version = skillRecord.versions[0].version;
+             }
          }
     }
 

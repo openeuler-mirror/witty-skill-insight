@@ -83,12 +83,16 @@ model Execution {
   skillVersion    Int?
   label           String?
   user            String?
+  expectedSkillVersion Int?   // Version of skill expected by config
+  skillRecallRate      Float? // Execution-level metric: correct_invoked_skills / expected_skills (per execution)
 }
 
 model Config {
   id             String @id @default(cuid())
   query          String
-  skill          String   @default("")
+  skill          String   @default("")    // Ground truth skill name (Legacy - use expectedSkills instead)
+  skillVersion   Int?    // Expected skill version (Legacy - use expectedSkills instead)
+  expectedSkills String? // JSON array of {skill: string, version: number | null}
   standardAnswer String
   rootCauses     String? // JSON array
   keyActions     String? // JSON array
