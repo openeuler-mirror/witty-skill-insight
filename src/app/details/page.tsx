@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import ExecutionFlowComparison from '@/components/ExecutionFlowComparison';
+import { SkillLinks } from '@/components/SkillLink';
 
 const Line = dynamic(() => import('recharts').then(mod => mod.Line), { ssr: false });
 const LineChart = dynamic(() => import('recharts').then(mod => mod.LineChart), { ssr: false });
@@ -1992,10 +1993,12 @@ function DetailPage() {
                                         <div style={{ marginBottom: '2rem' }}>
                                             <h4 style={sectionHeader}>Skills Used</h4>
                                             <div style={{ ...codeBlock, padding: '0.5rem', background: '#1e293b', borderRadius: '4px', border: '1px solid #334155' }}>
-                                                {item.skills?.length
-                                                    ? item.skills.map(s => item.skill_version ? `${s} (v${item.skill_version})` : s).join(', ')
-                                                    : (item.skill ? (item.skill_version ? `${item.skill} (v${item.skill_version})` : item.skill) : '(None)')
-                                                }
+                                                <SkillLinks
+                                                    skills={item.skills}
+                                                    skill={item.skill}
+                                                    skillVersion={item.skill_version}
+                                                    user={item.user}
+                                                />
                                             </div>
                                         </div>
 

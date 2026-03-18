@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { SkillLinks } from './SkillLink';
 
 
 // --- Types ---
@@ -25,6 +26,7 @@ interface Execution {
     label?: string;
     task_id?: string;
     upload_id?: string;
+    user?: string | null;
     user_feedback?: {
         type: 'like' | 'dislike' | null;
         comment: string;
@@ -2556,9 +2558,12 @@ export default function Dashboard() {
                             <div className="detail-row">
                                 <strong style={{ display: 'block', marginBottom: '0.2rem', color: '#94a3b8' }}>Skills Used:</strong>
                                 <div className="code-block">
-                                    {selectedRecord.skills?.length
-                                        ? selectedRecord.skills.map(s => selectedRecord.skill_version ? `${s} (v${selectedRecord.skill_version})` : s).join(', ')
-                                        : (selectedRecord.skill ? (selectedRecord.skill_version ? `${selectedRecord.skill} (v${selectedRecord.skill_version})` : selectedRecord.skill) : '(None)')}
+                                    <SkillLinks
+                                        skills={selectedRecord.skills}
+                                        skill={selectedRecord.skill}
+                                        skillVersion={selectedRecord.skill_version ? parseInt(selectedRecord.skill_version) : null}
+                                        user={selectedRecord.user}
+                                    />
                                 </div>
                             </div>
                             <div className="detail-row">
