@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: 'standalone',
-  serverExternalPackages: ["node-fetch"],
+  serverExternalPackages: ["node-fetch", "pg"],
   experimental: {
       serverActions: {
           allowedOrigins: ["*"] // Allow cross-origin requests in dev

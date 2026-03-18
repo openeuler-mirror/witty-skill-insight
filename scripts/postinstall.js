@@ -68,23 +68,49 @@ try {
       console.log('✓ Prisma client copied to standalone')
     }
     
+    const pgDir = path.join(PACKAGE_ROOT, 'node_modules', 'pg')
+    if (fs.existsSync(pgDir)) {
+      if (!fs.existsSync(standaloneNodeModules)) {
+        fs.mkdirSync(standaloneNodeModules, { recursive: true })
+      }
+      const standalonePgDir = path.join(standaloneNodeModules, 'pg')
+      if (!fs.existsSync(standalonePgDir)) {
+        execSync(`cp -r "${pgDir}" "${standaloneNodeModules}/"`, { stdio: 'inherit' })
+        console.log('✓ pg module copied to standalone')
+      }
+    }
+    
     const chunksDir = path.join(standaloneDir, '.next', 'server', 'chunks')
     if (fs.existsSync(chunksDir)) {
       const chunkFiles = fs.readdirSync(chunksDir).filter(f => f.endsWith('.js'))
-      let foundHash = null
+      let foundPrismaHash = null
+      let foundPgHash = null
       
       for (const file of chunkFiles) {
         const filePath = path.join(chunksDir, file)
         const content = fs.readFileSync(filePath, 'utf8')
-        const hashMatch = content.match(/@prisma\/client-([a-f0-9]+)/)
-        if (hashMatch) {
-          foundHash = hashMatch[1]
+        
+        if (!foundPrismaHash) {
+          const prismaHashMatch = content.match(/@prisma\/client-([a-f0-9]+)/)
+          if (prismaHashMatch) {
+            foundPrismaHash = prismaHashMatch[1]
+          }
+        }
+        
+        if (!foundPgHash) {
+          const pgHashMatch = content.match(/["']pg-([a-f0-9]+)["']/)
+          if (pgHashMatch) {
+            foundPgHash = pgHashMatch[1]
+          }
+        }
+        
+        if (foundPrismaHash && foundPgHash) {
           break
         }
       }
       
-      if (foundHash) {
-        const hashName = `@prisma/client-${foundHash}`
+      if (foundPrismaHash) {
+        const hashName = `@prisma/client-${foundPrismaHash}`
         const hashDir = path.join(standaloneNodeModules, hashName)
         
         if (!fs.existsSync(hashDir)) {
@@ -94,6 +120,19 @@ try {
         }
       } else {
         console.log('⚠️  Could not find Prisma hash in build output')
+      }
+      
+      if (foundPgHash) {
+        const pgHashName = `pg-${foundPgHash}`
+        const pgHashDir = path.join(standaloneNodeModules, pgHashName)
+        const pgTargetDir = path.join(standaloneNodeModules, 'pg')
+        
+        if (!fs.existsSync(pgHashDir) && fs.existsSync(pgTargetDir)) {
+          fs.symlinkSync(pgTargetDir, pgHashDir, 'dir')
+          console.log(`✓ Created symlink: ${pgHashName} -> pg`)
+        }
+      } else {
+        console.log('⚠️  Could not find pg hash in build output')
       }
     }
     console.log()
