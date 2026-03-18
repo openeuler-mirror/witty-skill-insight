@@ -1878,7 +1878,7 @@ export default function Dashboard() {
                                                         </div>
                                                         <div>
                                                             <div className="text-sm text-slate-400">平均成本 <CustomTooltip content="Estimated from default or custom (custom-models.json) pricing." /></div>
-                                                            <div className="text-xl font-bold">{groupAvgCost != null ? formatCost(groupAvgCost) : '-'}</div>
+                                                            <div className="text-xl font-bold" style={groupAvgCost == null ? { color: '#64748b' } : {}}>{groupAvgCost != null ? formatCost(groupAvgCost) : 'N/A'}</div>
                                                         </div>
                                                         <div>
                                                             <div className="text-sm text-slate-400">CPSR <CustomTooltip content={"Cost Per Successful Resolution: Average cost per successful task resolution.\nFormula: (total cost) / (number of runs with successful resolutions)"} /></div>
@@ -1974,7 +1974,7 @@ export default function Dashboard() {
                                         </div>
                                         <div>
                                             <div className="text-sm text-slate-400">平均成本 <CustomTooltip content="Estimated from default or custom (custom-models.json) pricing." /></div>
-                                            <div className="text-xl font-bold">{singleQueryStats.avgCost != null ? formatCost(singleQueryStats.avgCost) : '-'}</div>
+                                            <div className="text-xl font-bold" style={singleQueryStats.avgCost == null ? { color: '#64748b' } : {}}>{singleQueryStats.avgCost != null ? formatCost(singleQueryStats.avgCost) : 'N/A'}</div>
                                         </div>
                                         <div>
                                             <div className="text-sm text-slate-400">CPSR<CustomTooltip content={"Cost Per Successful Resolution: Average cost per successful task resolution.\nFormula: (total cost) / (number of runs with successful resolutions)"} /></div>
