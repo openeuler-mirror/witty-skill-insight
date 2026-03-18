@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { judgeAnswer } from './judge';
 import { db, prisma } from './prisma';
+import { getModelPricing, calculateCost, DEFAULT_CACHE_READ_RATIO, DEFAULT_CACHE_CREATION_RATIO } from './model-config';
 
 export interface ExecutionRecord {
     upload_id?: string;
@@ -42,6 +43,8 @@ export interface ExecutionRecord {
     input_tokens?: number;
     output_tokens?: number;
     tool_call_error_count?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
     [key: string]: any;
 }
 
@@ -68,36 +71,52 @@ export async function readRecords(user?: string): Promise<ExecutionRecord[]> {
 
     const records = await db.findExecutions(where, { timestamp: 'desc' });
 
-    return records.map((r: any) => ({
-        ...r,
-        upload_id: r.id,
-        task_id: r.taskId || undefined,
-        query: r.query || undefined,
-        framework: r.framework || undefined,
-        tokens: r.tokens || undefined,
-        cost: r.cost || undefined,
-        latency: r.latency || undefined,
-        timestamp: r.timestamp?.toISOString?.() || r.timestamp,
-        final_result: r.finalResult || undefined,
-        skill: r.skill || undefined,
-        skills: r.skills ? JSON.parse(r.skills) : undefined,
-        is_skill_correct: r.isSkillCorrect || false,
-        is_answer_correct: r.isAnswerCorrect || false,
-        answer_score: r.answerScore !== undefined ? r.answerScore : undefined,
-        skill_score: r.skillScore !== undefined ? r.skillScore : undefined,
-        judgment_reason: r.judgmentReason || undefined,
-        failures: r.failures ? JSON.parse(r.failures) : undefined,
-        label: r.label ?? null,
-        user: r.user ?? null,
-        skill_issues: r.skillIssues ? JSON.parse(r.skillIssues) : [],
-        skill_version: r.skillVersion ?? null,
-        model: r.model ?? null,
-        tool_call_count: r.toolCallCount ?? undefined,
-        llm_call_count: r.llmCallCount ?? undefined,
-        input_tokens: r.inputTokens ?? undefined,
-        output_tokens: r.outputTokens ?? undefined,
-        tool_call_error_count: r.toolCallErrorCount ?? undefined,
-    }));
+    return records.map((r: any) => {
+        const model = r.model ?? null;
+        const pricingResult = model ? getModelPricing(model) : null;
+        const pricing = pricingResult?.pricing ?? null;
+        return {
+            ...r,
+            upload_id: r.id,
+            task_id: r.taskId || undefined,
+            query: r.query || undefined,
+            framework: r.framework || undefined,
+            tokens: r.tokens || undefined,
+            cost: (pricing && r.inputTokens != null && r.outputTokens != null)
+                ? calculateCost(r.inputTokens, r.outputTokens, pricing, r.cacheReadInputTokens ?? undefined, r.cacheCreationInputTokens ?? undefined)
+                : undefined,
+            latency: r.latency || undefined,
+            timestamp: r.timestamp?.toISOString?.() || r.timestamp,
+            final_result: r.finalResult || undefined,
+            skill: r.skill || undefined,
+            skills: r.skills ? JSON.parse(r.skills) : undefined,
+            is_skill_correct: r.isSkillCorrect || false,
+            is_answer_correct: r.isAnswerCorrect || false,
+            answer_score: r.answerScore !== undefined ? r.answerScore : undefined,
+            skill_score: r.skillScore !== undefined ? r.skillScore : undefined,
+            judgment_reason: r.judgmentReason || undefined,
+            failures: r.failures ? JSON.parse(r.failures) : undefined,
+            label: r.label ?? null,
+            user: r.user ?? null,
+            skill_issues: r.skillIssues ? JSON.parse(r.skillIssues) : [],
+            skill_version: r.skillVersion ?? null,
+            model,
+            tool_call_count: r.toolCallCount ?? undefined,
+            llm_call_count: r.llmCallCount ?? undefined,
+            input_tokens: r.inputTokens ?? undefined,
+            output_tokens: r.outputTokens ?? undefined,
+            tool_call_error_count: r.toolCallErrorCount ?? undefined,
+            cache_read_input_tokens: r.cacheReadInputTokens ?? undefined,
+            cache_creation_input_tokens: r.cacheCreationInputTokens ?? undefined,
+            cost_pricing: pricing ? {
+                inputTokenPrice: pricing.inputTokenPrice,
+                outputTokenPrice: pricing.outputTokenPrice,
+                cacheReadInputTokenPrice: pricing.cacheReadInputTokenPrice ?? pricing.inputTokenPrice * DEFAULT_CACHE_READ_RATIO,
+                cacheCreationInputTokenPrice: pricing.cacheCreationInputTokenPrice ?? pricing.inputTokenPrice * DEFAULT_CACHE_CREATION_RATIO,
+                source: pricingResult?.source ?? 'default',
+            } : null,
+        };
+    });
 }
 
 
@@ -174,6 +193,8 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             input_tokens: dbRecord.inputTokens ?? undefined,
             output_tokens: dbRecord.outputTokens ?? undefined,
             tool_call_error_count: dbRecord.toolCallErrorCount ?? undefined,
+            cache_read_input_tokens: dbRecord.cacheReadInputTokens ?? undefined,
+            cache_creation_input_tokens: dbRecord.cacheCreationInputTokens ?? undefined,
         };
     }
 
@@ -223,6 +244,8 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
     if (data.input_tokens !== undefined) targetRecord.input_tokens = Number(data.input_tokens);
     if (data.output_tokens !== undefined) targetRecord.output_tokens = Number(data.output_tokens);
     if (data.tool_call_error_count !== undefined) targetRecord.tool_call_error_count = Number(data.tool_call_error_count);
+    if (data.cache_read_input_tokens !== undefined) targetRecord.cache_read_input_tokens = Number(data.cache_read_input_tokens);
+    if (data.cache_creation_input_tokens !== undefined) targetRecord.cache_creation_input_tokens = Number(data.cache_creation_input_tokens);
 
     const NO_MATCH_REASON = '未找到匹配的评测配置';
 
@@ -354,6 +377,8 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             inputTokens: targetRecord.input_tokens,
             outputTokens: targetRecord.output_tokens,
             toolCallErrorCount: targetRecord.tool_call_error_count,
+            cacheReadInputTokens: targetRecord.cache_read_input_tokens,
+            cacheCreationInputTokens: targetRecord.cache_creation_input_tokens,
         },
         update: {
             taskId: targetRecord.task_id,
@@ -382,6 +407,8 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             inputTokens: targetRecord.input_tokens,
             outputTokens: targetRecord.output_tokens,
             toolCallErrorCount: targetRecord.tool_call_error_count,
+            cacheReadInputTokens: targetRecord.cache_read_input_tokens,
+            cacheCreationInputTokens: targetRecord.cache_creation_input_tokens,
         }
     });
 

@@ -350,6 +350,8 @@ export default async function WittySkillInsightPlugin(input) {
               let model = "";
               let totalInputTokens = 0;
               let totalOutputTokens = 0;
+              let totalCacheReadInputTokens = 0;
+              let totalCacheCreationInputTokens = 0;
               let llmCallCount = 0;
               let toolCallCount = 0;
               let toolCallErrorCount = 0;
@@ -375,12 +377,14 @@ export default async function WittySkillInsightPlugin(input) {
                               totalTokens += Number(u.cache_creation_input_tokens || 0) + Number(u.cache_read_input_tokens || 0);
                           }
                           // Extended metrics: separate input/output token counts
-                          const inputToks = Number(u.input_tokens || u.input || 0)
-                              + Number(u.cache?.read || u.cache_read_input_tokens || 0)
-                              + Number(u.cache?.write || u.cache_creation_input_tokens || 0);
+                          const cacheReadToks = Number(u.cache?.read || u.cache_read_input_tokens || 0);
+                          const cacheCreateToks = Number(u.cache?.write || u.cache_creation_input_tokens || 0);
+                          const inputToks = Number(u.input_tokens || u.input || 0);  // base input only (excludes cache)
                           const outputToks = Number(u.output_tokens || u.output || 0);
                           totalInputTokens += inputToks;
                           totalOutputTokens += outputToks;
+                          totalCacheReadInputTokens += cacheReadToks;
+                          totalCacheCreationInputTokens += cacheCreateToks;
                       }
                       
                       // Latency Logic
@@ -421,6 +425,8 @@ export default async function WittySkillInsightPlugin(input) {
                   tool_call_count: toolCallCount,
                   tool_call_error_count: toolCallErrorCount,
                   llm_call_count: llmCallCount,
+                  cache_read_input_tokens: totalCacheReadInputTokens,
+                  cache_creation_input_tokens: totalCacheCreationInputTokens,
                   final_result: lastAssistantContent,
                   interactions: messages.map(m => ({
                       role: m.role,

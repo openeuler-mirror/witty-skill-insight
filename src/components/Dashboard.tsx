@@ -19,7 +19,8 @@ interface Execution {
     is_answer_correct?: boolean;
     answer_score?: number;
     judgment_reason?: string;
-    cost?: number; // legacy
+    cost?: number;
+    cost_pricing?: { inputTokenPrice: number; outputTokenPrice: number; cacheReadInputTokenPrice?: number; cacheCreationInputTokenPrice?: number; source?: 'default' | 'custom' } | null;
     skill_score?: number;
     label?: string;
     task_id?: string;
@@ -37,6 +38,10 @@ interface Execution {
         attribution_reason?: string;
     }[];
     model?: string;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
 }
 
 interface ConfigItem {
@@ -79,6 +84,14 @@ const formatLatency = (ms: number) => {
 const formatTokens = (num: number) => {
     if (num >= 1000) return `${(num / 1000).toFixed(1)}k`;
     return num.toString();
+};
+
+const formatCost = (cost?: number) => {
+    if (cost == null) return null;
+    if (cost === 0) return '$0.00';
+    if (cost < 0.01) return `$${cost.toFixed(4)}`;
+    if (cost < 1) return `$${cost.toFixed(3)}`;
+    return `$${cost.toFixed(2)}`;
 };
 
 const formatDateTime = (ts: string | Date) => {
@@ -1032,10 +1045,14 @@ export default function Dashboard() {
 
         const correctSkillCount = relevant.filter(d => d.is_skill_correct).length;
 
+        const withCost = relevant.filter(d => d.cost != null);
+        const avgCost = withCost.length ? withCost.reduce((sum, d) => sum + (d.cost || 0), 0) / withCost.length : null;
+
         return {
             count: relevant.length,
             avgLatency: totalLat / relevant.length,
             avgTokens: Math.round(relevant.reduce((sum, d) => sum + d.tokens, 0) / relevant.length),
+            avgCost,
             skillRecall: (correctSkillCount / relevant.length) * 100,
             avgAnsScore: relevant.filter(d => d.answer_score !== null).length ? (relevant.filter(d => d.answer_score !== null).reduce((sum, d) => sum + (d.answer_score || 0), 0) / relevant.filter(d => d.answer_score !== null).length) : 0,
             best: sorted[0], // Best by Latency
@@ -1714,6 +1731,8 @@ export default function Dashboard() {
                                     const avgSc = evaluatedRelevant.length ? (evaluatedRelevant.reduce((sum, d) => sum + (d.answer_score || 0), 0) / evaluatedRelevant.length) : 0;
                                     const best = [...relevant].sort((a, b) => a.latency - b.latency)[0];
                                     const worst = [...relevant].sort((a, b) => b.latency - a.latency)[0];
+                                    const groupWithCost = relevant.filter(d => d.cost != null);
+                                    const groupAvgCost = groupWithCost.length ? groupWithCost.reduce((sum, d) => sum + (d.cost || 0), 0) / groupWithCost.length : null;
 
                                     return (
                                         <div key={val} style={{ marginBottom: '2rem' }}>
@@ -1731,7 +1750,7 @@ export default function Dashboard() {
                                                             (基于 {counts} 条记录)
                                                         </span>
                                                     </div>
-                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', textAlign: 'center' }}>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', textAlign: 'center' }}>
                                                         <div>
                                                             <div className="text-sm text-slate-400">平均时延</div>
                                                             <div className="text-xl font-bold">{formatLatency(avgLat)}</div>
@@ -1744,6 +1763,10 @@ export default function Dashboard() {
                                                             <div className="text-sm text-slate-400">平均准确率</div>
                                                             <div className="text-xl font-bold" style={{ color: avgSc > 0.8 ? '#4ade80' : '#fbbf24' }}>{avgSc.toFixed(2)}</div>
                                                         </div>
+                                                        <div>
+                                                            <div className="text-sm text-slate-400">平均成本 <CustomTooltip content="Estimated from default or custom (custom-models.json) pricing." /></div>
+                                                            <div className="text-xl font-bold">{groupAvgCost != null ? formatCost(groupAvgCost) : '-'}</div>
+                                                        </div>
                                                     </div>
                                                 </div>
                                                 {/* Best/Worst */}
@@ -1752,8 +1775,8 @@ export default function Dashboard() {
                                                         <div className="card-title text-green-400" style={{ fontSize: '0.85rem' }}>最好表现 (Min Lat)</div>
                                                         <div className="text-xl font-bold">{formatLatency(best.latency)}</div>
                                                         <div className="text-sm text-slate-400 mt-2" style={{ fontSize: '0.75rem' }}>
-                                                            Token: {formatTokens(best.tokens)} <br />
-                                                            Score: {best.answer_score?.toFixed(2) || '-'}
+                                                            Token: {formatTokens(best.tokens)} | Score: {best.answer_score?.toFixed(2) || '-'} <br />
+                                                            Cost: {formatCost(best.cost) || '-'}
                                                         </div>
                                                     </div>
                                                     <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
@@ -1766,8 +1789,8 @@ export default function Dashboard() {
                                                         <div className="card-title text-red-400" style={{ fontSize: '0.85rem' }}>最差表现 (Max Lat)</div>
                                                         <div className="text-xl font-bold">{formatLatency(worst.latency)}</div>
                                                         <div className="text-sm text-slate-400 mt-2" style={{ fontSize: '0.75rem' }}>
-                                                            Token: {formatTokens(worst.tokens)} <br />
-                                                            Score: {worst.answer_score?.toFixed(2) || '-'}
+                                                            Token: {formatTokens(worst.tokens)} | Score: {worst.answer_score?.toFixed(2) || '-'} <br />
+                                                            Cost: {formatCost(worst.cost) || '-'}
                                                         </div>
                                                     </div>
                                                     <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(worst.framework)}&query=${encodeURIComponent(worst.query)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>View Log &gt;</div>
@@ -1788,7 +1811,7 @@ export default function Dashboard() {
                                             (基于 {singleQueryStats.count} 条记录)
                                         </span>
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', textAlign: 'center' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', textAlign: 'center' }}>
                                         <div>
                                             <div className="text-sm text-slate-400">平均时延</div>
                                             <div className="text-xl font-bold">{formatLatency(singleQueryStats.avgLatency)}</div>
@@ -1801,6 +1824,10 @@ export default function Dashboard() {
                                             <div className="text-sm text-slate-400">平均准确率</div>
                                             <div className="text-xl font-bold" style={{ color: singleQueryStats.avgAnsScore > 0.8 ? '#4ade80' : '#fbbf24' }}>{singleQueryStats.avgAnsScore.toFixed(2)}</div>
                                         </div>
+                                        <div>
+                                            <div className="text-sm text-slate-400">平均成本 <CustomTooltip content="Estimated from default or custom (custom-models.json) pricing." /></div>
+                                            <div className="text-xl font-bold">{singleQueryStats.avgCost != null ? formatCost(singleQueryStats.avgCost) : '-'}</div>
+                                        </div>
                                     </div>
 
                                 </div>
@@ -1810,7 +1837,7 @@ export default function Dashboard() {
                                         <div className="card-title text-green-400">最好表现 (Min Latency)</div>
                                         <div className="text-2xl font-bold">{formatLatency(singleQueryStats.best.latency)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
-                                            Token: {formatTokens(singleQueryStats.best.tokens)} <br />
+                                            Token: {formatTokens(singleQueryStats.best.tokens)} | Cost: {formatCost(singleQueryStats.best.cost) || '-'} <br />
                                             Time: {formatDateTime(singleQueryStats.best.timestamp)}
                                         </div>
                                     </div>
@@ -1821,7 +1848,7 @@ export default function Dashboard() {
                                         <div className="card-title text-red-400">最差表现 (Max Latency)</div>
                                         <div className="text-2xl font-bold">{formatLatency(singleQueryStats.worst.latency)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
-                                            Token: {formatTokens(singleQueryStats.worst.tokens)} <br />
+                                            Token: {formatTokens(singleQueryStats.worst.tokens)} | Cost: {formatCost(singleQueryStats.worst.cost) || '-'} <br />
                                             Time: {formatDateTime(singleQueryStats.worst.timestamp)}
                                         </div>
                                     </div>
@@ -1881,6 +1908,7 @@ export default function Dashboard() {
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>时延 <CustomTooltip content="从请求发出到收到最终完整回复的总耗时" /></span></th>
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>Token <CustomTooltip content="输入 Prompt 与输出 Completion 的 Token 总和" /></span></th>
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>准确率 <CustomTooltip content={<div>基于LLM评估Agent真实运行结果与期望答案的差异，给出0-1分值，1表示完全正确。<br />"--"表示评估失败，可能是由于模型未配置或者数据项未配置。</div>} /></span></th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>Est. Cost <CustomTooltip content="Estimated from default or custom (custom-models.json) pricing." /></span></th>
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}>模型</th>
 
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}>标签</th>
@@ -1901,6 +1929,19 @@ export default function Dashboard() {
                                                 <span style={{ color: row.answer_score === null ? '#94a3b8' : ((row.answer_score || 0) > 0.8 ? '#4ade80' : '#ef4444'), fontWeight: 'bold' }}>
                                                     {row.answer_score === null ? '--' : (row.answer_score || 0).toFixed(2)}
                                                 </span>
+                                            </td>
+                                            <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }} title={
+                                                row.cost != null && row.cost_pricing
+                                                    ? ((row.cache_read_input_tokens || row.cache_creation_input_tokens)
+                                                        ? `Cost = base_input × $${row.cost_pricing.inputTokenPrice}/M + cache_read × $${row.cost_pricing.cacheReadInputTokenPrice}/M + cache_create × $${row.cost_pricing.cacheCreationInputTokenPrice}/M + output × $${row.cost_pricing.outputTokenPrice}/M`
+                                                        : `Cost = input_tokens × $${row.cost_pricing.inputTokenPrice}/M + output_tokens × $${row.cost_pricing.outputTokenPrice}/M`)
+                                                        + (row.model ? ` (${row.model})` : '') + `. Estimated from ${row.cost_pricing.source === 'custom' ? 'custom' : 'default'} pricing.`
+                                                    : undefined
+                                            }>
+                                                {row.cost != null
+                                                    ? formatCost(row.cost)
+                                                    : (row.tokens ? <span style={{ color: '#64748b' }}>N/A</span> : '-')
+                                                }
                                             </td>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{row.model || '-'}</td>
 

@@ -28,6 +28,8 @@ interface ClaudeExecutionRecord {
   input_tokens: number;
   output_tokens: number;
   tool_call_error_count: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
 }
 
 class ClaudeParser {
@@ -77,6 +79,8 @@ class ClaudeParser {
     let totalTokens = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    let totalCacheReadInputTokens = 0;
+    let totalCacheCreationInputTokens = 0;
     let llmCallCount = 0;
     let toolCallErrorCount = 0;
     let totalActiveLatencyMs = 0;
@@ -133,13 +137,15 @@ class ClaudeParser {
                 llmCallCount++;
                 if (entry.message.model) model = entry.message.model;
                 if (entry.message.usage) {
-                    const inToks = (entry.message.usage.input_tokens || 0) +
-                                   (entry.message.usage.cache_read_input_tokens || 0) +
-                                   (entry.message.usage.cache_creation_input_tokens || 0);
+                    const baseToks = entry.message.usage.input_tokens || 0;
+                    const cacheReadToks = entry.message.usage.cache_read_input_tokens || 0;
+                    const cacheCreateToks = entry.message.usage.cache_creation_input_tokens || 0;
                     const outToks = entry.message.usage.output_tokens || 0;
-                    totalInputTokens += inToks;
+                    totalInputTokens += baseToks;  // base input only (excludes cache)
                     totalOutputTokens += outToks;
-                    totalTokens += inToks + outToks;
+                    totalTokens += baseToks + cacheReadToks + cacheCreateToks + outToks;
+                    totalCacheReadInputTokens += cacheReadToks;
+                    totalCacheCreationInputTokens += cacheCreateToks;
                 }
 
                 if (Array.isArray(entry.message.content)) {
@@ -228,7 +234,9 @@ class ClaudeParser {
       llm_call_count: llmCallCount,
       input_tokens: totalInputTokens,
       output_tokens: totalOutputTokens,
-      tool_call_error_count: toolCallErrorCount
+      tool_call_error_count: toolCallErrorCount,
+      cache_read_input_tokens: totalCacheReadInputTokens,
+      cache_creation_input_tokens: totalCacheCreationInputTokens
     };
   }
 }

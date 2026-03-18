@@ -36,6 +36,9 @@ yarn-error.log*
 .env.local
 .env
 
+# custom model config (copy from custom-models.example.json)
+custom-models.json
+
 # vercel
 .vercel
 

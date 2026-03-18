@@ -66,6 +66,10 @@ interface Execution {
     tool_call_error_count?: number;
     input_tokens?: number;
     output_tokens?: number;
+    cost?: number;
+    cost_pricing?: { inputTokenPrice: number; outputTokenPrice: number; cacheReadInputTokenPrice?: number; cacheCreationInputTokenPrice?: number; source?: 'default' | 'custom' } | null;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
 }
 
 interface Interaction {
@@ -96,14 +100,16 @@ const CustomTooltip = ({ content }: { content: string }) => {
                     color: '#f1f5f9',
                     padding: '6px 10px',
                     borderRadius: '4px',
-                    whiteSpace: 'nowrap',
+                    whiteSpace: 'normal',
+                    minWidth: '280px',
+                    maxWidth: '400px',
                     zIndex: 1000,
                     marginBottom: '6px',
                     fontSize: '0.75rem',
                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)',
                     pointerEvents: 'none',
                     fontWeight: 'normal',
-                    lineHeight: '1.2'
+                    lineHeight: '1.4'
                 }}>
                     {content}
                     {/* Arrow */}
@@ -2062,6 +2068,21 @@ function DetailPage() {
                                                     { label: 'Tool Errors', value: item.tool_call_error_count ?? 0, color: item.tool_call_error_count ? '#f87171' : '#4ade80' },
                                                     { label: 'Input Tokens', value: item.input_tokens, color: '#38bdf8' },
                                                     { label: 'Output Tokens', value: item.output_tokens, color: '#38bdf8' },
+                                                    {
+                                                        label: 'Est. Cost',
+                                                        value: item.cost,
+                                                        color: '#38bdf8',
+                                                        format: (v: number) => `$${v === 0 ? '0.00' : v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}`,
+                                                        fallback: (item.cost == null && item.input_tokens != null) ? 'N/A' : undefined,
+                                                        tooltip: item.cost_pricing
+                                                            ? (item.cache_read_input_tokens || item.cache_creation_input_tokens
+                                                                ? `Cost = base_input × $${item.cost_pricing.inputTokenPrice}/M + cache_read × $${item.cost_pricing.cacheReadInputTokenPrice}/M + cache_create × $${item.cost_pricing.cacheCreationInputTokenPrice}/M + output × $${item.cost_pricing.outputTokenPrice}/M`
+                                                                : `Cost = input_tokens × $${item.cost_pricing.inputTokenPrice}/M + output_tokens × $${item.cost_pricing.outputTokenPrice}/M`)
+                                                                + (item.model ? ` (${item.model})` : '') + `. Estimated from ${item.cost_pricing.source === 'custom' ? 'custom' : 'default'} pricing.`
+                                                            : item.model
+                                                                ? `Pricing not available for model: ${item.model}.`
+                                                                : 'Model unknown. Cost cannot be estimated.'
+                                                    },
                                                 ].map((metric, idx) => (
                                                     <div key={idx} style={{
                                                         background: '#1e293b',
@@ -2075,7 +2096,7 @@ function DetailPage() {
                                                             fontWeight: 'bold',
                                                             color: metric.color
                                                         }}>
-                                                            {metric.value != null ? metric.value.toLocaleString() : '-'}
+                                                            {metric.value != null ? ('format' in metric && metric.format ? metric.format(metric.value) : metric.value.toLocaleString()) : ('fallback' in metric && metric.fallback ? metric.fallback : '-')}
                                                         </div>
                                                         <div style={{
                                                             fontSize: '0.75rem',
@@ -2083,6 +2104,7 @@ function DetailPage() {
                                                             marginTop: '4px'
                                                         }}>
                                                             {metric.label}
+                                                            {'tooltip' in metric && metric.tooltip && <CustomTooltip content={metric.tooltip} />}
                                                         </div>
                                                     </div>
                                                 ))}
