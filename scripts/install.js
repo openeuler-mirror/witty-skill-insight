@@ -1,0 +1,240 @@
+#!/usr/bin/env node
+
+const { spawn } = require('child_process')
+const http = require('http')
+const path = require('path')
+const fs = require('fs')
+const os = require('os')
+
+const { sleep, isPortListening, findAvailablePort } = require('./utils.js')
+
+async function runCommand(command, options = {}) {
+  return new Promise((resolve, reject) => {
+    const [cmd, ...args] = command.split(' ')
+    const proc = spawn(cmd, args, {
+      stdio: options.silent ? 'pipe' : 'inherit',
+      shell: true,
+      ...options
+    })
+    
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve()
+      } else {
+        reject(new Error(`Command failed with code ${code}`))
+      }
+    })
+    
+    proc.on('error', (err) => {
+      reject(err)
+    })
+  })
+}
+
+async function waitForService(port, maxRetries = 30, retryDelay = 1000) {
+  for (let i = 0; i < maxRetries; i++) {
+    const isReady = await isPortListening(port)
+    if (isReady) {
+      return true
+    }
+    process.stdout.write(`\r⏳ 等待服务启动... (${i + 1}/${maxRetries})`)
+    await sleep(retryDelay)
+  }
+  return false
+}
+
+async function getApiKey(port) {
+  return new Promise((resolve, reject) => {
+    const postData = JSON.stringify({ username: 'admin' })
+    
+    const options = {
+      hostname: 'localhost',
+      port: port,
+      path: '/api/auth/apikey',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      }
+    }
+    
+    const req = http.request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => {
+        if (res.statusCode === 200 || res.statusCode === 201) {
+          try {
+            const result = JSON.parse(data)
+            if (result.apiKey) {
+              resolve(result.apiKey)
+            } else {
+              reject(new Error('No apiKey in response'))
+            }
+          } catch (e) {
+            reject(new Error(`Failed to parse response: ${e.message}`))
+          }
+        } else {
+          reject(new Error(`Request failed with status ${res.statusCode}`))
+        }
+      })
+    })
+    
+    req.on('error', (e) => {
+      reject(e)
+    })
+    
+    req.write(postData)
+    req.end()
+  })
+}
+
+async function callAutoSetup(port, apiKey) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'localhost',
+      port: port,
+      path: `/api/setup/auto?apiKey=${encodeURIComponent(apiKey)}&host=localhost:${port}`,
+      method: 'GET'
+    }
+    
+    const req = http.request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          resolve(data)
+        } else {
+          reject(new Error(`Auto setup failed with status ${res.statusCode}: ${data}`))
+        }
+      })
+    })
+    
+    req.on('error', (e) => {
+      reject(e)
+    })
+    
+    req.end()
+  })
+}
+
+async function run(options = {}) {
+  let port = options.port || 3000
+  const errors = []
+  
+  console.log('\n')
+  console.log('╔════════════════════════════════════════════════════════════╗')
+  console.log('║                                                            ║')
+  console.log('║          🚀 Witty-Skill-Insight 一键部署 🚀                ║')
+  console.log('║                                                            ║')
+  console.log('╚════════════════════════════════════════════════════════════╝')
+  console.log('')
+  
+  console.log('📦 【步骤 1/5】安装 npm 包...')
+  try {
+    await runCommand('npm install skill-insight', { silent: true })
+    console.log('   ✅ npm 包安装成功\n')
+  } catch (error) {
+    errors.push({ step: 1, message: `npm install 失败: ${error.message}` })
+    console.log(`   ❌ npm 包安装失败: ${error.message}\n`)
+  }
+  
+  const availablePort = findAvailablePort(port)
+  if (availablePort !== port) {
+    console.log(`🔄 端口 ${port} 已被占用，自动切换到端口 ${availablePort}\n`)
+    port = availablePort
+  }
+  
+  console.log('🔧 【步骤 2/5】启动服务...')
+  try {
+    const logPath = path.join(os.homedir(), '.witty', 'install.log')
+    const logDir = path.dirname(logPath)
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true })
+    }
+    
+    const startProc = spawn('npx', ['skill-insight', 'start', '--port', port.toString()], {
+      stdio: ['ignore', fs.openSync(logPath, 'a'), fs.openSync(logPath, 'a')],
+      shell: true,
+      detached: true
+    })
+    startProc.unref()
+    console.log('   ✅ 服务启动命令已执行\n')
+  } catch (error) {
+    errors.push({ step: 2, message: `启动服务失败: ${error.message}` })
+    console.log(`   ❌ 启动服务失败: ${error.message}\n`)
+  }
+  
+  console.log('🔑 【步骤 3/5】等待服务就绪并获取 API Key...')
+  let apiKey = null
+  try {
+    const isReady = await waitForService(port)
+    console.log('')
+    if (!isReady) {
+      throw new Error(`服务在端口 ${port} 未就绪`)
+    }
+    console.log('   ✅ 服务已就绪')
+    
+    apiKey = await getApiKey(port)
+    console.log('   ✅ 获取到 API Key\n')
+  } catch (error) {
+    errors.push({ step: 3, message: `获取 API Key 失败: ${error.message}` })
+    console.log(`\n   ❌ 获取 API Key 失败: ${error.message}\n`)
+  }
+  
+  console.log('🔌 【步骤 4/5】安装插件组件...')
+  try {
+    if (!apiKey) {
+      throw new Error('没有可用的 API Key，跳过自动配置')
+    }
+    
+    const scriptContent = await callAutoSetup(port, apiKey)
+    const scriptPath = path.join(os.homedir(), '.witty', 'auto_setup.sh')
+    
+    fs.mkdirSync(path.dirname(scriptPath), { recursive: true })
+    fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
+    console.log('   ✅ 配置脚本已下载')
+    
+    console.log('   📋 请选择要安装的框架...')
+    await runCommand(`bash "${scriptPath}"`)
+    
+    console.log('\n   ✅ 插件安装完成\n')
+  } catch (error) {
+    errors.push({ step: 4, message: `插件安装失败: ${error.message}` })
+    console.log(`   ❌ 插件安装失败: ${error.message}\n`)
+  }
+  
+  console.log('📚 【步骤 5/5】添加技能...')
+  try {
+    await runCommand('npx skills add https://AtomGit.com/openeuler/witty-skill-insight.git')
+    console.log('\n   ✅ 技能添加成功\n')
+  } catch (error) {
+    errors.push({ step: 5, message: `添加技能失败: ${error.message}` })
+    console.log(`   ❌ 添加技能失败: ${error.message}\n`)
+  }
+  
+  console.log('════════════════════════════════════════════════════════════')
+  console.log('                    🎉 部署完成 🎉')
+  console.log('════════════════════════════════════════════════════════════')
+  
+  if (errors.length > 0) {
+    console.log('\n')
+    console.log('⚠️  以下步骤执行失败:')
+    errors.forEach((err, idx) => {
+      console.log(`   [步骤 ${err.step}] ${err.message}`)
+    })
+    console.log('\n请检查上述错误并手动处理。')
+  } else {
+    console.log('\n')
+    console.log('✅ 所有步骤执行成功!')
+  }
+  
+  console.log('\n')
+  console.log('┌─────────────────────────────────────────────────────────────┐')
+  console.log('│                                                             │')
+  console.log(`│        🌐 服务地址: http://localhost:${port}                 │`)
+  console.log('│                                                             │')
+  console.log('└─────────────────────────────────────────────────────────────┘')
+  console.log('')
+}
+
+module.exports = { run }

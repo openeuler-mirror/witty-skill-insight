@@ -29,7 +29,7 @@ async function run(options) {
       } else {
         console.log('✗ Service is not running')
         console.log(`  Port: ${port}`)
-        console.log(`\nTo start: npx witty-skill-insight start --port ${port}`)
+        console.log(`\nTo start: npx skill-insight start --port ${port}`)
       }
     }
   } catch (error) {

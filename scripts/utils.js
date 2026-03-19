@@ -144,6 +144,16 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+function findAvailablePort(startPort = 3000, maxAttempts = 100) {
+  for (let port = startPort; port < startPort + maxAttempts; port++) {
+    const pid = findPidOnPort(port)
+    if (!pid) {
+      return port
+    }
+  }
+  return startPort
+}
+
 module.exports = {
   findPidOnPort,
   killProcess,
@@ -152,5 +162,6 @@ module.exports = {
   ensureDataDirectory,
   runCommand,
   sleep,
-  isPortListening
+  isPortListening,
+  findAvailablePort
 }

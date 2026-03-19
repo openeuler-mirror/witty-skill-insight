@@ -1,17 +1,31 @@
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
-    const host = request.headers.get('host') || '127.0.0.1:3000';
+    const { searchParams } = new URL(request.url);
+    const apiKey = searchParams.get('apiKey');
+    const hostParam = searchParams.get('host');
+
+    if (!apiKey || !hostParam) {
+        return new NextResponse('Missing required parameters: apiKey and host', {
+            status: 400,
+            headers: {
+                'Content-Type': 'text/plain',
+            },
+        });
+    }
+
+    const requestHost = request.headers.get('host') || '127.0.0.1:3000';
     const protocol = request.headers.get('x-forwarded-proto') || 'http';
-    const baseUrl = `${protocol}://${host}`;
+    const baseUrl = `${protocol}://${requestHost}`;
 
     const script = `#!/bin/bash
 # =============================================================================
-# Witty-Skill-Insight One-Click Setup
+# Witty-Skill-Insight Auto Setup (Non-Interactive)
 # =============================================================================
 
-WITTY_HOST="${host}"
+WITTY_HOST="${hostParam}"
 WITTY_BASE_URL="${baseUrl}"
+WITTY_API_KEY="${apiKey}"
 
 echo "🚀 Fetching Witty-Skill-Insight telemetry components from $WITTY_BASE_URL..."
 
@@ -151,53 +165,21 @@ if [ "$INSTALL_OPENCLAW" = "true" ]; then
     curl -sSf "$WITTY_BASE_URL/api/setup/openclaw-watcher" -o "$HOME/.witty/openclaw_watcher_client.ts"
 fi
 
-# 4. Configure ~/.witty/.env
+# 4. Configure ~/.witty/.env (Auto mode - no interaction)
 WITTY_CONFIG_FILE="$HOME/.witty/.env"
-EXISTING_KEY=""
-EXISTING_HOST=""
-if [ -f "$WITTY_CONFIG_FILE" ]; then
-    EXISTING_KEY=$(grep '^WITTY_INSIGHT_API_KEY=' "$WITTY_CONFIG_FILE" | head -n 1 | cut -d'=' -f2-)
-    EXISTING_HOST=$(grep '^WITTY_INSIGHT_HOST=' "$WITTY_CONFIG_FILE" | head -n 1 | cut -d'=' -f2-)
-fi
-
-# -- API Key Logic --
-FINAL_KEY="$EXISTING_KEY"
-if [ -n "$EXISTING_KEY" ]; then
-    echo "🔑 Found existing API Key."
-    read -p "👉 Use existing key? (y/N, Default: y): " USE_EXISTING < /dev/tty
-    if [[ "$USE_EXISTING" =~ ^[Nn]$ ]]; then
-        read -p "👉 Please enter your NEW API Key: " FINAL_KEY < /dev/tty
-    fi
-else
-    echo "🔑 WITTY_INSIGHT_API_KEY is not set."
-    read -p "👉 Please enter your API Key: " FINAL_KEY < /dev/tty
-fi
-
-# -- Host Logic --
-FINAL_HOST="$WITTY_HOST"
-if [ -n "$EXISTING_HOST" ] && [ "$EXISTING_HOST" != "$WITTY_HOST" ]; then
-    echo "🌐 Current Host in config: $EXISTING_HOST"
-    echo "🌐 New Host detected: $WITTY_HOST"
-    read -p "👉 Change to new Host? (y/N, Default: y): " CHANGE_HOST < /dev/tty
-    if [[ "$CHANGE_HOST" =~ ^[Nn]$ ]]; then
-        FINAL_HOST="$EXISTING_HOST"
-    fi
-elif [ -z "$EXISTING_HOST" ]; then
-    FINAL_HOST="$WITTY_HOST"
-fi
-
-if [ -z "$FINAL_KEY" ]; then
-    echo "⚠️  Warning: No API Key provided. Telemetry upload will fail until you set it in $WITTY_CONFIG_FILE"
-fi
 
 echo "⚙️  Updating configuration..."
 touch "$WITTY_CONFIG_FILE"
-cp "$WITTY_CONFIG_FILE" "\${WITTY_CONFIG_FILE}.bak"
-grep -v "^WITTY_INSIGHT_HOST=" "\${WITTY_CONFIG_FILE}.bak" | grep -v "^WITTY_INSIGHT_API_KEY=" > "$WITTY_CONFIG_FILE"
-echo "WITTY_INSIGHT_HOST=$FINAL_HOST" >> "$WITTY_CONFIG_FILE"
-echo "WITTY_INSIGHT_API_KEY=$FINAL_KEY" >> "$WITTY_CONFIG_FILE"
-rm "\${WITTY_CONFIG_FILE}.bak"
+if [ -f "$WITTY_CONFIG_FILE" ]; then
+    cp "$WITTY_CONFIG_FILE" "\${WITTY_CONFIG_FILE}.bak"
+    grep -v "^WITTY_INSIGHT_HOST=" "\${WITTY_CONFIG_FILE}.bak" | grep -v "^WITTY_INSIGHT_API_KEY=" > "$WITTY_CONFIG_FILE"
+    rm "\${WITTY_CONFIG_FILE}.bak"
+fi
+echo "WITTY_INSIGHT_HOST=$WITTY_HOST" >> "$WITTY_CONFIG_FILE"
+echo "WITTY_INSIGHT_API_KEY=$WITTY_API_KEY" >> "$WITTY_CONFIG_FILE"
 echo "✅ Configuration updated at $WITTY_CONFIG_FILE"
+echo "   WITTY_INSIGHT_HOST=$WITTY_HOST"
+echo "   WITTY_INSIGHT_API_KEY=********"
 
 # 5. Sync Opencode Skills
 if [ "$INSTALL_OPENCODE" = "true" ]; then

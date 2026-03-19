@@ -3,6 +3,8 @@
 const { spawn, execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+const http = require('http')
+const os = require('os')
 
 const {
   findPidOnPort,
@@ -43,6 +45,58 @@ function loadEnvFile(envPath) {
 
 let spawnedProc = null
 
+async function createAdminUser(port) {
+  return new Promise((resolve) => {
+    const postData = JSON.stringify({ username: 'admin' })
+    
+    const options = {
+      hostname: 'localhost',
+      port: port,
+      path: '/api/auth/apikey',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      }
+    }
+    
+    const req = http.request(options, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => {
+        if (res.statusCode === 200 || res.statusCode === 201) {
+          try {
+            const result = JSON.parse(data)
+            if (result.apiKey) {
+              const wittyDir = path.join(os.homedir(), '.witty')
+              if (!fs.existsSync(wittyDir)) {
+                fs.mkdirSync(wittyDir, { recursive: true })
+              }
+              const keyFilePath = path.join(wittyDir, '.admin_api_key')
+              fs.writeFileSync(keyFilePath, result.apiKey, 'utf8')
+              console.log('✓ Admin user created successfully')
+              console.log(`  API Key saved to: ${keyFilePath}`)
+            }
+          } catch (e) {
+            console.log('⚠️  Failed to parse admin creation response:', e.message)
+          }
+        } else {
+          console.log(`⚠️  Admin user creation returned status ${res.statusCode}`)
+        }
+        resolve()
+      })
+    })
+    
+    req.on('error', (e) => {
+      console.log('⚠️  Failed to create admin user:', e.message)
+      resolve()
+    })
+    
+    req.write(postData)
+    req.end()
+  })
+}
+
 function cleanup() {
   if (spawnedProc) {
     try {
@@ -76,7 +130,7 @@ async function run(options) {
   if (existingPid) {
     console.log(`⚠️  Port ${port} is already in use by PID: ${existingPid}`)
     console.log('Please stop the existing service first or use a different port.')
-    console.log(`\nTo stop: npx witty-skill-insight stop --port ${port}`)
+    console.log(`\nTo stop: npx skill-insight stop --port ${port}`)
     process.exit(1)
   }
   
@@ -201,6 +255,7 @@ async function run(options) {
       console.log(`  Port: ${port}`)
       console.log(`  Log: ${logPath}`)
       console.log(`  URL: http://localhost:${port}`)
+      await createAdminUser(port)
       return
     }
   }

@@ -1,11 +1,11 @@
 {
-  "name": "witty-skill-insight",
+  "name": "skill-insight",
   "version": "0.2.0-beta",
   "description": "Agent Skill 评估与观测平台 — 量化评估 Skills 在 Agent 上的实际运行效果",
   "license": "MIT",
   "private": false,
   "bin": {
-    "witty-skill-insight": "./bin/cli.js"
+    "skill-insight": "./bin/cli.js"
   },
   "files": [
     "bin/",

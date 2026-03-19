@@ -13,9 +13,10 @@ export async function POST(request: Request) {
 
     const cleanUsername = username.trim().toLowerCase();
     
-    // Validate email format
+    // Validate email format only if username looks like an email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(cleanUsername)) {
+    const looksLikeEmail = cleanUsername.includes('@');
+    if (looksLikeEmail && !emailRegex.test(cleanUsername)) {
       return NextResponse.json({ error: 'Username must be a valid email address' }, { status: 400 });
     }
     

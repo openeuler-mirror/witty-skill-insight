@@ -5,7 +5,8 @@ const commands = {
   stop: () => require('../scripts/stop.js'),
   restart: () => require('../scripts/restart.js'),
   status: () => require('../scripts/status.js'),
-  logs: () => require('../scripts/logs.js')
+  logs: () => require('../scripts/logs.js'),
+  install: () => require('../scripts/install.js')
 }
 
 function parseOptions(args) {
@@ -31,7 +32,7 @@ function showHelp() {
 Witty-Skill-Insight CLI
 
 Usage:
-  witty-skill-insight <command> [options]
+  skill-insight <command> [options]
 
 Commands:
   start [--port <port>]    Start the service (default port: 3000)
@@ -39,29 +40,31 @@ Commands:
   restart [--port <port>]  Restart the service
   status [--port <port>]   Show service status
   logs                     Show service logs
+  install                  One-click install: npm install, start service, setup plugins, add skill
 
 Options:
   --port, -p <port>       Specify port number
   --help, -h              Show help
 
 Examples:
-  witty-skill-insight start
-  witty-skill-insight start --port 3001
-  witty-skill-insight restart --port 3001
-  witty-skill-insight status
-  witty-skill-insight stop
+  skill-insight start
+  skill-insight start --port 3001
+  skill-insight restart --port 3001
+  skill-insight status
+  skill-insight stop
   `)
 }
 
 function showCommandHelp(command) {
   const helps = {
-    start: 'Start the witty-skill-insight service\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
-    stop: 'Stop the witty-skill-insight service\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
-    restart: 'Restart the witty-skill-insight service\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
-    status: 'Show witty-skill-insight service status\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
-    logs: 'Show witty-skill-insight service logs'
+    start: 'Start the skill-insight service\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
+    stop: 'Stop the skill-insight service\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
+    restart: 'Restart the skill-insight service\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
+    status: 'Show skill-insight service status\n\nOptions:\n  --port, -p <port>  Specify port (default: 3000)',
+    logs: 'Show skill-insight service logs',
+    install: 'One-click install skill-insight\n\nThis command will:\n  1. npm install skill-insight\n  2. Start the service\n  3. Create admin user and get API Key\n  4. Install telemetry plugins\n  5. Add skill to your agent'
   }
-  console.log(`\nwitty-skill-insight ${command}\n\n${helps[command] || ''}`)
+  console.log(`\nskill-insight ${command}\n\n${helps[command] || ''}`)
 }
 
 const args = process.argv.slice(2)
