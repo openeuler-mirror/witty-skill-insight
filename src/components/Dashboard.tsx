@@ -66,7 +66,7 @@ interface AvgComparison {
     query: string;
     shortQuery: string;
     latestTimestamp: number;
-    [key: string]: string | number;
+    [key: string]: string | number | null;
 }
 
 const COLORS = ['#38bdf8', '#f472b6', '#4ade80', '#fbbf24', '#818cf8', '#f87171'];
@@ -966,11 +966,12 @@ export default function Dashboard() {
                             const avgLat = fwOrModelData.reduce((s, x) => s + x.latency, 0) / fwOrModelData.length;
                             const avgTok = fwOrModelData.reduce((s, x) => s + x.tokens, 0) / fwOrModelData.length;
                             const evaluatedDatas = fwOrModelData.filter(d => d.answer_score !== null);
-                            const avgScore = evaluatedDatas.length ? evaluatedDatas.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedDatas.length : 0;
+                            const hasEvaluatedData = evaluatedDatas.length > 0;
+                            const avgScore = hasEvaluatedData ? evaluatedDatas.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedDatas.length : 0;
 
                             qRecord[`${seriesName}_lat`] = parseFloat(avgLat.toFixed(2));
                             qRecord[`${seriesName}_tok`] = Math.round(avgTok);
-                            qRecord[`${seriesName}_score`] = parseFloat(avgScore.toFixed(2));
+                            qRecord[`${seriesName}_score`] = hasEvaluatedData ? parseFloat(avgScore.toFixed(2)) : null;
                         }
                     });
                     if (Object.keys(qRecord).length > 1) { // Check if any series data was added
@@ -1008,12 +1009,13 @@ export default function Dashboard() {
                         const avgTok = fwOrModelData.reduce((s, x) => s + x.tokens, 0) / fwOrModelData.length;
                         const recall = (fwOrModelData.filter(d => d.is_skill_correct).length / fwOrModelData.length) * 100;
                         const evaluatedDatas = fwOrModelData.filter(d => d.answer_score !== null);
-                        const avgScore = evaluatedDatas.length ? evaluatedDatas.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedDatas.length : 0;
+                        const hasEvaluatedData = evaluatedDatas.length > 0;
+                        const avgScore = hasEvaluatedData ? evaluatedDatas.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedDatas.length : 0;
 
                         row[`${seriesName}_lat`] = parseFloat(avgLat.toFixed(2));
                         row[`${seriesName}_tok`] = Math.round(avgTok);
                         row[`${seriesName}_recall`] = parseFloat(recall.toFixed(1));
-                        row[`${seriesName}_score`] = parseFloat(avgScore.toFixed(2));
+                        row[`${seriesName}_score`] = hasEvaluatedData ? parseFloat(avgScore.toFixed(2)) : null;
                         hasData = true;
                     }
                 });
@@ -1419,7 +1421,8 @@ export default function Dashboard() {
                             const avgTok = fwData.length ? (fwData.reduce((s, x) => s + x.tokens, 0) / fwData.length) : 0;
                             const skillRecall = fwData.length ? (fwData.filter(d => d.is_skill_correct).length / fwData.length * 100) : 0;
                             const evaluatedFwData = fwData.filter(d => d.answer_score !== null);
-                            const avgScore = evaluatedFwData.length ? (evaluatedFwData.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedFwData.length) : 0;
+                            const hasEvaluatedData = evaluatedFwData.length > 0;
+                            const avgScore = hasEvaluatedData ? (evaluatedFwData.reduce((s, x) => s + (x.answer_score || 0), 0) / evaluatedFwData.length) : 0;
 
                             return (
                                 <div className="card" key={fw} style={{ borderLeft: `4px solid ${COLORS[idx % COLORS.length]}` }}>
@@ -1445,8 +1448,8 @@ export default function Dashboard() {
                                             </div>
                                             {/* Score Value - Aligned with Token (Right) */}
                                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontSize: '1.8rem', fontWeight: 800, color: avgScore > 0.8 ? '#4ade80' : '#fbbf24' }}>
-                                                    {(avgScore * 100).toFixed(1)}%
+                                                <span style={{ fontSize: '1.8rem', fontWeight: 800, color: !hasEvaluatedData ? '#94a3b8' : (avgScore > 0.8 ? '#4ade80' : '#fbbf24') }}>
+                                                    {hasEvaluatedData ? `${(avgScore * 100).toFixed(1)}%` : '--'}
                                                 </span>
                                             </div>
                                         </div>
