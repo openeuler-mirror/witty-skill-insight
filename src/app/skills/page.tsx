@@ -1,7 +1,7 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 
 interface SkillData {
@@ -19,7 +19,7 @@ interface SkillVersionData {
   createdAt: string;
 }
 
-export default function SkillDetailPage() {
+function SkillContent() {
   const searchParams = useSearchParams();
   const skillId = searchParams.get('id');
   const skillName = searchParams.get('name');
@@ -143,5 +143,21 @@ export default function SkillDetailPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function LoadingFallback() {
+  return (
+    <div style={{ padding: '2rem', color: '#e2e8f0' }}>
+      <p>Loading skill...</p>
+    </div>
+  );
+}
+
+export default function SkillDetailPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <SkillContent />
+    </Suspense>
   );
 }
