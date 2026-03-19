@@ -49,7 +49,6 @@ export interface ExecutionRecord {
     input_tokens?: number;
     output_tokens?: number;
     tool_call_error_count?: number;
-    expected_skill_version?: number | null;
     skill_recall_rate?: number | null;
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
@@ -287,35 +286,27 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
     let isSkillCorrect = false; // Reset to false and recalculate based on current config
     let isAnswerCorrect = targetRecord.is_answer_correct || false;
     let judgmentReason = targetRecord.judgment_reason || NO_MATCH_REASON;
-    let expectedSkill: string | null = null;
-    let expectedSkillVersion: number | null = null;
 
     const configs = await readConfig(targetRecord.user);
     if (targetRecord.query && configs.length > 0) {
         const matchedConfig = configs.find(c => c.query.trim() === targetRecord.query?.trim());
 
         if (matchedConfig) {
-            // Use invokedSkills with versions if available, otherwise fall back to skills array
             const invokedSkillsWithVersion = targetRecord.invokedSkills || [];
-            const invokedSkillNames = invokedSkillsWithVersion.map(s => s.name);
-            const invokedSkillsFallback = targetRecord.skills || [];
+            const invokedSkillsFallback = (targetRecord.skills || []).map(name => ({ name, version: null as number | null }));
 
-            // Check new expectedSkills field first
             const expectedSkillsList = matchedConfig.expectedSkills || [];
             
             if (expectedSkillsList.length > 0) {
-                // Check against multiple expected skills
                 const skillsToCheck = invokedSkillsWithVersion.length > 0 
                     ? invokedSkillsWithVersion 
-                    : invokedSkillsFallback.map(name => ({ name, version: null as number | null }));
+                    : invokedSkillsFallback;
                 
                 if (skillsToCheck.length > 0) {
                     let correctInvokedSkills = 0;
                     
-                    // Filter out empty skill names before counting
                     const validExpectedSkills = expectedSkillsList.filter(e => e.skill?.trim());
                     
-                    // Fetch all expected skills from database at once for efficiency
                     const skillNames = validExpectedSkills.map(e => e.skill.trim());
                     let skillsMap = new Map<string, any>();
                     
@@ -326,7 +317,6 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                                 user: targetRecord.user || null
                             });
                             
-                            // Create a map for quick lookup
                             for (const skill of skills) {
                                 skillsMap.set(skill.name, skill);
                             }
@@ -339,29 +329,23 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                         const expectedName = expected.skill.trim();
                         const expectedVer = expected.version ?? null;
                         
-                        // Find matching invoked skill by name
                         const matchingInvoked = skillsToCheck.find(
                             (s) => s.name === expectedName
                         );
                         
                         if (matchingInvoked) {
-                            // Check version match
                             let isVersionMatch = false;
                             
                             if (expectedVer === null) {
-                                // Any version is acceptable
                                 isVersionMatch = true;
                             } else if (matchingInvoked.version !== null) {
-                                // Version was captured, compare directly
                                 isVersionMatch = matchingInvoked.version === expectedVer;
                             } else {
-                                // Version not captured, check against DB activeVersion
                                 const skill = skillsMap.get(expectedName);
                                 if (skill) {
                                     const actualVersion = skill.activeVersion || 0;
                                     isVersionMatch = actualVersion === expectedVer;
                                 } else {
-                                    // Skill not found in database, can't check version
                                     isVersionMatch = false;
                                 }
                             }
@@ -370,48 +354,15 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                                 correctInvokedSkills++;
                                 if (!isSkillCorrect) {
                                     isSkillCorrect = true;
-                                    expectedSkill = expectedName;
-                                    expectedSkillVersion = expectedVer;
-                                    targetRecord.expected_skill_version = expectedVer;
                                 }
                             }
                         }
                     }
                     
-                    // Calculate skill recall rate: correct_invoked_skills / total_expected_skills
                     if (validExpectedSkills.length > 0) {
                         targetRecord.skill_recall_rate = correctInvokedSkills / validExpectedSkills.length;
                     }
                 }
-            } else if (matchedConfig.skill && matchedConfig.skill.trim() !== '') {
-                // Fallback to legacy single skill
-                expectedSkill = matchedConfig.skill.trim();
-                expectedSkillVersion = matchedConfig.skillVersion || null;
-
-                // Use invokedSkills with version if available, otherwise fall back to skills array
-                const hasMatchingSkill = invokedSkillNames.includes(expectedSkill) 
-                    || invokedSkillsFallback.some((s) => (String(s || '').trim()) === expectedSkill);
-                
-                // Get the actual version from invokedSkills if available
-                let actualVersion: number | null = null;
-                const matchedInvoked = invokedSkillsWithVersion.find(s => s.name === expectedSkill);
-                if (matchedInvoked && matchedInvoked.version !== null) {
-                    actualVersion = matchedInvoked.version;
-                } else {
-                    // Fall back to the stored skill_version field
-                    actualVersion = targetRecord.skill_version ?? 0;
-                }
-                
-                isSkillCorrect = hasMatchingSkill && (
-                    expectedSkillVersion === null || 
-                    actualVersion === expectedSkillVersion
-                );
-                
-                targetRecord.expected_skill_version = expectedSkillVersion;
-                
-                // Calculate skill recall rate for legacy single skill case
-                // For single skill, recall rate is 1.0 if correct, 0.0 if incorrect
-                targetRecord.skill_recall_rate = isSkillCorrect ? 1.0 : 0.0;
             }
             targetRecord.is_skill_correct = isSkillCorrect;
 
@@ -534,7 +485,6 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             inputTokens: targetRecord.input_tokens,
             outputTokens: targetRecord.output_tokens,
             toolCallErrorCount: targetRecord.tool_call_error_count,
-            expectedSkillVersion: targetRecord.expected_skill_version,
             skillRecallRate: targetRecord.skill_recall_rate,
             cacheReadInputTokens: targetRecord.cache_read_input_tokens,
             cacheCreationInputTokens: targetRecord.cache_creation_input_tokens,
@@ -568,7 +518,6 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
             inputTokens: targetRecord.input_tokens,
             outputTokens: targetRecord.output_tokens,
             toolCallErrorCount: targetRecord.tool_call_error_count,
-            expectedSkillVersion: targetRecord.expected_skill_version,
             skillRecallRate: targetRecord.skill_recall_rate,
             cacheReadInputTokens: targetRecord.cache_read_input_tokens,
             cacheCreationInputTokens: targetRecord.cache_creation_input_tokens,

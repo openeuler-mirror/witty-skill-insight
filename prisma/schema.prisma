@@ -84,7 +84,6 @@ model Execution {
   skillVersion    Int?
   label           String?
   user            String?
-  expectedSkillVersion Int?   // Version of skill expected by config
   skillRecallRate      Float? // Execution-level metric: correct_invoked_skills / expected_skills (per execution)
 }
 
