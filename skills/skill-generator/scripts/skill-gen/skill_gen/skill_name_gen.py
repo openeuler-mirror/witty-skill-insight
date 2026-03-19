@@ -1,4 +1,5 @@
 import re
+import hashlib
 import uuid
 
 from .utils import get_llm
@@ -17,6 +18,30 @@ SYSTEM_PROMPT = """
 """
 
 
+def normalize_skill_name(
+    name: str, max_length: int = 60, *, fallback_prefix: str = "skill"
+) -> str:
+    raw = "" if name is None else str(name)
+    first_line = raw.strip().splitlines()[0] if raw.strip() else ""
+    normalized = first_line.lower()
+    normalized = re.sub(r"[^a-z0-9-]+", "-", normalized)
+    normalized = re.sub(r"-{2,}", "-", normalized)
+    normalized = normalized.strip("-")
+
+    effective_max = min(max_length, 64)
+    if len(normalized) > effective_max:
+        normalized = normalized[:effective_max].rstrip("-")
+
+    if not normalized:
+        if raw.strip():
+            digest = hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()[:8]
+            normalized = f"{fallback_prefix}-{digest}"
+        else:
+            normalized = f"{fallback_prefix}-{uuid.uuid4().hex[:8]}"
+
+    return normalized
+
+
 def gen_skill_name_from_text(text: str, max_length: int = 60, *, fallback_prefix: str = "skill") -> str:
     """
     根据输入技术文档/案例文本，生成一个可用作目录名的 skill name。
@@ -27,10 +52,10 @@ def gen_skill_name_from_text(text: str, max_length: int = 60, *, fallback_prefix
         fallback_prefix: 当模型返回异常或清洗后为空时使用的前缀。
 
     Returns:
-        处理后的 skill name 字符串，仅包含小写字母、数字、-、_。
+        处理后的 skill name 字符串，仅包含小写字母、数字、-。
     """
     if not text or not text.strip():
-        return f"{fallback_prefix}_{uuid.uuid4().hex[:8]}"
+        return f"{fallback_prefix}-{uuid.uuid4().hex[:8]}"
 
     messages = [
         {
@@ -59,32 +84,12 @@ def gen_skill_name_from_text(text: str, max_length: int = 60, *, fallback_prefix
         else:
             raw_name = str(content)
     except Exception:
-        # 调用失败时退回到随机名称
-        return f"{fallback_prefix}_{uuid.uuid4().hex[:8]}"
+        return f"{fallback_prefix}-{uuid.uuid4().hex[:8]}"
 
-    # ----- 本地安全清洗：只保留 a-z / 0-9 / -，并控制长度 -----
     if not raw_name:
-        return f"{fallback_prefix}_{uuid.uuid4().hex[:8]}"
+        return f"{fallback_prefix}-{uuid.uuid4().hex[:8]}"
 
-    # 只取第一行，避免说明文字
-    name = str(raw_name).strip().splitlines()[0].lower()
-
-    # 只允许 a-z0-9-，其他全部替换为 -
-    name = re.sub(r"[^a-z0-9-]+", "-", name)
-    # 合并多余的 -
-    name = re.sub(r"-{2,}", "-", name)
-    # 去掉首尾 -
-    name = name.strip("-")
-
-    # 生效的最大长度不超过 64
-    effective_max = min(max_length, 64)
-    if len(name) > effective_max:
-        name = name[:effective_max].rstrip("-")
-
-    if not name:
-        name = f"{fallback_prefix}_{uuid.uuid4().hex[:8]}"
-
-    return name
+    return normalize_skill_name(raw_name, max_length=max_length, fallback_prefix=fallback_prefix)
 
 
 async def agen_skill_name_from_text(
@@ -94,7 +99,7 @@ async def agen_skill_name_from_text(
     异步版本：根据输入文本生成 skill name。
     """
     if not text or not text.strip():
-        return f"{fallback_prefix}_{uuid.uuid4().hex[:8]}"
+        return f"{fallback_prefix}-{uuid.uuid4().hex[:8]}"
 
     messages = [
         {
@@ -122,22 +127,10 @@ async def agen_skill_name_from_text(
         else:
             raw_name = str(content)
     except Exception:
-        return f"{fallback_prefix}_{uuid.uuid4().hex[:8]}"
+        return f"{fallback_prefix}-{uuid.uuid4().hex[:8]}"
 
     if not raw_name:
-        return f"{fallback_prefix}_{uuid.uuid4().hex[:8]}"
+        return f"{fallback_prefix}-{uuid.uuid4().hex[:8]}"
 
-    name = str(raw_name).strip().splitlines()[0].lower()
-    name = re.sub(r"[^a-z0-9-]+", "-", name)
-    name = re.sub(r"-{2,}", "-", name)
-    name = name.strip("-")
-
-    effective_max = min(max_length, 64)
-    if len(name) > effective_max:
-        name = name[:effective_max].rstrip("-")
-
-    if not name:
-        name = f"{fallback_prefix}_{uuid.uuid4().hex[:8]}"
-
-    return name
+    return normalize_skill_name(raw_name, max_length=max_length, fallback_prefix=fallback_prefix)
 

@@ -20,6 +20,7 @@ from rich.prompt import Prompt
 from .skill_name_gen import (
     gen_skill_name_from_text,
     agen_skill_name_from_text,
+    normalize_skill_name,
 )
 from .markdown_formatter import md_formatter
 from .case_extractor import CaseExtractor
@@ -27,7 +28,8 @@ from .deepseek_skill_adapter import DeepSeekAdaptor
 from .doc_quality_validator import evaluate_doc_source_for_skill
 from .doc_reader import read_doc
 from .html_extractor import run_html_extractor
-from .pattern_merger import PatternMerger
+from .pattern_inducer import PatternInducer
+from .pattern_merger import PatternMerger, PatternOutOfScopeError
 from .seekers.md_scraper import MarkdownToSkillConverter
 from .seekers.pdf_scraper import PDFToSkillConverter
 from .skill_formatter import SkillFormatter
@@ -37,6 +39,151 @@ from .schema import (
     FailurePattern,
     GeneralExperience,
 )
+
+
+def render_pattern_detail_md(pattern: FailurePattern) -> str:
+    lines: List[str] = []
+    lines.append(f"# {pattern.pattern_name}")
+    lines.append("")
+    lines.append(f"- Pattern ID: {pattern.pattern_id}")
+    lines.append(f"- Category: {pattern.category}")
+    lines.append(f"- Severity: {pattern.severity}")
+    lines.append("")
+
+    lines.append("## Source Cases")
+    for cid in pattern.source_cases:
+        lines.append(f"- {cid}")
+    lines.append("")
+
+    lines.append("## Known Instances")
+    if pattern.known_instances:
+        keys = set()
+        for row in pattern.known_instances:
+            for k in (row.parameter_values or {}).keys():
+                keys.add(k)
+        key_list = sorted(keys)
+        headers = ["case_id", "title"] + key_list
+        lines.append("| " + " | ".join(headers) + " |")
+        lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+        for row in pattern.known_instances:
+            vals = []
+            vals.append(str(row.case_id))
+            vals.append(str(row.title or ""))
+            for k in key_list:
+                vals.append(str((row.parameter_values or {}).get(k, "")))
+            lines.append("| " + " | ".join(v.replace("\n", "\\n") for v in vals) + " |")
+    else:
+        lines.append("- (empty)")
+    lines.append("")
+
+    if pattern.fault_mechanism:
+        lines.append("## Fault Mechanism")
+        lines.append(pattern.fault_mechanism)
+        lines.append("")
+
+    if pattern.variation_vectors:
+        lines.append("## Variation Vectors")
+        for v in pattern.variation_vectors:
+            lines.append(f"- {v}")
+        lines.append("")
+
+    if pattern.severity_grading:
+        lines.append("## Severity Grading")
+        lines.append(pattern.severity_grading)
+        lines.append("")
+
+    if pattern.indicator_semantics:
+        lines.append("## Indicator Semantics")
+        lines.append(pattern.indicator_semantics)
+        lines.append("")
+
+    if pattern.differential_diagnosis:
+        lines.append("## Differential Diagnosis")
+        if isinstance(pattern.differential_diagnosis, list):
+            for item in pattern.differential_diagnosis:
+                if isinstance(item, dict):
+                    name = item.get("mimic_name") or item.get("name") or "mimic"
+                    lines.append(f"- {name}: {item}")
+                else:
+                    lines.append(f"- {item}")
+        else:
+            lines.append(str(pattern.differential_diagnosis))
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _ensure_skill_md_name(skill_md_path: str, expected_name: str) -> None:
+    p = pathlib.Path(skill_md_path)
+    try:
+        content = p.read_text(encoding="utf-8")
+    except Exception:
+        return
+
+    expected_name = normalize_skill_name(
+        expected_name, max_length=64, fallback_prefix="skill"
+    )
+    lines = content.splitlines()
+    if not lines:
+        return
+
+    if lines[0].strip() == "---":
+        end_idx = None
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                end_idx = i
+                break
+        if end_idx is None:
+            return
+
+        header = lines[1:end_idx]
+        body = lines[end_idx + 1 :]
+
+        name_idx = None
+        for i, line in enumerate(header):
+            if line.lstrip().startswith("name:"):
+                name_idx = i
+                break
+
+        new_line = f"name: {expected_name}"
+        changed = False
+        if name_idx is None:
+            header.insert(0, new_line)
+            changed = True
+        elif header[name_idx].strip() != new_line:
+            header[name_idx] = new_line
+            changed = True
+
+        if changed:
+            new_lines = ["---", *header, "---", *body]
+            p.write_text("\n".join(new_lines).rstrip() + "\n", encoding="utf-8")
+        return
+
+    new_content = f"---\nname: {expected_name}\n---\n\n{content.lstrip()}"
+    p.write_text(new_content.rstrip() + "\n", encoding="utf-8")
+
+
+async def _compute_v2_skill_md_name(output_dir: str, pattern: FailurePattern) -> str:
+    raw_dir_name = os.path.basename(output_dir)
+    normalized_dir_name = normalize_skill_name(
+        raw_dir_name, max_length=64, fallback_prefix="skill"
+    )
+
+    if normalized_dir_name == raw_dir_name:
+        return raw_dir_name
+
+    seed_text_parts = [
+        pattern.pattern_name,
+        getattr(pattern, "summary", "") or "",
+        pattern.fault_mechanism or "",
+    ]
+    seed_text = "\n".join([p for p in seed_text_parts if p.strip()])
+    try:
+        return await agen_skill_name_from_text(
+            seed_text, max_length=60, fallback_prefix="skill"
+        )
+    except Exception:
+        return normalized_dir_name
 
 
 async def extract_cases_from_docs(
@@ -80,6 +227,7 @@ async def extract_cases_from_docs(
                 "name": skill_name,
                 "save_dir": parent_dir,
                 "description": f"Generated skill for {skill_name}",
+                "normalize_name": False,
                 "scripts_config": {
                     "line_threshold": 5,
                     "min_quality_score": 4.0,
@@ -166,36 +314,32 @@ async def generate_pattern_from_cases(
     Generate or update a FailurePattern from a list of FailureCases.
     """
     console = Console()
-    merger = PatternMerger()
+    if not failure_cases:
+        raise ValueError("failure_cases 不能为空")
 
-    current_pattern = existing_pattern
-
-    # If we have an existing pattern, start with it.
-    # If not, the first case will be used to create the initial pattern.
-
-    patterns_pool = [current_pattern] if current_pattern else []
-
-    for i, case in enumerate(failure_cases):
-        console.print(f"正在处理第 {i+1}/{len(failure_cases)} 个案例: {case.title}...")
-
-        merge_result = await merger.merge(
-            case,
-            existing_patterns=patterns_pool,
-            general_experiences=general_experiences,
+    if not existing_pattern:
+        inducer = PatternInducer()
+        console.print(f"正在批量归纳故障模式（cases={len(failure_cases)}）...")
+        return await inducer.induce(
+            cases=failure_cases, general_experiences=general_experiences
         )
 
-        if merge_result and merge_result.failure_pattern:
-            # Update the current pattern (assuming single pattern evolution for now)
-            current_pattern = merge_result.failure_pattern
-            patterns_pool = [current_pattern]  # Update pool with latest version
-            console.print(
-                f"[green]模式更新成功: {current_pattern.pattern_name}[/green]"
+    merger = PatternMerger()
+    current_pattern = existing_pattern
+    for i, case in enumerate(failure_cases):
+        console.print(
+            f"正在增量合并第 {i+1}/{len(failure_cases)} 个案例: {case.title}..."
+        )
+        try:
+            current_pattern = await merger.merge(
+                new_case=case,
+                existing_pattern=current_pattern,
+                general_experiences=general_experiences,
             )
-        else:
-            console.print(f"[yellow]无法合并案例 {case.title}，跳过[/yellow]")
+        except PatternOutOfScopeError as e:
+            raise ValueError(f"新案例不在既有模式参数空间内: {e.reason}") from e
 
-    if not current_pattern:
-        raise ValueError("无法生成故障模式，可能是所有案例都合并失败")
+        console.print(f"[green]模式更新成功: {current_pattern.pattern_name}[/green]")
 
     return current_pattern
 
@@ -270,6 +414,10 @@ async def generate_skill_v2(
         with open(pattern_file, "w", encoding="utf-8") as f:
             yaml.dump(pattern_data, f, allow_unicode=True, sort_keys=False)
 
+        pattern_detail_file = os.path.join(ref_dir, "pattern-detail.md")
+        with open(pattern_detail_file, "w", encoding="utf-8") as f:
+            f.write(render_pattern_detail_md(skill.failure_pattern))
+
         console.print(f"[bold green]故障案例和模式保存成功！[/bold green]")
     except Exception as e:
         console.print(f"[bold red]保存 YAML 失败: {e}[/bold red]")
@@ -280,13 +428,44 @@ async def generate_skill_v2(
     console.print(f"正在生成 Skill 文档: {output_md}")
 
     try:
-        formatter = SkillFormatter()
-        md_content = formatter.render(
-            skill, generated_scripts=generated_scripts, reference_files=reference_files
+        # Try using DeepSeekAdaptor first
+        adaptor = DeepSeekAdaptor()
+        generated_by_llm = False
+
+        if adaptor.supports_enhancement():
+            try:
+                console.print(
+                    f"[bold cyan]尝试使用 DeepSeekAdaptor 生成 Skill...[/bold cyan]"
+                )
+                generated_by_llm = await adaptor.generate_skill_with_llm(
+                    skill.failure_pattern, pathlib.Path(output_dir)
+                )
+                if generated_by_llm:
+                    console.print(f"[bold green]SKILL.md (LLM) 生成成功！[/bold green]")
+            except Exception as e:
+                console.print(
+                    f"[bold yellow]DeepSeekAdaptor 生成失败，将回退到模板生成: {e}[/bold yellow]"
+                )
+
+        # Fallback to SkillFormatter if LLM generation failed or not supported
+        if not generated_by_llm:
+            console.print(
+                f"[bold cyan]使用 SkillFormatter 模板生成 Skill...[/bold cyan]"
+            )
+            formatter = SkillFormatter()
+            md_content = formatter.render(
+                skill,
+                generated_scripts=generated_scripts,
+                reference_files=reference_files,
+            )
+            with open(output_md, "w", encoding="utf-8") as f:
+                f.write(md_content)
+            console.print(f"[bold green]SKILL.md (Template) 生成成功！[/bold green]")
+        expected_name = await _compute_v2_skill_md_name(
+            output_dir, skill.failure_pattern
         )
-        with open(output_md, "w", encoding="utf-8") as f:
-            f.write(md_content)
-        console.print(f"[bold green]SKILL.md 生成成功！[/bold green]")
+        _ensure_skill_md_name(output_md, expected_name)
+
     except Exception as e:
         console.print(f"[bold red]生成 Markdown 失败: {e}[/bold red]")
         # We don't raise here to allow partial success (YAML saved) if MD fails
@@ -306,6 +485,9 @@ def skill_seekers_gen(user_case_file, skill_name, quality_threshold: float = 0.5
         os.makedirs(custom_skill_paths, exist_ok=True)
         print(f"📁 已创建目录: {custom_skill_paths}")
 
+    skill_name = normalize_skill_name(
+        skill_name, max_length=64, fallback_prefix="skill"
+    )
     skill_dir = os.path.join(custom_skill_paths, skill_name)
 
     # === 统一文档预检：类型自动判断 + 内容抽取（PDF/Markdown/TXT/URL） ===
@@ -815,6 +997,7 @@ def run_skill_generation(
     mode: str = "single",
     general_experience_path: Optional[str] = None,
     pattern_file_path: Optional[str] = None,
+    existing_pattern_file_path: Optional[str] = None,
 ) -> None:
     """
     统一入口函数，供外部（如 app.py）调用：
@@ -853,6 +1036,19 @@ def run_skill_generation(
             )
         except Exception as e:
             console.print(f"[bold red]加载通用经验文件失败: {e}[/bold red]")
+            return
+
+    existing_pattern: Optional[FailurePattern] = None
+    if existing_pattern_file_path:
+        try:
+            with open(existing_pattern_file_path, "r", encoding="utf-8") as f:
+                pattern_data = yaml.safe_load(f) or {}
+            existing_pattern = FailurePattern.model_validate(pattern_data)
+            console.print(
+                f"[green]已加载已有故障模式: {existing_pattern.pattern_name}[/green]"
+            )
+        except Exception as e:
+            console.print(f"[bold red]加载已有故障模式失败: {e}[/bold red]")
             return
 
     # 如果提供了 output_path，设置环境变量
@@ -971,14 +1167,6 @@ def run_skill_generation(
             target_dir = output_path
 
         try:
-            asyncio.run(
-                generate_skill_v2(
-                    all_files[0], target_dir, general_experiences=general_experiences
-                )
-            )  # Wait, generate_skill_v2 currently takes single doc.
-            # I need to update generate_skill_v2 to support list OR call extract_cases_from_docs + generate_pattern_from_cases manually here.
-
-            # Let's use the new components!
             console.print(f"[bold cyan]开始提取故障案例...[/bold cyan]")
             failure_cases, generated_scripts, reference_files = asyncio.run(
                 extract_cases_from_docs(all_files, target_dir)
@@ -991,7 +1179,9 @@ def run_skill_generation(
             console.print(f"[bold cyan]开始生成合并模式...[/bold cyan]")
             failure_pattern = asyncio.run(
                 generate_pattern_from_cases(
-                    failure_cases, general_experiences=general_experiences
+                    failure_cases,
+                    existing_pattern=existing_pattern,
+                    general_experiences=general_experiences,
                 )
             )
 
@@ -1020,6 +1210,10 @@ def run_skill_generation(
             with open(pattern_file, "w", encoding="utf-8") as f:
                 pattern_data = skill.failure_pattern.model_dump(mode="json")
                 yaml.dump(pattern_data, f, allow_unicode=True, sort_keys=False)
+
+            pattern_detail_file = os.path.join(ref_dir, "pattern-detail.md")
+            with open(pattern_detail_file, "w", encoding="utf-8") as f:
+                f.write(render_pattern_detail_md(skill.failure_pattern))
 
             # Save MD
             output_md = os.path.join(target_dir, "SKILL.md")

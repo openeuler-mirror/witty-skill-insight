@@ -105,6 +105,12 @@ def main() -> int:
         default=None,
         help="故障模式 YAML 文件路径（可选，用于直接生成 Skill）",
     )
+    parser.add_argument(
+        "--existing-pattern",
+        dest="existing_pattern_file",
+        default=None,
+        help="已有故障模式 YAML 文件路径（可选，用于将输入案例增量合并进该模式）",
+    )
 
     # 模型配置参数（AI 平台传递）
     parser.add_argument(
@@ -175,6 +181,7 @@ def main() -> int:
         mode=args.mode,
         general_experience_path=args.general_experience,
         pattern_file_path=args.pattern_file,
+        existing_pattern_file_path=args.existing_pattern_file,
     )
 
     return 0

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 
@@ -182,6 +182,12 @@ class Verification(BaseModel):
     expected: str = Field(..., description="期望结果")
 
 
+class KnownInstance(BaseModel):
+    case_id: str
+    title: Optional[str] = None
+    parameter_values: Dict[str, str] = Field(default_factory=dict)
+
+
 class FailurePattern(BaseModel):
     pattern_id: str = Field(..., description="FM-<领域>-<关键词>-<序号>")
     pattern_name: str = Field(..., description="泛化的模式名，不含具体实例名/IP/时间")
@@ -206,11 +212,17 @@ class FailurePattern(BaseModel):
     verification: List[Verification] = Field(default_factory=list)
     knowledge_gaps: List[KnowledgeGap] = Field(default_factory=list)
     skill_usability: SkillUsability
+    fault_mechanism: Optional[str] = None
+    variation_vectors: Optional[List[str]] = None
+    differential_diagnosis: Optional[Union[List[dict], str]] = None
+    severity_grading: Optional[str] = None
+    indicator_semantics: Optional[str] = None
+    investigation_framework: Optional[str] = None
+    known_instances: List[KnownInstance] = Field(default_factory=list)
     source_cases: List[str] = Field(..., description="关联的 case_id")
     extracted_commands_verbatim: bool = Field(
         True, description="声明所有命令均来自原文，未推断改写"
     )
-
 
 class MergeDecision(str, Enum):
     CREATE = "CREATE"

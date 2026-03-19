@@ -20,6 +20,8 @@ from pathlib import Path
 
 import fitz  # PyMuPDF, used here for hyperlink extraction
 
+from ..skill_name_gen import normalize_skill_name
+
 # Import the PDF extractor
 from .pdf_extractor_poc import PDFExtractor
 
@@ -68,7 +70,13 @@ class PDFToSkillConverter:
 
     def __init__(self, config):
         self.config = config
+        self.normalize_name = bool(config.get("normalize_name", True))
         self.name = config["name"]
+        self.skill_name = (
+            normalize_skill_name(self.name, max_length=64, fallback_prefix="skill")
+            if self.normalize_name
+            else self.name
+        )
         self.pdf_path = config.get("pdf_path", "")
         # Set initial description (will be improved after extraction if metadata available)
         self.description = config.get(
@@ -77,8 +85,8 @@ class PDFToSkillConverter:
 
         # Paths
         save_dir = config.get("save_dir", "output")
-        self.skill_dir = os.path.join(save_dir, self.name)
-        self.data_file = os.path.join(save_dir, f"{self.name}_extracted.json")
+        self.skill_dir = os.path.join(save_dir, self.skill_name)
+        self.data_file = os.path.join(save_dir, f"{self.skill_name}_extracted.json")
 
         # Scripts configuration
         self.scripts_config = config.get(
@@ -498,8 +506,9 @@ class PDFToSkillConverter:
         """Generate main SKILL.md file"""
         filename = f"{self.skill_dir}/SKILL.md"
 
-        # Generate skill name (lowercase, hyphens only, max 64 chars)
-        skill_name = self.name.lower().replace("_", "-").replace(" ", "-")[:64]
+        skill_name = normalize_skill_name(
+            self.name, max_length=64, fallback_prefix="skill"
+        )
 
         # Truncate description to 1024 chars if needed
         desc = (

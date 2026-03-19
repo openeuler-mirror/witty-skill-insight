@@ -19,6 +19,7 @@ from .extract_meta_data import extract_meta_data
 from .guides_extractor import run_guides_agent
 from .markdown_formatter import md_formatter
 from .pyscript_enhance import PyScriptEnhancer
+from .schema import FailurePattern
 from .seekers.adaptor_base import SkillAdaptor, SkillMetadata
 from .utils import get_llm, validate_skill_format
 
@@ -454,6 +455,81 @@ version: {metadata.version}
         print(f"  ✅ Saved enhanced SKILL.md")
 
         return True
+
+    async def generate_skill_with_llm(
+        self, pattern: FailurePattern, output_dir: Path
+    ) -> bool:
+        """
+        Generate SKILL.md and references/pattern-detail.md using LLM based on FailurePattern.
+
+        Args:
+            pattern: The FailurePattern object.
+            output_dir: The directory to save the generated files.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        try:
+            # 1. Read the prompt
+            prompt_path = Path(__file__).parent / "prompts" / "skill_generation.md"
+
+            if not prompt_path.exists():
+                print(f"❌ Prompt file not found: {prompt_path}")
+                return False
+
+            prompt_template = prompt_path.read_text(encoding="utf-8")
+
+            # 2. Prepare pattern_json
+            pattern_json = pattern.model_dump_json(indent=2)
+
+            # 3. Format prompt and append instruction
+            prompt = prompt_template.format(pattern_json=pattern_json)
+            prompt += "\n\nIMPORTANT: Please separate the content of 'SKILL.md' and 'references/pattern-detail.md' with the delimiter `===FILE_SEPARATOR===`. Output 'SKILL.md' first."
+
+            # 4. Call LLM
+            print(f"🤖 Generating skill from pattern {pattern.pattern_id}...")
+            response = await self.llm.ainvoke([{"role": "user", "content": prompt}])
+            content = response.content
+
+            # 5. Parse response
+            parts = content.split("===FILE_SEPARATOR===")
+
+            skill_md_content = ""
+            pattern_detail_content = ""
+
+            if len(parts) >= 2:
+                skill_md_content = parts[0].strip()
+                pattern_detail_content = parts[1].strip()
+            else:
+                print(
+                    "⚠️  Separator not found in LLM response. Saving all content to SKILL.md."
+                )
+                skill_md_content = content.strip()
+                pattern_detail_content = ""
+
+            # 6. Write files
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            skill_md_path = output_dir / "SKILL.md"
+            skill_md_path.write_text(skill_md_content, encoding="utf-8")
+            print(f"  ✅ Saved {skill_md_path}")
+
+            if pattern_detail_content:
+                references_dir = output_dir / "references"
+                references_dir.mkdir(parents=True, exist_ok=True)
+                detail_path = references_dir / "pattern-detail.md"
+                detail_path.write_text(pattern_detail_content, encoding="utf-8")
+                print(f"  ✅ Saved {detail_path}")
+
+            return True
+
+        except Exception as e:
+            print(f"❌ Error generating skill with LLM: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return False
 
     def _read_reference_files(
         self, references_dir: Path, max_chars: int = 200000

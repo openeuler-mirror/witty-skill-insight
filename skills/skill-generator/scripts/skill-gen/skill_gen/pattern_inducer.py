@@ -1,15 +1,14 @@
-import ast
 import asyncio
 import json
 import logging
 import os
 import pathlib
 import re
-from typing import List, Optional
+from typing import List
 
-from langchain_core.output_parsers import PydanticOutputParser
+import ast
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel
+from langchain_core.output_parsers import PydanticOutputParser
 
 from .schema import FailureCase, FailurePattern, GeneralExperience, KnownInstance
 from .utils import get_llm
@@ -17,35 +16,24 @@ from .utils import get_llm
 logger = logging.getLogger(__name__)
 
 
-class PatternOutOfScopeError(Exception):
-    def __init__(self, reason: str):
-        super().__init__(reason)
-        self.reason = reason
-
-
-class MergeResponse(BaseModel):
-    in_scope: bool
-    reason: str
-    pattern: Optional[FailurePattern] = None
-    fault_mechanism_changed: bool = False
-    fault_mechanism_change_reason: Optional[str] = None
-
-
-class PatternMerger:
+class PatternInducer:
     def __init__(self):
         self.llm = get_llm()
-        prompt_path = pathlib.Path(__file__).parent / "prompts" / "pattern_merge.md"
-        if not prompt_path.exists():
-            raise FileNotFoundError(f"Prompt file not found at {prompt_path}")
-        self.prompt_text = prompt_path.read_text(encoding="utf-8")
 
-    async def merge(
+    async def induce(
         self,
-        new_case: FailureCase,
-        existing_pattern: FailurePattern,
+        cases: List[FailureCase],
         general_experiences: List[GeneralExperience] = [],
     ) -> FailurePattern:
-        parser = PydanticOutputParser(pydantic_object=MergeResponse)
+        if not cases:
+            raise ValueError("cases 不能为空")
+
+        parser = PydanticOutputParser(pydantic_object=FailurePattern)
+
+        prompt_path = pathlib.Path(__file__).parent / "prompts" / "pattern_induction.md"
+        if not prompt_path.exists():
+            raise FileNotFoundError(f"Prompt file not found at {prompt_path}")
+        system_prompt = prompt_path.read_text(encoding="utf-8")
 
         general_experience_text = ""
         if general_experiences:
@@ -53,15 +41,13 @@ class PatternMerger:
                 [f"- {exp.content}" for exp in general_experiences]
             )
 
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "user",
-                    self.prompt_text
-                    + "\n\n{output_constraints}\n\n{format_instructions}",
-                )
-            ]
+        cases_list = [json.loads(c.model_dump_json()) for c in cases]
+        cases_json = json.dumps(cases_list, indent=2, ensure_ascii=False)
+
+        final_prompt_template = (
+            system_prompt + "\n\n{output_constraints}\n\n{format_instructions}"
         )
+        prompt = ChatPromptTemplate.from_messages([("user", final_prompt_template)])
         chain = prompt | self.llm
 
         def _extract_first_json_object(text: str) -> str:
@@ -164,18 +150,23 @@ class PatternMerger:
                     raise last_err
                 raise e
 
-        def _default_known_instance(c: FailureCase) -> KnownInstance:
-            params = {
-                "os": c.environment.os,
-                "platform": c.environment.platform,
-                "scope": c.environment.scope,
-                "trigger_event": c.trigger_event,
-            }
-            if c.environment.hardware:
-                params["hardware"] = c.environment.hardware
-            return KnownInstance(
-                case_id=c.case_id, title=c.title, parameter_values=params
-            )
+        def _default_known_instances(items: List[FailureCase]) -> List[KnownInstance]:
+            rows: List[KnownInstance] = []
+            for c in items:
+                params = {
+                    "os": c.environment.os,
+                    "platform": c.environment.platform,
+                    "scope": c.environment.scope,
+                    "trigger_event": c.trigger_event,
+                }
+                if c.environment.hardware:
+                    params["hardware"] = c.environment.hardware
+                rows.append(
+                    KnownInstance(
+                        case_id=c.case_id, title=c.title, parameter_values=params
+                    )
+                )
+            return rows
 
         content = ""
         last_error: Exception | None = None
@@ -190,13 +181,15 @@ class PatternMerger:
                     "\nIf the output would be long, keep all long text fields concise (<500 chars each) "
                     "and you may omit optional fields. Ensure all strings escape newlines as \\n."
                 )
+
             inputs = {
-                "existing_pattern": existing_pattern.model_dump_json(indent=2),
-                "new_case": new_case.model_dump_json(indent=2),
+                "cases_json": cases_json,
+                "n": len(cases),
                 "general_experience_text": general_experience_text,
                 "output_constraints": output_constraints,
                 "format_instructions": parser.get_format_instructions(),
             }
+
             try:
                 response_msg = await asyncio.wait_for(
                     chain.ainvoke(inputs), timeout=timeout_s
@@ -206,63 +199,45 @@ class PatternMerger:
                 last_error = e
                 continue
             json_str = _extract_first_json_object(content)
+
             if not _is_balanced_json_object(json_str):
                 last_error = ValueError(
                     "LLM output does not contain a complete JSON object."
                 )
                 continue
+
             try:
                 data = _loads_relaxed(json_str)
-                response = MergeResponse.model_validate(data)
                 break
             except Exception as e:
                 last_error = e
                 continue
 
-        if last_error and "response" not in locals():
+        if last_error and "data" not in locals():
             debug_dir = pathlib.Path("output_skills") / "_debug"
             debug_dir.mkdir(parents=True, exist_ok=True)
-            raw_path = (
-                debug_dir
-                / f"merge_llm_raw_{existing_pattern.pattern_id}_{new_case.case_id}.txt"
-            )
+            raw_path = debug_dir / f"induce_llm_raw_{cases[0].case_id}.txt"
             raw_path.write_text(
                 content if isinstance(content, str) else str(content), encoding="utf-8"
             )
             raise last_error
 
-        if not response.in_scope:
-            raise PatternOutOfScopeError(response.reason)
-        if not response.pattern:
-            raise ValueError("merge 输出缺少 pattern")
+        if "source_cases" not in data:
+            data["source_cases"] = [c.case_id for c in cases]
+        else:
+            data["source_cases"] = [str(x) for x in data["source_cases"]]
+            seen = set()
+            ordered = []
+            for cid in data["source_cases"] + [c.case_id for c in cases]:
+                if cid not in seen:
+                    seen.add(cid)
+                    ordered.append(cid)
+            data["source_cases"] = ordered
 
-        pattern = response.pattern
+        if "known_instances" not in data or not data["known_instances"]:
+            data["known_instances"] = [
+                ki.model_dump(mode="json") for ki in _default_known_instances(cases)
+            ]
 
-        source_cases: List[str] = []
-        seen = set()
-        for cid in list(existing_pattern.source_cases) + [new_case.case_id]:
-            if cid not in seen:
-                seen.add(cid)
-                source_cases.append(cid)
-        pattern.source_cases = source_cases
-
-        existing_map = {ki.case_id: ki for ki in existing_pattern.known_instances}
-        returned_map = {ki.case_id: ki for ki in (pattern.known_instances or [])}
-        merged_map = dict(existing_map)
-        merged_map.update(returned_map)
-        if new_case.case_id not in merged_map:
-            merged_map[new_case.case_id] = _default_known_instance(new_case)
-        ordered_instances = []
-        for cid in source_cases:
-            if cid in merged_map:
-                ordered_instances.append(merged_map[cid])
-        pattern.known_instances = ordered_instances
-
-        if existing_pattern.fault_mechanism and pattern.fault_mechanism:
-            if existing_pattern.fault_mechanism != pattern.fault_mechanism and (
-                not response.fault_mechanism_changed
-                or not response.fault_mechanism_change_reason
-            ):
-                pattern.fault_mechanism = existing_pattern.fault_mechanism
-
+        pattern = FailurePattern.model_validate(data)
         return pattern

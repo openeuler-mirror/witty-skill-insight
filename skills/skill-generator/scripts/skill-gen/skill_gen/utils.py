@@ -28,9 +28,9 @@ def get_llm():
         base_url=base_url,
         api_key=api_key,
         temperature=0,
-        http_client=httpx.Client(verify=False, timeout=300.0),
-        http_async_client=httpx.AsyncClient(verify=False, timeout=300.0),
-        max_tokens=4096,
+        http_client=httpx.Client(verify=False, timeout=300.0),	 
+        http_async_client=httpx.AsyncClient(verify=False, timeout=300.0),	 
+        max_tokens=4096,	 
         request_timeout=300.0,
     )
     return llm

@@ -1,6 +1,7 @@
 from typing import List, Optional
 import textwrap
 from .schema import Skill, FailurePattern, RemediationType, CommandType
+from .skill_name_gen import normalize_skill_name
 
 class SkillFormatter:
     def render(self, skill: Skill, generated_scripts: Optional[List[dict]] = None, reference_files: Optional[List[str]] = None) -> str:
@@ -89,9 +90,11 @@ class SkillFormatter:
         # Clean description for YAML (remove newlines if necessary or use block scalar style)
         # Using > block scalar style is good for long text.
         
+        skill_name = normalize_skill_name(pattern.pattern_name, max_length=64, fallback_prefix="skill")
+
         return textwrap.dedent(f"""
             ---
-            name: {pattern.pattern_name}
+            name: {skill_name}
             description: >
               {description}
             metadata:

@@ -25,12 +25,13 @@ from .utils import get_llm
 
 class GuideAnalysisResult(BaseModel):
     """Agent 返回的结构化结果模型"""
+
     is_valid: bool = Field(
         description="true 表示能正确获取到 URL 网页内容，且与用户操作指引相关；false 表示不能获取内容或不是操作指引"
     )
     markdown: str = Field(
         default="",
-        description="如果是操作指引，这里是结构化的 Markdown 内容；否则为空字符串"
+        description="如果是操作指引，这里是结构化的 Markdown 内容；否则为空字符串",
     )
 
 
@@ -54,7 +55,7 @@ def load_guides_index(index_path: str) -> List[Dict[str, str]]:
     # 兼容将来可能的其他结构，这里只提取 name/url
     items: List[Dict[str, str]] = []
     seen_urls = set()  # 用于去重
-    
+
     if isinstance(data, list):
         for item in data:
             if not isinstance(item, dict):
@@ -232,7 +233,7 @@ async def is_guide_url(url: str, name: str = "", skill_name: str = "") -> bool:
         messages = [
             {
                 "role": "system",
-                "content": "你是一个专业的文档分类助手，擅长根据 URL 和名称判断页面类型。"
+                "content": "你是一个专业的文档分类助手，擅长根据 URL 和名称判断页面类型。",
             },
             {
                 "role": "user",
@@ -242,17 +243,23 @@ async def is_guide_url(url: str, name: str = "", skill_name: str = "") -> bool:
 
         llm = get_llm()
         response = await llm.ainvoke(messages)
-        
+
         content = getattr(response, "content", response)
         if isinstance(content, list):
-            content_str = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+            content_str = "".join(
+                part.get("text", "") for part in content if isinstance(part, dict)
+            )
         else:
             content_str = str(content)
-        
+
         content_str = content_str.strip().lower()
         # 判断返回内容是否表示"是"
-        return content_str.startswith("是") or content_str.startswith("yes") or "true" in content_str
-        
+        return (
+            content_str.startswith("是")
+            or content_str.startswith("yes")
+            or "true" in content_str
+        )
+
     except Exception as e:
         # 如果判断失败，默认返回 True，让后续流程继续处理
         print(f"  ⚠️  LLM 判断 URL {url} 失败: {e}，默认继续处理")
@@ -295,14 +302,14 @@ def _sanitize_filename(name: str) -> str:
     将名称转换为安全的文件名（去除特殊字符，保留中文字符、字母、数字、连字符、下划线）。
     """
     # 移除或替换特殊字符，保留中文字符、字母、数字、连字符、下划线
-    safe = re.sub(r'[^\w\s\u4e00-\u9fff-]', '', name)
+    safe = re.sub(r"[^\w\s\u4e00-\u9fff-]", "", name)
     # 将空格替换为下划线
-    safe = re.sub(r'\s+', '_', safe)
+    safe = re.sub(r"\s+", "_", safe)
     return safe
 
 
 async def run_guides_agent(
-    index_path: str, 
+    index_path: str,
     skill_dir: str | None = None,
 ) -> List[Dict[str, str]]:
     """
@@ -339,33 +346,33 @@ async def run_guides_agent(
     print(f"📋 共 {len(items)} 个链接（已去重），开始判断是否为用户指南...")
     if skill_name:
         print(f"  技能名称: {skill_name}")
-    
+
     # 并行执行 is_guide_url 判断
     async def check_item(item: Dict[str, str]) -> tuple[Dict[str, str], bool]:
         name = item["name"]
         url = item["url"]
         is_guide = await is_guide_url(url, name, skill_name)
         return item, is_guide
-    
+
     check_results = await asyncio.gather(*[check_item(item) for item in items])
-    
+
     filtered_items = []
     for item, is_guide in check_results:
         if is_guide:
             filtered_items.append(item)
-    
+
     print(f"  ✓ 过滤后剩余 {len(filtered_items)} 个用户指南链接")
     if filtered_items:
         print("  剩余指南列表:")
         for item in filtered_items:
             print(f"    - {item['name']}: {item['url']}\n")
-        
+
         # 根据过滤结果重写 index.json
         try:
             index_path_obj = Path(index_path)
             with index_path_obj.open("r", encoding="utf-8") as f:
                 original_data = json.load(f)
-            
+
             # 判断原始数据格式，保持原有格式
             if isinstance(original_data, list):
                 # 如果原始是列表，直接写入过滤后的列表
@@ -374,17 +381,19 @@ async def run_guides_agent(
                 # 如果原始是对象，保持对象结构，只更新 links 字段
                 new_data = original_data.copy()
                 new_data["links"] = filtered_items
-            
+
             # 备份原文件
-            backup_path = index_path_obj.with_suffix('.json.backup')
+            backup_path = index_path_obj.with_suffix(".json.backup")
             if index_path_obj.exists():
                 shutil.copy2(index_path_obj, backup_path)
                 print(f"  💾 已备份原 index.json 到 {backup_path.name}")
-            
+
             # 写入新的 index.json
             with index_path_obj.open("w", encoding="utf-8") as f:
                 json.dump(new_data, f, ensure_ascii=False, indent=2)
-            print(f"  ✅ 已根据过滤结果更新 index.json，保留 {len(filtered_items)} 个有效链接")
+            print(
+                f"  ✅ 已根据过滤结果更新 index.json，保留 {len(filtered_items)} 个有效链接"
+            )
         except Exception as e:
             print(f"  ⚠️  更新 index.json 失败: {e}")
 
@@ -416,7 +425,7 @@ async def run_guides_agent(
                 f"Agent 返回结果格式错误: 期望 GuideAnalysisResult，"
                 f"实际类型为 {type(structured_result)} (name={name}, url={url})"
             )
-        
+
         is_valid = structured_result.is_valid
         markdown = structured_result.markdown.strip()
 
@@ -440,7 +449,7 @@ async def run_guides_agent(
             "markdown": markdown,
             "is_valid": is_valid,
         }
-    
+
     # 并行执行所有处理任务
     results = await asyncio.gather(*[process_item(item) for item in filtered_items])
     return list(results)
