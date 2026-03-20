@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import ExecutionFlowComparison from '@/components/ExecutionFlowComparison';
 import { SkillLinks } from '@/components/SkillLink';
+import { useAuth } from '@/lib/auth-context';
 
 const Line = dynamic(() => import('recharts').then(mod => mod.Line), { ssr: false });
 const LineChart = dynamic(() => import('recharts').then(mod => mod.LineChart), { ssr: false });
@@ -648,6 +649,7 @@ export default function DetailPageWrapper() {
 function DetailPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const { user } = useAuth();
     const query = searchParams.get('query') || '';
     const framework = searchParams.get('framework') || '';
 
@@ -709,7 +711,8 @@ function DetailPage() {
 
     // Fetch executions list
     useEffect(() => {
-        fetch('/api/data', { cache: 'no-store' })
+        const url = user ? `/api/data?user=${encodeURIComponent(user)}` : '/api/data';
+        fetch(url, { cache: 'no-store' })
             .then(res => res.json())
             .then((data: any[]) => {
                 // Filter immediately by Query & Framework
@@ -936,7 +939,8 @@ function DetailPage() {
                 router.push(`/details?${params.toString()}`);
             } else {
                 // Refresh data
-                const dataRes = await fetch('/api/data');
+                const refreshUrl = user ? `/api/data?user=${encodeURIComponent(user)}` : '/api/data';
+                const dataRes = await fetch(refreshUrl);
                 const data: any[] = await dataRes.json();
                 const filtered = data.filter(d =>
                     d.query === query &&
@@ -992,7 +996,8 @@ function DetailPage() {
             setEditResultValue('');
 
             // Refresh data
-            const dataRes = await fetch('/api/data');
+            const refreshUrl = user ? `/api/data?user=${encodeURIComponent(user)}` : '/api/data';
+            const dataRes = await fetch(refreshUrl);
             const data: any[] = await dataRes.json();
             const filtered = data.filter(d =>
                 d.query === query &&
