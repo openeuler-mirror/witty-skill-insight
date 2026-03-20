@@ -6,6 +6,11 @@ import { SkillLinks } from './SkillLink';
 
 
 // --- Types ---
+interface InvokedSkill {
+    name: string;
+    version: number | null;
+}
+
 interface Execution {
     timestamp: string;
     framework: string;
@@ -14,6 +19,7 @@ interface Execution {
     query: string;
     skill?: string;
     skills?: string[];
+    invokedSkills?: InvokedSkill[];
     skill_version?: string;
     final_result?: string;
     is_skill_correct?: boolean;
@@ -40,7 +46,6 @@ interface Execution {
         attribution_reason?: string;
     }[];
     model?: string;
-    expected_skill_version?: number | null;
     skill_recall_rate?: number | null;
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
@@ -1485,18 +1490,20 @@ export default function Dashboard() {
                                             <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f1f5f9' }}>{formatTokens(Math.round(avgTok))}</span>
                                         </div>
                                     </div>
-                                    <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid #334155' }}>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.2rem', alignItems: 'center' }}>
-                                            {/* Accuracy Label - Aligned with Latency (Left) */}
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontSize: '0.9rem', color: '#cbd5e1' }}>准确率</span>
-                                            </div>
-                                            {/* Score Value - Aligned with Token (Right) */}
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontSize: '1.8rem', fontWeight: 800, color: !hasEvaluatedData ? '#94a3b8' : (avgScore > 0.8 ? '#4ade80' : '#fbbf24') }}>
-                                                    {hasEvaluatedData ? `${(avgScore * 100).toFixed(1)}%` : '--'}
-                                                </span>
-                                            </div>
+                                    <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid #334155', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.2rem' }}>
+                                        {/* Accuracy */}
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>准确率</span>
+                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: !hasEvaluatedData ? '#94a3b8' : (avgScore > 0.8 ? '#4ade80' : '#fbbf24') }}>
+                                                {hasEvaluatedData ? `${(avgScore * 100).toFixed(1)}%` : '--'}
+                                            </span>
+                                        </div>
+                                        {/* Skill Recall Rate */}
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>技能召回率</span>
+                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#fbbf24' }}>
+                                                {skillRecallRate.toFixed(1)}%
+                                            </span>
                                         </div>
                                     </div>
                                 </div>
