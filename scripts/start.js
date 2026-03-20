@@ -130,7 +130,7 @@ async function run(options) {
   if (existingPid) {
     console.log(`⚠️  Port ${port} is already in use by PID: ${existingPid}`)
     console.log('Please stop the existing service first or use a different port.')
-    console.log(`\nTo stop: npx skill-insight stop --port ${port}`)
+    console.log(`\nTo stop: npx skills-insight stop --port ${port}`)
     process.exit(1)
   }
   

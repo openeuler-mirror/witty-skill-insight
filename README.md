@@ -1,6 +1,6 @@
-# Witty-Skill-Insight
+# Skills-Insight
 
-Witty-Skill-Insight 是一个开源的 **Agent Skill 生成、优化、观测与分析平台**，帮助开发者量化评估 Skills 在 Agent 上的实际运行效果。通过自动采集执行轨迹、智能评分、深度归因分析，让 Skill 的每一次迭代都有据可依。
+Skills-Insight 是一个开源的 **Agent Skill 生成、优化、观测与分析平台**，帮助开发者量化评估 Skills 在 Agent 上的实际运行效果。通过自动采集执行轨迹、智能评分、深度归因分析，让 Skill 的每一次迭代都有据可依。
 
 <p align="center">
   <img src="docs/images/dashboard_main.png" width="48%" />
@@ -99,7 +99,7 @@ Witty-Skill-Insight 是一个开源的 **Agent Skill 生成、优化、观测与
 ### 一键安装
 
 ```bash
-npx skill-insight install
+npx skills-insight install
 ```
 
 ### 快速体验
@@ -176,5 +176,5 @@ npx skill-insight install
 ---
 
 <p align="center">
-  <strong>Witty-Skill-Insight</strong> — 让每一次 Skill 迭代都有据可依
+  <strong>Skills-Insight</strong> — 让每一次 Skill 迭代都有据可依
 </p>

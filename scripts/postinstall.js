@@ -140,9 +140,9 @@ try {
   
   console.log('=== Initialization Complete ===')
   console.log('\nStart the service with:')
-  console.log('  npx skill-insight start')
+  console.log('  npx skills-insight start')
   console.log('\nOr specify a custom port:')
-  console.log('  npx skill-insight start --port 3001')
+  console.log('  npx skills-insight start --port 3001')
   console.log('\nAccess the dashboard at: http://localhost:3000')
 } catch (error) {
   console.error('\n❌ Initialization failed:', error.message)
