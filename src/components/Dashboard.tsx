@@ -379,7 +379,12 @@ export default function Dashboard() {
         if (id === activeConfigId) newActive = newConfigs[0]?.id || '';
 
         const payload = { activeConfigId: newActive, configs: newConfigs };
-        await fetch('/api/settings', { method: 'POST', body: JSON.stringify(payload) });
+        const finalPayload = { settings: payload, user };
+        await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(finalPayload)
+        });
         setAllConfigs(newConfigs);
         setActiveConfigId(newActive);
     };
@@ -1585,7 +1590,7 @@ export default function Dashboard() {
                                     yFormatter={formatTokens}
                                 />
                                 <ChartLayout
-                                    title={<span>平均准确率 <CustomTooltip content={<div>基于LLM评估所有执行结果与期望答案的差异，计算出的0-1分值的平均值，1表示完全正确。<br />"--"表示评估失败，可能是由于模型未配置或者数据项未配置。</div>} /></span>}
+                                    title={<span>平均准确率 <CustomTooltip content={<div>基于LLM评估所有执行结果与期望答案的差异，计算出的0-1分值的平均值，1表示完全正确。<br />"--"表示评估失败，可能是由于模型未配置（请在首页左上角的设置中配置 LLM）或者数据项未配置。</div>} /></span>}
                                     dataKey="score"
                                     unit=""
                                     data={comparisonData}
@@ -1965,7 +1970,7 @@ export default function Dashboard() {
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}>问题</th>
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>时延 <CustomTooltip content="从请求发出到收到最终完整回复的总耗时" /></span></th>
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>Token <CustomTooltip content="输入 Prompt 与输出 Completion 的 Token 总和" /></span></th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>准确率 <CustomTooltip content={<div>基于LLM评估Agent真实运行结果与期望答案的差异，给出0-1分值，1表示完全正确。<br />"--"表示评估失败，可能是由于模型未配置或者数据项未配置。</div>} /></span></th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>准确率 <CustomTooltip content={<div>基于LLM评估Agent真实运行结果与期望答案的差异，给出0-1分值，1表示完全正确。<br />"--"表示评估失败，可能是由于模型未配置（请在首页左上角的设置中配置 LLM）或者数据项未配置。</div>} /></span></th>
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>Est. Cost <CustomTooltip content="Estimated from default or custom (custom-models.json) pricing." /></span></th>
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}>模型</th>
 

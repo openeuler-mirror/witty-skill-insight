@@ -125,7 +125,7 @@ export async function parseSkillFlow(
   const { client, model } = await getLlmClient(user);
   
   if (!client || !client.apiKey) {
-    return { success: false, error: "LLM 未配置或不可用" };
+    return { success: false, error: "请在首页左上角的设置中配置 LLM" };
   }
 
   if (!skillContent || skillContent.trim().length === 0) {
@@ -382,7 +382,7 @@ export async function analyzeExecutionMatch(
   const { client, model } = await getLlmClient(user);
   
   if (!client || !client.apiKey) {
-    return { success: false, error: "LLM 未配置或不可用" };
+    return { success: false, error: "请在首页左上角的设置中配置 LLM" };
   }
 
   try {
@@ -651,7 +651,7 @@ export async function analyzeDynamicOnly(
   const { client, model } = await getLlmClient(user);
   
   if (!client || !client.apiKey) {
-    return { success: false, error: "LLM 未配置或不可用" };
+    return { success: false, error: "请在首页左上角的设置中配置 LLM" };
   }
 
   try {

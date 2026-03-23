@@ -64,7 +64,7 @@ export async function judgeAnswer(
   const { client, model } = await getLlmClient(user);
   if (!client || !client.apiKey) {
     console.warn("LLM Evaluation disabled or missing config. Skipping.");
-    return { is_correct: false, score: 0, reason: "LLM评估已禁用（未配置模型或已关闭）" };
+    return { is_correct: false, score: 0, reason: "请在首页左上角的设置中配置 LLM" };
   }
 
   try {
