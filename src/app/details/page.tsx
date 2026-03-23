@@ -1221,6 +1221,16 @@ function DetailPage() {
                     };
                 });
 
+                // Home Link - navigate to main page
+                const homeLink = document.getElementById('home-link');
+                if (homeLink) {
+                    homeLink.onclick = () => {
+                        window.location.href = '/';
+                    };
+                    homeLink.onmouseover = () => { homeLink.style.color = '#7dd3fc'; };
+                    homeLink.onmouseout = () => { homeLink.style.color = '#38bdf8'; };
+                }
+
                 // Charts Notice
                 console.log('Offline Mode: Charts are static snapshots.');
             })();
@@ -1259,8 +1269,17 @@ function DetailPage() {
                     overflow: 'hidden',
                     textOverflow: 'ellipsis'
                 }} title={query}>
-                    <span style={{ flexShrink: 0 }}>Details:</span>
-                    <span style={{ color: '#38bdf8', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span
+                        id="home-link"
+                        style={{ flexShrink: 0, cursor: 'pointer', color: '#38bdf8', transition: 'color 0.2s' }}
+                        onClick={() => router.push('/')}
+                        onMouseOver={(e) => e.currentTarget.style.color = '#7dd3fc'}
+                        onMouseOut={(e) => e.currentTarget.style.color = '#38bdf8'}
+                    >
+                        witty-skill-insight
+                    </span>
+                    <span style={{ flexShrink: 0, color: '#334155' }}>|</span>
+                    <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {query}
                     </span>
                 </h1>
