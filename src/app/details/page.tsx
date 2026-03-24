@@ -1172,6 +1172,45 @@ function DetailPage() {
             String(d.getSeconds()).padStart(2, '0');
     };
 
+    const formatTimestampForDisplay = (ts: number): string => {
+        if (!ts && ts !== 0) return '-';
+        const d = new Date(ts);
+        return d.getFullYear() + '/' +
+            String(d.getMonth() + 1).padStart(2, '0') + '/' +
+            String(d.getDate()).padStart(2, '0') + ' ' +
+            String(d.getHours()).padStart(2, '0') + ':' +
+            String(d.getMinutes()).padStart(2, '0') + ':' +
+            String(d.getSeconds()).padStart(2, '0') + '.' +
+            String(d.getMilliseconds()).padStart(3, '0');
+    };
+
+    const formatSessionForDisplay = (session: any): any => {
+        if (!session) return session;
+        const formatted = JSON.parse(JSON.stringify(session));
+        
+        if (formatted.startTime) {
+            formatted.startTime = formatTimestampForDisplay(formatted.startTime);
+        }
+        
+        if (Array.isArray(formatted.interactions)) {
+            formatted.interactions = formatted.interactions.map((interaction: any) => {
+                const formattedInteraction = { ...interaction };
+                if (formattedInteraction.timestamp) {
+                    formattedInteraction.timestamp = formatTimestampForDisplay(formattedInteraction.timestamp);
+                }
+                if (formattedInteraction.message?.timestamp) {
+                    formattedInteraction.message.timestamp = formatTimestampForDisplay(formattedInteraction.message.timestamp);
+                }
+                if (formattedInteraction.timeInfo?.created) {
+                    formattedInteraction.timeInfo.created = formatTimestampForDisplay(formattedInteraction.timeInfo.created);
+                }
+                return formattedInteraction;
+            });
+        }
+        
+        return formatted;
+    };
+
     const handleExportHtml = () => {
         const clone = document.documentElement.cloneNode(true) as HTMLElement;
 
@@ -1809,9 +1848,8 @@ function DetailPage() {
             <div className="list-container">
                 <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>执行记录详情</h2>
                 {/* Headers */}
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', borderBottom: '1px solid #334155', color: '#94a3b8', fontSize: '0.9rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', borderBottom: '1px solid #334155', color: '#94a3b8', fontSize: '0.9rem' }}>
                     <div>时间 / ID</div>
-                    <div>状态</div>
                     <div>标签</div>
                     <div>时延</div>
                     <div>消耗</div>
@@ -1837,7 +1875,7 @@ function DetailPage() {
                             {/* Summary Row */}
                             <div
                                 className="record-summary"
-                                style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', alignItems: 'center', cursor: 'pointer', transition: 'background 0.2s' }}
+                                style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr 50px', padding: '1rem', alignItems: 'center', cursor: 'pointer', transition: 'background 0.2s' }}
                                 onClick={() => toggleExpand(taskId)}
                                 onMouseOver={(e: any) => e.currentTarget.style.background = '#334155'}
                                 onMouseOut={(e: any) => e.currentTarget.style.background = 'transparent'}
@@ -1845,15 +1883,6 @@ function DetailPage() {
                                 <div>
                                     <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>{formatFullTime(item.timestamp)}</div>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{taskId}</div>
-                                </div>
-                                <div>
-                                    <span style={{
-                                        padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold',
-                                        background: item.answer_score === null ? 'rgba(148, 163, 184, 0.1)' : ((item.answer_score || 0) > 0.8 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)'),
-                                        color: item.answer_score === null ? '#94a3b8' : ((item.answer_score || 0) > 0.8 ? '#4ade80' : '#f87171')
-                                    }}>
-                                        {item.answer_score === null ? '--' : ((item.answer_score || 0) > 0.8 ? 'PASS' : 'FAIL')}
-                                    </span>
                                 </div>
                                 <div style={{ fontSize: '0.9rem', color: '#cbd5e1' }}>
                                     {item.label || '-'}
@@ -2545,7 +2574,7 @@ function DetailPage() {
                                                 <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', overflow: 'hidden' }}>
                                                     <ReactJson
                                                         key={`json-${focusedStep !== null ? focusedStep : 'default'}`}
-                                                        src={session}
+                                                        src={formatSessionForDisplay(session)}
                                                         theme="monokai"
                                                         shouldCollapse={(field) => {
                                                             const path = [...(field.namespace || []), field.name]
