@@ -40,7 +40,7 @@ try {
     
     if (fs.existsSync(staticDir) && !fs.existsSync(standaloneStaticDir)) {
       fs.mkdirSync(path.dirname(standaloneStaticDir), { recursive: true })
-      execSync(`cp -r "${staticDir}" "${path.dirname(standaloneStaticDir)}/"`, { stdio: 'inherit' })
+      fs.cpSync(staticDir, standaloneStaticDir, { recursive: true })
       console.log('✓ Static files copied to standalone')
     }
     
@@ -48,7 +48,7 @@ try {
     const standalonePublicDir = path.join(standaloneDir, 'public')
     
     if (fs.existsSync(publicDir) && !fs.existsSync(standalonePublicDir)) {
-      execSync(`cp -r "${publicDir}" "${standaloneDir}/"`, { stdio: 'inherit' })
+      fs.cpSync(publicDir, standalonePublicDir, { recursive: true })
       console.log('✓ Public files copied to standalone')
     }
     
@@ -64,7 +64,7 @@ try {
         fs.rmSync(standaloneClientDir, { recursive: true, force: true })
       }
       
-      execSync(`cp -r "${prismaClientDir}" "${standalonePrismaDir}/"`, { stdio: 'inherit' })
+      fs.cpSync(prismaClientDir, standaloneClientDir, { recursive: true })
       console.log('✓ Prisma client copied to standalone')
     }
     
@@ -75,7 +75,7 @@ try {
       }
       const standalonePgDir = path.join(standaloneNodeModules, 'pg')
       if (!fs.existsSync(standalonePgDir)) {
-        execSync(`cp -r "${pgDir}" "${standaloneNodeModules}/"`, { stdio: 'inherit' })
+        fs.cpSync(pgDir, standalonePgDir, { recursive: true })
         console.log('✓ pg module copied to standalone')
       }
     }
@@ -115,8 +115,20 @@ try {
         
         if (!fs.existsSync(hashDir)) {
           fs.mkdirSync(path.dirname(hashDir), { recursive: true })
-          fs.symlinkSync(standaloneClientDir, hashDir, 'dir')
-          console.log(`✓ Created symlink: ${hashName} -> .prisma/client`)
+          if (process.platform === 'win32') {
+            try {
+              fs.symlinkSync(standaloneClientDir, hashDir, 'junction')
+              console.log(`✓ Created junction: ${hashName} -> .prisma/client`)
+            } catch (err) {
+              console.log(`⚠️  Could not create junction on Windows: ${err.message}`)
+              console.log(`   Falling back to copying directory...`)
+              fs.cpSync(standaloneClientDir, hashDir, { recursive: true })
+              console.log(`✓ Copied directory: ${hashName}`)
+            }
+          } else {
+            fs.symlinkSync(standaloneClientDir, hashDir, 'dir')
+            console.log(`✓ Created symlink: ${hashName} -> .prisma/client`)
+          }
         }
       } else {
         console.log('⚠️  Could not find Prisma hash in build output')
@@ -128,8 +140,20 @@ try {
         const pgTargetDir = path.join(standaloneNodeModules, 'pg')
         
         if (!fs.existsSync(pgHashDir) && fs.existsSync(pgTargetDir)) {
-          fs.symlinkSync(pgTargetDir, pgHashDir, 'dir')
-          console.log(`✓ Created symlink: ${pgHashName} -> pg`)
+          if (process.platform === 'win32') {
+            try {
+              fs.symlinkSync(pgTargetDir, pgHashDir, 'junction')
+              console.log(`✓ Created junction: ${pgHashName} -> pg`)
+            } catch (err) {
+              console.log(`⚠️  Could not create junction on Windows: ${err.message}`)
+              console.log(`   Falling back to copying directory...`)
+              fs.cpSync(pgTargetDir, pgHashDir, { recursive: true })
+              console.log(`✓ Copied directory: ${pgHashName}`)
+            }
+          } else {
+            fs.symlinkSync(pgTargetDir, pgHashDir, 'dir')
+            console.log(`✓ Created symlink: ${pgHashName} -> pg`)
+          }
         }
       } else {
         console.log('⚠️  Could not find pg hash in build output')

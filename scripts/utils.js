@@ -12,10 +12,18 @@ function findPidOnPort(port) {
       const lines = output.trim().split('\n')
       for (const line of lines) {
         const parts = line.trim().split(/\s+/)
-        if (parts.length >= 5 && parts[1].includes(`:${port}`)) {
-          return parts[parts.length - 1]
+        if (parts.length >= 5) {
+          const localAddress = parts[1]
+          const state = parts[3]
+          const pid = parts[4]
+          const portMatch = localAddress.match(/:(\d+)$/)
+          if (portMatch && parseInt(portMatch[1]) === port && state === 'LISTENING') {
+            console.log(`[Windows] Found process ${pid} listening on port ${port}`)
+            return pid
+          }
         }
       }
+      console.log(`[Windows] No process found listening on port ${port}`)
     } else {
       if (fs.existsSync('/usr/bin/lsof') || fs.existsSync('/usr/sbin/lsof')) {
         try {
@@ -76,10 +84,22 @@ function isPortListening(port) {
 }
 
 function killProcess(pid) {
+  const platform = process.platform
+  
   try {
-    execSync(`kill -9 ${pid}`, { stdio: 'ignore' })
-    return true
+    if (platform === 'win32') {
+      console.log(`[Windows] Attempting to kill process with PID ${pid} using taskkill...`)
+      execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' })
+      console.log(`[Windows] Successfully killed process ${pid}`)
+      return true
+    } else {
+      console.log(`[Unix] Attempting to kill process with PID ${pid} using kill -9...`)
+      execSync(`kill -9 ${pid}`, { stdio: 'ignore' })
+      console.log(`[Unix] Successfully killed process ${pid}`)
+      return true
+    }
   } catch (e) {
+    console.error(`Failed to kill process ${pid}: ${e.message}`)
     return false
   }
 }

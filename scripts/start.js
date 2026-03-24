@@ -18,6 +18,10 @@ const {
 
 const PACKAGE_ROOT = path.resolve(__dirname, '..')
 
+const isWindows = process.platform === 'win32'
+const pythonCmd = isWindows ? 'python' : 'python3'
+const pipCmd = isWindows ? 'pip' : 'pip3'
+
 function loadEnvFile(envPath) {
   if (!fs.existsSync(envPath)) return {}
   
@@ -145,11 +149,11 @@ async function run(options) {
     console.log('Initializing OpenGauss database with project schema...')
     
     try {
-      execSync('python3 -c "import psycopg2"', { stdio: 'pipe' })
+      execSync(`${pythonCmd} -c "import psycopg2"`, { stdio: 'pipe' })
     } catch (e) {
       console.log('psycopg2 not found. Installing psycopg2-binary...')
       try {
-        execSync('pip3 install psycopg2-binary', { stdio: 'inherit' })
+        execSync(`${pipCmd} install psycopg2-binary`, { stdio: 'inherit' })
       } catch (pipError) {
         console.log('Warning: Could not install psycopg2-binary. OpenGauss init may fail.')
       }
@@ -159,7 +163,7 @@ async function run(options) {
     if (fs.existsSync(initScript)) {
       try {
         const initEnv = { ...process.env, ...fileEnv }
-        execSync('python3 "' + initScript + '"', { 
+        execSync(`${pythonCmd} "${initScript}"`, { 
           stdio: 'inherit', 
           cwd: PACKAGE_ROOT,
           env: initEnv
@@ -167,7 +171,7 @@ async function run(options) {
         console.log('✓ OpenGauss initialized successfully')
       } catch (initError) {
         console.error('Warning: OpenGauss initialization failed:', initError.message)
-        console.error('You may need to run it manually: python3 scripts/init_opengauss.py')
+        console.error(`You may need to run it manually: ${pythonCmd} scripts/init_opengauss.py`)
       }
     } else {
       console.log('Warning: init_opengauss.py not found, skipping OpenGauss init')
@@ -197,7 +201,17 @@ async function run(options) {
   
   console.log(`Starting server on port ${port}...`)
   
-  const logPath = path.join(PACKAGE_ROOT, 'server.log')
+  let logPath
+  if (isWindows) {
+    const wittyDir = path.join(os.homedir(), '.witty')
+    if (!fs.existsSync(wittyDir)) {
+      fs.mkdirSync(wittyDir, { recursive: true })
+    }
+    logPath = path.join(wittyDir, 'server.log')
+  } else {
+    logPath = path.join(PACKAGE_ROOT, 'server.log')
+  }
+  
   const env = { 
     ...process.env, 
     ...fileEnv, 
@@ -225,12 +239,22 @@ async function run(options) {
   try {
     const logFd = fs.openSync(logPath, 'a')
     
-    spawnedProc = spawn(command, args, {
-      stdio: ['ignore', logFd, logFd],
-      env,
-      detached: true,
-      cwd: PACKAGE_ROOT
-    })
+    if (isWindows) {
+      spawnedProc = spawn(command, args, {
+        stdio: ['ignore', logFd, logFd],
+        env,
+        detached: true,
+        cwd: PACKAGE_ROOT,
+        windowsHide: true
+      })
+    } else {
+      spawnedProc = spawn(command, args, {
+        stdio: ['ignore', logFd, logFd],
+        env,
+        detached: true,
+        cwd: PACKAGE_ROOT
+      })
+    }
     
     spawnedProc.on('error', (error) => {
       console.error('❌ Failed to spawn process:', error.message)

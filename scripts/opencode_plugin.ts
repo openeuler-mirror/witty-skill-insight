@@ -74,7 +74,7 @@ function getRequestOptions(targetUrl, apiKey, bodyLength) {
     let options = {
         hostname: targetUrl.hostname,
         port: targetUrl.port || (protocol === 'https:' ? 443 : 80),
-        path: path.join(targetUrl.pathname === '/' ? '' : targetUrl.pathname, '/api/upload'),
+        path: (targetUrl.pathname === '/' ? '' : targetUrl.pathname) + '/api/upload',
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -658,16 +658,27 @@ try {
               // We must explicitly resolve the node binary path.
               let nodeBin = 'node';
               try {
-                  nodeBin = cp.execSync('which node', { encoding: 'utf8', timeout: 3000 }).trim() || 'node';
+                  const nodeCmd = process.platform === 'win32' ? 'where node' : 'which node';
+                  nodeBin = cp.execSync(nodeCmd, { encoding: 'utf8', timeout: 3000 }).trim() || 'node';
+                  if (process.platform === 'win32') {
+                      const lines = nodeBin.split('\n');
+                      nodeBin = lines[0].trim() || 'node';
+                  }
               } catch (e) {
                   logDebug(`Could not resolve node path, falling back to 'node'`);
               }
-              const shellCmd = `nohup "${nodeBin}" "${scriptPath}" > "${logPath}" 2>&1 &`;
-              logDebug(`Launching uploader via shell: ${shellCmd}`);
+              
+              logDebug(`Launching uploader: node=${nodeBin}, script=${scriptPath}`);
               try {
-                  cp.execSync(shellCmd, { stdio: 'ignore', timeout: 5000 });
+                  const uploader = cp.spawn(nodeBin, [scriptPath], {
+                      detached: true,
+                      stdio: ['ignore', fs.openSync(logPath, 'a'), fs.openSync(logPath, 'a')],
+                      windowsHide: true
+                  });
+                  uploader.unref();
+                  logDebug(`Uploader spawned successfully (PID: ${uploader.pid})`);
               } catch (spawnErr) {
-                  logDebug(`execSync uploader error: ${spawnErr.message}`);
+                  logDebug(`spawn uploader error: ${spawnErr.message}`);
               }
 
               /* 
