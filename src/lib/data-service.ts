@@ -73,13 +73,27 @@ export interface ConfigItem {
 const DATA_DIR = path.join(process.cwd(), 'data');
 const EVALUATION_FILE = path.join(DATA_DIR, 'evaluation_result.json');
 
-export async function readRecords(user?: string): Promise<ExecutionRecord[]> {
+export async function readRecords(user?: string, filters?: { query?: string; taskId?: string; framework?: string }): Promise<ExecutionRecord[]> {
     const where: any = {};
     if (user) {
         where.OR = [
             { user: user },
             { user: null }
         ];
+    }
+
+    if (!filters?.query && filters?.taskId) {
+        const dbRecord = await db.findExecutionById(filters.taskId);
+        if (dbRecord && dbRecord.query) {
+            where.query = dbRecord.query;
+            if (filters.framework) where.framework = filters.framework;
+        } else {
+            // fallback exact match
+            where.id = filters.taskId;
+        }
+    } else if (filters?.query) {
+        where.query = filters.query;
+        if (filters.framework) where.framework = filters.framework;
     }
 
     const records = await db.findExecutions(where, { timestamp: 'desc' });

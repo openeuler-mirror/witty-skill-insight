@@ -4,7 +4,7 @@ Skill-insight 是一个开源的 **Agent Skill 生成、优化、观测与分析
 
 <p align="center">
   <img src="docs/images/dashboard_main.png" width="48%" />
-  <img src="docs/images/dashboard_list.png" width="48%" />
+  <img src="docs/images/dashboard_list.png" width="44%" />
 </p>
 <p align="center"><em>主界面：全景指标概览与执行历史列表</em></p>
 
@@ -69,9 +69,10 @@ Skill-insight 是一个开源的 **Agent Skill 生成、优化、观测与分析
 ### 执行详情钻取
 
 <p align="center">
-  <img src="docs/images/execution_detail.png" width="80%" />
+  <img src="docs/images/execution_detail.png" width="45%" />
+  <img src="docs/images/skill_visualization.png" width="40%" />
 </p>
-<p align="center"><em>执行详情：端到端对话轨迹回放 + skill有效性分析</em></p>
+<p align="center"><em>执行详情：skill有效性分析 + Skill执行可视化</em></p>
 
 ### 耗时 & Token 分析
 

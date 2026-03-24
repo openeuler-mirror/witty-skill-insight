@@ -8,8 +8,11 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const user = searchParams.get('user') || undefined;
+    const query = searchParams.get('query') || undefined;
+    const taskId = searchParams.get('taskId') || undefined;
+    const framework = searchParams.get('framework') || undefined;
 
-    const data = await readRecords(user);
+    const data = await readRecords(user, { query, taskId, framework });
     if (data.length > 0) {
         console.log(`[Data-API] 📤 Sending ${data.length} records. Top record skills: ${JSON.stringify(data[0].skills)}`);
     }

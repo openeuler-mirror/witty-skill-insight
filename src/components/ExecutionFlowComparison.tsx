@@ -53,7 +53,7 @@ export default function ExecutionFlowComparison({
   const [matchData, setMatchData] = useState<MatchData | null>(null);
   const [error, setError] = useState<string>('');
   const [analysisExpanded, setAnalysisExpanded] = useState(true);
-  const [componentExpanded, setComponentExpanded] = useState(true);
+  const [componentExpanded, setComponentExpanded] = useState(false);
 
   const actualSkillId = skillId && skillId.trim() ? skillId : null;
 
