@@ -1,4 +1,4 @@
-import { readConfig, saveExecutionRecord } from '@/lib/data-service';
+import { readConfig, saveExecutionRecord, findBestMatchConfig } from '@/lib/data-service';
 import { analyzeFailures, extractSkillsFromClaudeSession, extractSkillsFromOpencodeSession, extractSkillsWithVersionsFromClaudeSession, extractSkillsWithVersionsFromOpencodeSession, InvokedSkill, judgeAnswer, normalizeInteractions } from '@/lib/judge';
 import { NextResponse } from 'next/server';
 
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     const criteria: any = { skill_definition: skillDef };
     const configs = await readConfig(actionUser);
     const query = existingRecord.query || '';
-    const cfg = configs.find((c: any) => c.query && query && c.query.trim() === query.trim());
+    const cfg = findBestMatchConfig(configs, query);
     
     if (!cfg) {
         console.warn(`[Rejudge] No matching evaluation configuration found for query: ${query}`);

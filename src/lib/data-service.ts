@@ -70,6 +70,27 @@ export interface ConfigItem {
     key_actions?: { content: string; weight: number }[];
 }
 
+export function findBestMatchConfig(configs: ConfigItem[], userQuery: string | undefined): ConfigItem | undefined {
+    if (!userQuery) return undefined;
+    
+    const trimmedUserQuery = userQuery.trim();
+    
+    const matchingConfigs = configs
+        .filter(c => c.query && c.query.trim())
+        .filter(c => {
+            const trimmedConfigQuery = c.query.trim();
+            return trimmedUserQuery.endsWith(trimmedConfigQuery);
+        });
+    
+    if (matchingConfigs.length === 0) return undefined;
+    
+    return matchingConfigs.reduce((best, current) => {
+        const bestLen = best.query.trim().length;
+        const currentLen = current.query.trim().length;
+        return currentLen > bestLen ? current : best;
+    });
+}
+
 const DATA_DIR = path.join(process.cwd(), 'data');
 const EVALUATION_FILE = path.join(DATA_DIR, 'evaluation_result.json');
 
@@ -303,7 +324,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
 
     const configs = await readConfig(targetRecord.user);
     if (targetRecord.query && configs.length > 0) {
-        const matchedConfig = configs.find(c => c.query.trim() === targetRecord.query?.trim());
+        const matchedConfig = findBestMatchConfig(configs, targetRecord.query);
 
         if (matchedConfig) {
             const invokedSkillsWithVersion = targetRecord.invokedSkills || [];
