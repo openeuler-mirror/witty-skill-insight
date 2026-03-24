@@ -289,10 +289,12 @@ async function uploadExecutionRecord(record: any): Promise<void> {
     
     const body = JSON.stringify(record);
     
+    const basePath = parsedUrl.pathname === '/' ? '' : parsedUrl.pathname;
+    
     const options: http.RequestOptions = {
         hostname: parsedUrl.hostname,
         port: parsedUrl.port || (isHttps ? 443 : 80),
-        path: '/api/upload',
+        path: `${basePath}/api/upload`,
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

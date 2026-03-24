@@ -3,14 +3,20 @@ import { NextResponse } from 'next/server';
 export async function GET(request: Request) {
     const host = request.headers.get('host') || '127.0.0.1:3000';
     const protocol = request.headers.get('x-forwarded-proto') || 'http';
-    const baseUrl = `${protocol}://${host}`;
+    
+    // Detect base path from request URL (e.g., /skill-insight/api/setup -> /skill-insight)
+    const requestUrl = new URL(request.url);
+    const basePath = requestUrl.pathname.replace(/\/api\/setup\/?$/, '');
+    
+    const baseUrl = `${protocol}://${host}${basePath}`;
+    const wittyHost = `${protocol}://${host}${basePath}`;
 
     const script = `#!/bin/bash
 # =============================================================================
 # Skill-insight One-Click Setup
 # =============================================================================
 
-WITTY_HOST="${host}"
+WITTY_HOST="${wittyHost}"
 WITTY_BASE_URL="${baseUrl}"
 
 echo "🚀 Fetching Skill-insight telemetry components from $WITTY_BASE_URL..."

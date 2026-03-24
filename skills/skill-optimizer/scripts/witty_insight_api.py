@@ -31,12 +31,12 @@ if not base_ip:
     )
 
 # Assume the platform always runs on port 3000 locally or adjust if WITTY_INSIGHT_HOST includes port
-if ":" in base_ip and not base_ip.startswith("http"):
-    BASE_URL = f"http://{base_ip}"
-elif base_ip.startswith("http"):
+if base_ip.startswith("http"):
     BASE_URL = base_ip
+elif ":" in base_ip:
+    BASE_URL = f"http://{base_ip}"
 else:
-    BASE_URL = f"http://{base_ip}:3000"
+    BASE_URL = f"http://{base_ip}"
 
 
 HEADERS = {

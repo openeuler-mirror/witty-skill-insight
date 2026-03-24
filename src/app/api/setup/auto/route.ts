@@ -16,7 +16,12 @@ export async function GET(request: Request) {
 
     const requestHost = request.headers.get('host') || '127.0.0.1:3000';
     const protocol = request.headers.get('x-forwarded-proto') || 'http';
-    const baseUrl = `${protocol}://${requestHost}`;
+    
+    // Detect base path from request URL
+    const requestUrl = new URL(request.url);
+    const basePath = requestUrl.pathname.replace(/\/api\/setup\/auto\/?$/, '');
+    
+    const baseUrl = `${protocol}://${requestHost}${basePath}`;
 
     const script = `#!/bin/bash
 # =============================================================================
