@@ -141,7 +141,7 @@ select().catch(err => {
 SELECTOR_EOF
 
 # Run the selector interactively from /dev/tty
-# Export the result file path so the selector
+# Export the result file path so the selector knows where to write
 export SELECTOR_RESULT_FILE="$SELECTOR_RESULT"
 cd "$HOME/.witty" && npx -y tsx "$SELECTOR_SCRIPT" < /dev/tty
 
@@ -179,7 +179,7 @@ fi
 if [ "$INSTALL_OPENCODE" = "true" ]; then
     echo "⏬ Downloading OpenCode Plugin..."
     curl -sSf "$WITTY_BASE_URL/api/setup/opencode" -o "$HOME/.opencode/plugins/Witty-Skill-Insight.ts"
-    
+
     echo "⏬ Downloading Skill Sync Tool..."
     curl -sSf "$WITTY_BASE_URL/sync_skills.ts" -o "$HOME/.witty/sync_skills.ts"
 fi
@@ -258,7 +258,7 @@ pkill -f "claude_watcher_client.ts" 2>/dev/null
 cd "$HOME/.witty" && nohup npx -y tsx "$HOME/.witty/claude_watcher_client.ts" > "$HOME/.witty/logs/claude_watcher.log" 2>&1 &
 echo $! > "$HOME/.witty/claude_watcher.pid"
 echo "Claude watcher started with PID $(cat $HOME/.witty/claude_watcher.pid)"
-WATCHER
+WATCHER_EOF
         chmod +x "$HOME/.witty/start_claude_watcher.sh"
         echo "✅ Claude watcher start script created"
 
@@ -285,7 +285,7 @@ pkill -f "openclaw_watcher_client.ts" 2>/dev/null
 cd "$HOME/.witty" && nohup npx -y tsx "$HOME/.witty/openclaw_watcher_client.ts" > "$HOME/.witty/logs/openclaw_watcher.log" 2>&1 &
 echo $! > "$HOME/.witty/openclaw_watcher.pid"
 echo "OpenClaw watcher started with PID $(cat $HOME/.witty/openclaw_watcher.pid)"
-WATCHER
+WATCHER_EOF
         chmod +x "$HOME/.witty/start_openclaw_watcher.sh"
         echo "✅ OpenClaw watcher start script created"
 
@@ -492,8 +492,8 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         '    "            type: \'checkbox\',"',
         '    "            name: \'frameworks\',"',
         '    "            message: \'集成到：\',"',
-        '    "            choices: frameworks,',
-        '    "            pageSize: 10,',
+        '    "            choices: frameworks,"',
+        '    "            pageSize: 10,"',
         '    "            loop: false"',
         '    "        }"',
         '    "    ]);"',
@@ -713,7 +713,7 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         '        $stopLines += \'powershell -File "\' + $wittyDir + \'\\stop_openclaw_watcher.ps1"\'',
         '    }',
         '    $stopLines += \'Write-Host "All watchers stopped!"\'',
-        '    $stopLines -join [char]10 |' + ' Set-Content -Path (Join-Path $wittyDir "stop_watchers.ps1") -Encoding UTF8',
+        '    $stopLines -join [char]10 | Set-Content -Path (Join-Path $wittyDir "stop_watchers.ps1") -Encoding UTF8',
         '    Write-Host "✅ Combined stop script created"',
         '}',
         '',
@@ -742,7 +742,7 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         '    }',
         '    claude $args',
         '}',
-        'Set-Alias -Name cla' + 'ude -Value witty-claude -Force',
+        'Set-Alias -Name claude -Value witty-claude -Force',
         '\'@',
         '',
         '    $profilePath = $PROFILE',

@@ -109,7 +109,7 @@ function generateBashScript(host: string, baseUrl: string): string {
         '});',
         'SELECTOR_EOF',
         '',
-        '# Run the selector interactively from from /dev/tty',
+        '# Run the selector interactively from /dev/tty',
         '# Export the result file path so the selector knows where to write',
         'export SELECTOR_RESULT_FILE="$SELECTOR_RESULT"',
         'cd "$HOME/.witty" && npx -y tsx "$SELECTOR_SCRIPT" < /dev/tty',
@@ -264,7 +264,7 @@ function generateBashScript(host: string, baseUrl: string): string {
         '        echo "✅ Claude watcher start script created"',
         '',
         '        # Claude Watcher Stop Script',
-        '        cat > "$HOME/.wwitty/stop_claude_watcher.sh" << \'STOP_CLAUDE_EOF\'',
+        '        cat > "$HOME/.witty/stop_claude_watcher.sh" << \'STOP_CLAUDE_EOF\'',
         '#!/bin/bash',
         'echo "Stopping Claude watcher..."',
         'pkill -f "claude_watcher_client.ts" 2>/dev/null',
@@ -599,8 +599,8 @@ function generatePowerShellScript(host: string, baseUrl: string): string {
         '}',
         '',
         '# -- Host Logic --',
-        '$' + 'FINAL_HOST = $WITTY_HOST',
-        'if ($EXISTING_HOST -and ($EXISTING_HOST - -ne $WITTY_HOST)) {',
+        '$FINAL_HOST = $WITTY_HOST',
+        'if ($EXISTING_HOST -and ($EXISTING_HOST -ne $WITTY_HOST)) {',
         '    Write-Host "🌐 Current Host in config: $EXISTING_HOST"',
         '    Write-Host "🌐 New Host detected: $WITTY_HOST"',
         '    $CHANGE_HOST = Read-Host "👉 Change to new Host? (y/N, Default: y)"',
@@ -777,7 +777,7 @@ function generatePowerShellScript(host: string, baseUrl: string): string {
         '    ',
         '    $currentProfile = Get-Content $profilePath -Raw -ErrorAction SilentlyContinue',
         '    if ($currentProfile -notmatch "witty-claude") {',
-        '        Add-Content -Path $profile' + 'Path -Value $profileContent',
+        '        Add-Content -Path $profilePath -Value $profileContent',
         '        Write-Host "✅ Installed Claude wrapper to $profilePath"',
         '    }',
         '}',
@@ -832,19 +832,25 @@ function generatePowerShellScript(host: string, baseUrl: string): string {
 export async function GET(request: Request) {
     const host = request.headers.get('host') || '127.0.0.1:3000';
     const protocol = request.headers.get('x-forwarded-proto') || 'http';
-    const baseUrl = protocol + '://' + host;
-    
+
+    // Detect base path from request URL (e.g., /skill-insight/api/setup -> /skill-insight)
+    const requestUrl = new URL(request.url);
+    const basePath = requestUrl.pathname.replace(/\/api\/setup\/?$/, '');
+
+    const baseUrl = `${protocol}://${host}${basePath}`;
+    const wittyHost = `${protocol}://${host}${basePath}`;
+
     const platform = detectPlatform(request);
-    
+
     if (platform === 'windows') {
-        const script = generatePowerShellScript(host, baseUrl);
+        const script = generatePowerShellScript(wittyHost, baseUrl);
         return new NextResponse('\uFEFF' + script, {
             headers: {
                 'Content-Type': 'application/x-powershell; charset=utf-8',
             },
         });
     } else {
-        const script = generateBashScript(host, baseUrl);
+        const script = generateBashScript(wittyHost, baseUrl);
         return new NextResponse(script, {
             headers: {
                 'Content-Type': 'text/x-shellscript',
