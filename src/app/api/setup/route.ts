@@ -844,9 +844,9 @@ export async function GET(request: Request) {
 
     if (platform === 'windows') {
         const script = generatePowerShellScript(wittyHost, baseUrl);
-        return new NextResponse('\uFEFF' + script, {
+        return new NextResponse(script, {
             headers: {
-                'Content-Type': 'application/x-powershell; charset=utf-8',
+                'Content-Type': 'text/plain; charset=utf-8',
             },
         });
     } else {
