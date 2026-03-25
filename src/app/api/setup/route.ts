@@ -352,7 +352,8 @@ function generateBashScript(host: string, baseUrl: string): string {
         'if [ "$INSTALL_CLAUDE" = "true" ]; then',
         '    echo ""',
         '    echo "🔄 Configuring Claude Code Auto-Sync Wrapper..."',
-        '    CLAUDE_WRAPPER=\'\'',
+        '    CLAUDE_WRAPPER=$(cat <<\'WRAPPER_EOF\'',
+        '',
         '# Witty Insight Claude Alliance',
         'witty-claude() {',
         '    if command -v npx &> /dev/null; then',
@@ -361,7 +362,8 @@ function generateBashScript(host: string, baseUrl: string): string {
         '    command claude "$@"',
         '}',
         'alias claude="witty-claude"',
-        '\'',
+        'WRAPPER_EOF',
+        ')',
         '',
         '    for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do',
         '        if [ -f "$rc_file" ]; then',
@@ -830,8 +832,8 @@ function generatePowerShellScript(host: string, baseUrl: string): string {
 }
 
 export async function GET(request: Request) {
-    const host = request.headers.get('host') || '127.0.0.1:3000';
-    const protocol = request.headers.get('x-forwarded-proto') || 'http';
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || '127.0.0.1:3000';
+    const protocol = request.headers.get('x-forwarded-proto') || 'https';
 
     // Detect base path from request URL (e.g., /skill-insight/api/setup -> /skill-insight)
     const requestUrl = new URL(request.url);
