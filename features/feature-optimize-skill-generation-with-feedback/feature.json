@@ -1,10 +1,10 @@
 {
   "name": "optimize-skill-generation-with-feedback",
   "title": "【feature】【Skill生成】优化 Skill 自动生成能力：引入用户反馈、经验融合",
-  "status": "in-progress",
+  "status": "completed",
   "claimedBy": "paradiseyph",
   "claimedAt": "2026-03-26T00:10:00Z",
-  "completedAt": "",
+  "completedAt": "2026-03-26T00:15:00Z",
   "worktree": {
     "path": "",
     "enabled": false
@@ -19,8 +19,15 @@
     "requirements": [],
     "design": [],
     "tests": [],
-    "pr": [],
+    "pr": [
+      {
+        "title": "Pull Request #65",
+        "url": "https://gitcode.com/paradiseyph/witty-skill-insight/merge_requests/65",
+        "createdAt": "2026-03-26T00:15:00Z"
+      }
+    ],
     "deployment": [],
     "notes": ""
   }
+}
 }
