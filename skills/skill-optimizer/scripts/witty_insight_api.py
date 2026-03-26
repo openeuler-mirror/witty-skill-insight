@@ -37,12 +37,12 @@ def _get_base_url():
 
     _ensure_env_loaded()
 
-    base_ip = os.environ.get("MODEL_PROXY_IP") or os.environ.get("WITTY_INSIGHT_HOST")
+    base_ip = os.environ.get("SKILL_INSIGHT_HOST")
 
     if not base_ip:
         raise ValueError(
-            f"\n❌ Error: Cannot resolve Witty Insight API IP.\n"
-            f"Neither 'MODEL_PROXY_IP' nor 'WITTY_INSIGHT_HOST' is set.\n"
+            f"\n❌ Error: Cannot resolve Skill Insight API IP.\n"
+            f"'SKILL_INSIGHT_HOST' environment variable is not set.\n"
             f"This is required for Dynamic/Hybrid modes to fetch historical execution logs."
         )
 
@@ -67,9 +67,7 @@ def _get_headers():
 
     _headers_cache = {
         "Content-Type": "application/json",
-        "x-witty-api-key": os.environ.get("DEEPSEEK_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-        or "",
+        "x-skill-insight-api-key": os.environ.get("SKILL_INSIGHT_API_KEY", ""),
     }
 
     return _headers_cache

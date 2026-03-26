@@ -15,7 +15,15 @@ PARALLEL_MODE=true
 for arg in "$@"; do
     if [ "$arg" == "--serial" ]; then
         PARALLEL_MODE=false
-        shift
+    fi
+done
+
+# 如果没有传递任何参数，提供默认帮助或行为，避免报错
+# 不过原逻辑直接传 "$@" 给 main.py，这里先过滤一下
+args_to_pass=()
+for arg in "$@"; do
+    if [ "$arg" != "--serial" ]; then
+        args_to_pass+=("$arg")
     fi
 done
 
@@ -161,4 +169,4 @@ else
 fi
 
 echo "🚀 正在启动 Skill Optimizer..."
-uv run scripts/main.py "$@"
+uv run scripts/main.py "${args_to_pass[@]}"

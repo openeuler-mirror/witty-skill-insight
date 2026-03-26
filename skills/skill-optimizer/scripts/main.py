@@ -20,6 +20,7 @@ from constants import ENV_FILE
 from engine.report_generator import OptimizationReportGenerator
 from optimizer import SkillOptimizer
 from witty_insight_api import get_skill_logs
+from cli_args import CliArgsError, resolve_human_feedback_content
 
 # Configure logging
 logging.basicConfig(
@@ -256,26 +257,46 @@ def run_optimizer(
 
     # 2. Resolve Paths
     input_path = Path(input_path).resolve()
+    input_dir = input_path.parent if input_path.is_file() else input_path
+
     if output_path:
-        output_path = Path(output_path).resolve()
-        output_path.mkdir(parents=True, exist_ok=True)
+        workspace_dir = Path(output_path).resolve()
     else:
-        # Default output is same as input parent if input is file, or input itself if dir
-        output_path = input_path.parent if input_path.is_file() else input_path
+        # If no output_path is provided:
+        # Check if input_dir already looks like a workspace (has snapshots)
+        if (input_dir / "snapshots").exists():
+            workspace_dir = input_dir
+        else:
+            # Otherwise, create a new timestamped directory next to input_dir
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            workspace_dir = input_dir.parent / f"{input_dir.name}-optimized-{timestamp}"
+
+    # Initialize workspace if it's new
+    if workspace_dir != input_dir and not workspace_dir.exists():
+        import shutil
+        def ignore_patterns(d, contents):
+            return ['snapshots', '.git', '__pycache__', 'node_modules', '.venv', 'venv', '.opt']
+        shutil.copytree(input_dir, workspace_dir, ignore=ignore_patterns)
+        logger.info(f"Created new workspace: {workspace_dir}")
 
     # 3. Locate SKILL.md
     skill_files = []
-    if input_path.is_file():
-        if input_path.name.lower() == "skill.md":
-            skill_files.append(input_path)
-    elif input_path.is_dir():
-        skill_files = list(input_path.rglob("SKILL.md"))  # Recursive search
+    if input_path.is_file() and input_path.name.lower() == "skill.md":
+        try:
+            rel_path = input_path.relative_to(input_dir)
+            skill_files.append(workspace_dir / rel_path)
+        except ValueError:
+            skill_files.append(workspace_dir / "SKILL.md")
+    else:
+        skill_files = list(workspace_dir.rglob("SKILL.md"))  # Recursive search
+
+    skill_files = [f for f in skill_files if f.exists()]
 
     if not skill_files:
-        logger.error(f"No SKILL.md found in {input_path}")
+        logger.error(f"No SKILL.md found in {workspace_dir}")
         return []
 
-    logger.info(f"Found {len(skill_files)} skill(s) to process.")
+    logger.info(f"Found {len(skill_files)} skill(s) to process in workspace {workspace_dir}.")
 
     optimized_paths = []
 
@@ -303,6 +324,15 @@ def run_optimizer(
                 print("⏳ [进度] 预计需要 1-3 分钟，请耐心等待...")
                 print("⏳ [进度] LLM 调用中...\n")
                 optimized_genome, diagnoses = optimizer.optimize_static(
+                    skill_file
+                )
+
+            elif mode == "feedback":
+                logger.info("Mode: Feedback (User Revision)")
+                print("\n⏳ [进度] 正在执行反馈优化（基于你的修改意见）...")
+                print("⏳ [进度] 预计需要 1-3 分钟，请耐心等待...")
+                print("⏳ [进度] LLM 调用中...\n")
+                optimized_genome, diagnoses = optimizer.optimize_static(
                     skill_file, human_feedback=human_feedback
                 )
 
@@ -327,36 +357,30 @@ def run_optimizer(
                 optimized_genome, diagnoses = optimizer.optimize_hybrid(
                     skill_path=skill_file,
                     report_items=report_items,
-                    human_feedback=human_feedback,
                 )
 
             # 5. Save Result
-            # Generate Timestamp
-            timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-
-            # Get Base Skill Name
-            skill_name = skill_file.parent.name
-            # Remove existing suffix if present
-            base_skill_name = re.sub(
-                r"[_-]optimized[_-]\d{8}[_-]\d{6}$", "", skill_name
-            )
-
-            # New Skill Name
-            new_skill_name = f"{base_skill_name}-optimized-{timestamp}"
-
-            # Determine Save Directory
-            if output_path == skill_file.parent:
-                # Create sibling directory to avoid overwrite/nesting
-                outer_save_dir = skill_file.parent.parent / new_skill_name
+            from snapshot_manager import SnapshotManager
+            sm = SnapshotManager(skill_file.parent)
+            sm.create_v0_if_needed()
+            base_for_diff = sm.get_latest_base_version() or "v0"
+            
+            is_feedback = mode == "feedback"
+            if is_feedback:
+                reason = f"用户反馈: {human_feedback[:50]}..."
+                source = "user"
             else:
-                # Save inside output_path
-                outer_save_dir = output_path / new_skill_name
-
-            outer_save_dir.mkdir(parents=True, exist_ok=True)
-
-            # The actual skill directory inside the wrapper
-            skill_save_dir = outer_save_dir / base_skill_name
-            skill_save_dir.mkdir(parents=True, exist_ok=True)
+                reason = f"自动优化: {mode} mode"
+                source = "auto"
+                
+            new_version = sm.create_snapshot(
+                mode=mode,
+                reason=reason,
+                source=source,
+                is_feedback=is_feedback
+            )
+            
+            skill_save_dir = sm.snapshots_dir / new_version
 
             # Save SKILL.md
             if optimized_genome:
@@ -405,7 +429,7 @@ def run_optimizer(
             if diagnoses:
                 import json
 
-                diagnoses_file = outer_save_dir / "diagnoses.json"
+                diagnoses_file = skill_save_dir / "diagnoses.json"
                 diagnoses_data = [
                     {
                         "dimension": d.dimension,
@@ -428,14 +452,38 @@ def run_optimizer(
                     optimized=optimized_genome,
                     diagnoses=diagnoses,
                 )
-                report_file = outer_save_dir / "OPTIMIZATION_REPORT.md"
+                report_file = skill_save_dir / "OPTIMIZATION_REPORT.md"
                 with open(report_file, "w", encoding="utf-8") as f:
                     f.write(report_content)
                 logger.info(f"Saved optimization report to: {report_file}")
 
+            # Also update the actual skill directory to match the latest snapshot
+            sm.revert_to(new_version)
+
+            # Generate and open diff
+            base_version = sm.get_latest_base_version()
+            if base_version:
+                try:
+                    import subprocess
+                    diff_script = Path(__file__).parent / "diff_viewer.py"
+                    subprocess.run([
+                        sys.executable, str(diff_script),
+                        "--snapshots", str(sm.snapshots_dir),
+                        "--title", initial_genome.name,
+                        "--default-base", base_version
+                    ])
+                except Exception as e:
+                    logger.error(f"Failed to open diff viewer: {e}")
+
             # Record successful optimization path
-            optimized_paths.append(outer_save_dir)
-            logger.info(f"Optimization completed for: {skill_file}")
+            optimized_paths.append(skill_save_dir)
+            logger.info(f"Optimization completed for: {skill_file}. New version: {new_version}")
+            
+            print("\n" + "=" * 60)
+            print(f"✅ 优化完成！已生成新版本: {new_version}")
+            print(f"👉 请在弹出的 Diff 页面查看更改。")
+            print("👉 下一步选择：满意就继续下一步 / 不满意先改 / 到此为止")
+            print("=" * 60 + "\n")
 
         except Exception as e:
             logger.error(f"Optimization failed for {skill_file}: {e}")
@@ -453,15 +501,21 @@ def main():
     parser = argparse.ArgumentParser(description="Skill Optimizer CLI")
 
     parser.add_argument(
+        "--action",
+        choices=["optimize", "accept", "revert"],
+        default="optimize",
+        help="Action to perform. Default is 'optimize'.",
+    )
+    parser.add_argument(
         "--mode",
-        choices=["static", "dynamic", "hybrid"],
-        required=True,
-        help="Optimization mode: static (cold) or dynamic (trace-based) or hybrid (both)",
+        choices=["static", "dynamic", "feedback", "hybrid"],
+        help="Optimization mode: static (cold) or dynamic (trace-based) or feedback (human revision) or hybrid (static+dynamic). Required for 'optimize' action.",
     )
     parser.add_argument(
         "--input",
         "-i",
         type=str,
+        required=True,
         help="Input path (directory containing SKILL.md or file path)",
     )
     parser.add_argument(
@@ -474,35 +528,59 @@ def main():
         "--feedback",
         "-f",
         type=str,
-        help="Path to human feedback file (optional). If not provided, will check HUMAN_FEEDBACK_FILE env var.",
+        help="Path to feedback file or inline feedback text. Only allowed with --mode feedback.",
+    )
+    parser.add_argument(
+        "--target-version",
+        type=str,
+        help="Target version to revert to (e.g. 'v1'). Required for 'revert' action.",
     )
 
     args = parser.parse_args()
 
-    if not args.input:
-        parser.error("--input is required for static/dynamic modes")
-
     input_path = Path(args.input)
+    
+    if args.action == "accept":
+        from snapshot_manager import SnapshotManager
+        skill_dir = input_path.parent if input_path.is_file() else input_path
+        if not (skill_dir / "snapshots").exists():
+            logger.error(f"❌ 目录 {skill_dir} 中没有 snapshots。请确保你在已优化的工作区中执行 accept。")
+            return
+        sm = SnapshotManager(skill_dir)
+        new_ver = sm.accept_latest()
+        if new_ver:
+            sm.revert_to(new_ver)
+            logger.info(f"✅ 成功接受优化，已保存为新基线版本: {new_ver}")
+        else:
+            logger.error("❌ 没有可接受的版本。")
+        return
+        
+    if args.action == "revert":
+        if not args.target_version:
+            parser.error("--target-version is required for 'revert' action")
+        from snapshot_manager import SnapshotManager
+        skill_dir = input_path.parent if input_path.is_file() else input_path
+        if not (skill_dir / "snapshots").exists():
+            logger.error(f"❌ 目录 {skill_dir} 中没有 snapshots。请确保你在已优化的工作区中执行 revert。")
+            return
+        sm = SnapshotManager(skill_dir)
+        if sm.revert_to(args.target_version):
+            logger.info(f"✅ 成功回滚到版本: {args.target_version}")
+        else:
+            logger.error(f"❌ 找不到指定的版本: {args.target_version}")
+        return
+
+    if not args.mode:
+        parser.error("--mode is required for 'optimize' action")
+
     output_path = Path(args.output) if args.output else None
 
-    # Resolve Feedback Path (CLI > Env)
-    feedback_path_str = args.feedback
-    if not feedback_path_str:
-        feedback_path_str = os.getenv("HUMAN_FEEDBACK_FILE")
-
-    # Read Human Feedback if provided
-    human_feedback_content = None
-    if feedback_path_str:
-        feedback_path = Path(feedback_path_str)
-        if feedback_path.exists() and feedback_path.is_file():
-            try:
-                with open(feedback_path, "r", encoding="utf-8") as f:
-                    human_feedback_content = f.read().strip()
-                logger.info(f"Loaded human feedback from {feedback_path}")
-            except Exception as e:
-                logger.error(f"Failed to read feedback file: {e}")
-        else:
-            logger.warning(f"Feedback file not found or invalid: {feedback_path}")
+    try:
+        human_feedback_content = resolve_human_feedback_content(args.mode, args.feedback)
+    except CliArgsError as e:
+        parser.error(str(e))
+    except OSError as e:
+        parser.error(f"Failed to read feedback file: {e}")
 
     optimized_paths = run_optimizer(
         args.mode, input_path, output_path, human_feedback=human_feedback_content

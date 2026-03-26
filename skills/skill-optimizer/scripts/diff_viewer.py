@@ -823,23 +823,23 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     const sec5 = mkEl('div','toolbar-section');
     const bc = mkEl('button','btn btn-confirm');
     bc.innerHTML = '\u2713 Accept';
-    bc.onclick = () => trySend('I accept the optimization (' + versions[curIdx].label + '). Please confirm and save as the new base version.');
+    bc.onclick = () => trySend('我接受本次优化（' + versions[curIdx].label + '），保存为新基线版本。');
     sec5.appendChild(bc);
 
     const br = mkEl('button','btn btn-revise');
     br.innerHTML = '\u270E Revise';
-    br.onclick = () => trySend('I have feedback on ' + versions[curIdx].label + '. Here are my revision requests:\n');
+    br.onclick = () => trySend('我对当前版本（' + versions[curIdx].label + '）有反馈，请按如下修改：\n');
     sec5.appendChild(br);
 
     if (versions.length > 2) {
       const bv = mkEl('button','btn btn-revert');
       bv.innerHTML = '\u21A9 Revert to ' + versions[baseIdx].label;
-      bv.onclick = () => trySend('Please revert the skill back to ' + versions[baseIdx].label + ' and start optimization from there.');
+      bv.onclick = () => trySend('请回滚到 ' + versions[baseIdx].label + ' 并从该版本继续。');
       sec5.appendChild(bv);
     }
 
     if (typeof sendPrompt !== 'function') {
-      const hint = mkEl('span','action-hint'); hint.textContent = 'Buttons copy to clipboard'; sec5.appendChild(hint);
+      const hint = mkEl('span','action-hint'); hint.textContent = '按钮会复制到剪贴板'; sec5.appendChild(hint);
     }
     tb.appendChild(sec5);
   }
@@ -962,6 +962,8 @@ def main() -> None:
     parser.add_argument("--base-label", type=str, default="v0", help="Label for base version")
     parser.add_argument("--current-label", type=str, default="v1", help="Label for current version")
     parser.add_argument("--title", "-t", type=str, default="Skill", help="Skill name for UI")
+    parser.add_argument("--default-base", type=str, default=None, help="Label of the default base version to select in snapshots mode")
+    parser.add_argument("--default-current", type=str, default=None, help="Default current version label (e.g. v1.1)")
     parser.add_argument("--output", "-o", "--static", type=Path, default=None, help="Output HTML file (if not set, opens in browser)")
     
     args = parser.parse_args()
@@ -977,7 +979,19 @@ def main() -> None:
         versions = discover_snapshots(snap)
         if len(versions) < 2:
             print(f"Error: need >= 2 versions, found {len(versions)}", file=sys.stderr); sys.exit(1)
-        html = generate_html(versions, skill_name)
+        default_base = 0
+        default_current = len(versions) - 1
+        if args.default_base:
+            for i, v in enumerate(versions):
+                if v["label"] == args.default_base:
+                    default_base = i
+                    break
+        if args.default_current:
+            for i, v in enumerate(versions):
+                if v["label"] == args.default_current:
+                    default_current = i
+                    break
+        html = generate_html(versions, skill_name, default_base=default_base, default_current=default_current)
     elif old_p and new_p:
         bd, cd = old_p.resolve(), new_p.resolve()
         
