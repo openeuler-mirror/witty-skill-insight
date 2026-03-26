@@ -178,7 +178,7 @@ fi
 # 3. Download Components
 if [ "$INSTALL_OPENCODE" = "true" ]; then
     echo "⏬ Downloading OpenCode Plugin..."
-    curl -sSf "$SKILL_INSIGHT_BASE_URL/api/setup/opencode" -o "$HOME/.opencode/plugins/Skill-Insight.ts"
+    curl -sSf "$SKILL_INSIGHT_BASE_URL/api/setup/opencode" -o "$HOME/.opencode/plugins/Witty-Skill-Insight.ts"
 
     echo "⏬ Downloading Skill Sync Tool..."
     curl -sSf "$SKILL_INSIGHT_BASE_URL/sync_skills.ts" -o "$HOME/.skill-insight/sync_skills.ts"
@@ -378,7 +378,7 @@ echo "🌟 Skill-Insight Telemetry: READY"
 echo "------------------------------------------------"
 echo "Installed Components:"
 if [ "$INSTALL_OPENCODE" = "true" ]; then
-    echo "  ✅ OpenCode Plugin: ~/.opencode/plugins/Skill-Insight.ts"
+    echo "  ✅ OpenCode Plugin: ~/.opencode/plugins/Witty-Skill-Insight.ts"
 fi
 if [ "$INSTALL_CLAUDE" = "true" ]; then
     echo "  ✅ Claude Watcher: ~/.skill-insight/claude_watcher_client.ts"
@@ -565,7 +565,7 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         '# 3. Download Components',
         'if ($INSTALL_OPENCODE) {',
         '    Write-Host "⏬ Downloading OpenCode Plugin..."',
-        '    Invoke-WebRequest -Uri "$SKILL_INSIGHT_BASE_URL/api/setup/opencode" -OutFile (Join-Path $opencodePluginsDir "Skill-Insight.ts")',
+        '    Invoke-WebRequest -Uri "$SKILL_INSIGHT_BASE_URL/api/setup/opencode" -OutFile (Join-Path $opencodePluginsDir "Witty-Skill-Insight.ts")',
         '    ',
         '    Write-Host "⏬ Downloading Skill Sync Tool..."',
         '    Invoke-WebRequest -Uri "$SKILL_INSIGHT_BASE_URL/sync_skills.ts" -OutFile (Join-Path $skillInsightDir "sync_skills.ts")',
@@ -768,7 +768,7 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         'Write-Host "------------------------------------------------"',
         'Write-Host "Installed Components:"',
         'if ($INSTALL_OPENCODE) {',
-        '    Write-Host "  ✅ OpenCode Plugin: ~/.opencode/plugins/Skill-Insight.ts"',
+        '    Write-Host "  ✅ OpenCode Plugin: ~/.opencode/plugins/Witty-Skill-Insight.ts"',
         '}',
         'if ($INSTALL_CLAUDE) {',
         '    Write-Host "  ✅ Claude Watcher: ~/.skill-insight/claude_watcher_client.ts"',

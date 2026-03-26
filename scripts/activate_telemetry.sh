@@ -29,7 +29,7 @@ fi
 
 # --- 2. Setup OpenCode Plugin (Priority) ---
 OPENCODE_PLUGIN_SRC="$SCRIPTS_DIR/opencode_plugin.ts"
-OPENCODE_PLUGIN_DEST="$HOME/.opencode/plugins/Skill-Insight.ts"
+OPENCODE_PLUGIN_DEST="$HOME/.opencode/plugins/Witty-Skill-Insight.ts"
 
 if [ -f "$OPENCODE_PLUGIN_SRC" ]; then
     echo "🛠️  Syncing OpenCode Plugin..."
