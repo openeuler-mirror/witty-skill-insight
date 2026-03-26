@@ -321,7 +321,6 @@ function generateBashScript(host: string, baseUrl: string): string {
         '    for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do',
         '        if [ -f "$rc_file" ]; then',
         '            if ! grep -q "skill-insight-claude()" "$rc_file" 2>/dev/null; then',
-        '                # 使用 cat 强制追加代码到文件，彻底规避引号引发的 EOF 异常！',
         '                cat >> "$rc_file" << \'CLAUDE_EOF\'',
         '',
         '# Skill Insight Claude Alliance',
@@ -727,8 +726,8 @@ function generatePowerShellScript(host: string, baseUrl: string): string {
 }
 
 export async function GET(request: Request) {
-    const host = request.headers.get('host') || '127.0.0.1:3000';
-    const protocol = request.headers.get('x-forwarded-proto') || 'http';
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || '127.0.0.1:3000';
+    const protocol = request.headers.get('x-forwarded-proto') || 'https';
 
     // Detect base path from request URL (e.g., /skill-insight/api/setup -> /skill-insight)
     const requestUrl = new URL(request.url);
