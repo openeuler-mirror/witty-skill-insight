@@ -383,9 +383,13 @@ const RenderInteractionList = ({
                 lat = item.timeInfo.completed - item.timeInfo.created;
             }
 
-            let tok = item.usage?.total_tokens || 0;
-            if (!tok && item.usage?.total) {
-                tok = item.usage.total;
+            const usage = item.usage || item.responseMessage?.usage;
+            let tok = usage?.total_tokens || 0;
+            if (!tok && usage?.total) {
+                tok = usage.total;
+            }
+            if (!tok && (usage?.input || usage?.output)) {
+                tok = (usage.input || 0) + (usage.output || 0);
             }
 
             rows.push({
@@ -1089,26 +1093,25 @@ function DetailPage() {
                 setResultSaveStatus({ id: taskId, status: 'error', msg: json.error || '保存失败' });
                 return;
             }
-            const msg = json.message || '已保存并重评';
+            const msg = json.message || '已保存，正在后台重新评估';
             setResultSaveStatus({ id: taskId, status: 'ok', msg });
             setEditingResultFor(null);
             setEditResultValue('');
 
-            // Refresh data
-            const refreshUrl = user ? `/api/data?user=${encodeURIComponent(user)}` : '/api/data';
-            const dataRes = await fetch(refreshUrl);
-            const data: any[] = await dataRes.json();
-            const filtered = data.filter(d =>
-                d.query === query &&
-                (!framework || d.framework === framework)
-            ).map(x => ({
-                ...x,
-                tokens: Number(x.tokens || x.Token || 0),
-                latency: Number(x.latency || 0),
-                answer_score: x.answer_score !== null ? Number(x.answer_score) : (x.is_answer_correct ? 1.0 : 0.0)
-            }));
-            filtered.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-            setAllData(filtered);
+            try {
+                setAllData(prev => prev.map(item => {
+                    if ((item.task_id || item.upload_id) === taskId) {
+                        return {
+                            ...item,
+                            final_result: val,
+                            judgment_reason: '结果评估中...'
+                        };
+                    }
+                    return item;
+                }));
+            } catch (updateError) {
+                console.error('Error updating local data:', updateError);
+            }
         } catch (e) {
             setResultSaveStatus({ id: taskId, status: 'error', msg: '网络错误' });
         }

@@ -72,9 +72,64 @@ export async function POST(request: Request) {
         console.log(`[Upload-Debug] Turn ${idx}: ReqMsgs=${turn.requestMessages?.length}, RespRole=${turn.responseMessage?.role}, RespTool=${hasRespTool}, AssistantReqTools=${reqToolCount}`);
     });
 
-    const quickData = { ...data, skip_evaluation: true };
+    let quickSkillsWithVersions: InvokedSkill[] = [];
+    if (data.framework === 'opencode') {
+        quickSkillsWithVersions = extractSkillsWithVersionsFromOpencodeSession(normalized);
+    } else if (data.framework === 'claudecode' || data.framework === 'claude') {
+        quickSkillsWithVersions = extractSkillsWithVersionsFromClaudeSession(normalized);
+    } else if (data.framework === 'openclaw') {
+        quickSkillsWithVersions = extractSkillsWithVersionsFromOpenClawSession(normalized);
+    }
+    
+    console.log(`[Upload-API] Extracted skills: ${JSON.stringify(quickSkillsWithVersions)}`);
+    
+    const quickSkills = quickSkillsWithVersions.map(s => s.name);
+    
+    let quickSkillVersion = quickSkillsWithVersions[0]?.version ?? data.skill_version;
+    console.log(`[Upload-API] Initial quickSkillVersion: ${quickSkillVersion} (from tool call: ${quickSkillsWithVersions[0]?.version}, from data: ${data.skill_version})`);
+    
+    if (quickSkillVersion === null || quickSkillVersion === undefined) {
+        const primarySkillName = quickSkills.length > 0 ? quickSkills[0] : data.skill;
+        console.log(`[Upload-API] No version from tool call, querying database for skill: ${primarySkillName}`);
+        if (primarySkillName) {
+            try {
+                const skillRecord = await db.findSkill(primarySkillName, username || null);
+                console.log(`[Upload-API] Skill record found: ${skillRecord ? skillRecord.name : 'null'}, activeVersion: ${skillRecord?.activeVersion}, versions: ${skillRecord?.versions?.map((v: any) => v.version).join(',')}`);
+                if (skillRecord && skillRecord.versions && skillRecord.versions.length > 0) {
+                    const targetVersion = skillRecord.activeVersion || 0;
+                    const sv = skillRecord.versions.find((v: any) => v.version === targetVersion);
+                    if (sv) {
+                        quickSkillVersion = sv.version;
+                        console.log(`[Upload-API] Quick save: using active version ${quickSkillVersion} for skill ${primarySkillName}`);
+                    } else {
+                        quickSkillVersion = skillRecord.versions[0].version;
+                        console.log(`[Upload-API] Quick save: using fallback version ${quickSkillVersion} for skill ${primarySkillName}`);
+                    }
+                } else {
+                    console.log(`[Upload-API] Skill record not found or no versions available`);
+                }
+            } catch (e) {
+                console.warn(`[Upload-API] Failed to fetch skill version for ${primarySkillName}:`, e);
+            }
+        }
+    }
+    
+    console.log(`[Upload-API] Final quickSkillVersion: ${quickSkillVersion}`);
+    
+    const quickData = { 
+        ...data, 
+        skip_evaluation: true,
+        skills: quickSkills.length > 0 ? quickSkills : data.skills,
+        invokedSkills: quickSkillsWithVersions.length > 0 ? quickSkillsWithVersions : data.invokedSkills,
+        skill: quickSkills.length > 0 ? quickSkills[0] : data.skill,
+        skill_version: quickSkillVersion
+    };
+    
     try {
         await saveExecutionRecord(quickData);
+        if (quickSkills.length > 0) {
+            console.log(`[Upload-API] Quick save with skills: ${JSON.stringify(quickSkillsWithVersions)}`);
+        }
     } catch (e) {
         console.warn(`[Upload-API] Quick initial save failed:`, e);
     }
@@ -123,8 +178,11 @@ async function processUploadAsync(data: any, username: any, normalized: any, int
         data.skills = skills;
         data.invokedSkills = skillsWithVersions;
         if (!data.skill) data.skill = skills[0];
-        if (!data.skill_version && skillsWithVersions[0]?.version != null) {
+        console.log(`[Upload-Async] Extracted skills: ${JSON.stringify(skillsWithVersions)}`);
+        console.log(`[Upload-Async] Current data.skill_version: ${data.skill_version}`);
+        if (skillsWithVersions[0]?.version != null) {
             data.skill_version = skillsWithVersions[0].version;
+            console.log(`[Upload-Async] Updated skill_version from tool call: ${data.skill_version}`);
         }
         console.log(`[Upload-Async] 🛠️ Extracted Skills: ${JSON.stringify(skillsWithVersions)} for task_id=${data.task_id}`);
     } else {
@@ -145,8 +203,10 @@ async function processUploadAsync(data: any, username: any, normalized: any, int
 
     let skillDef = undefined;
     const primarySkillName = data.skill;
+    console.log(`[Upload-Async] Primary skill name: ${primarySkillName}, current skill_version: ${data.skill_version}`);
     if (primarySkillName) {
           const skillRecord = await db.findSkill(primarySkillName, username || null);
+          console.log(`[Upload-Async] Skill record found: ${skillRecord ? skillRecord.name : 'null'}, activeVersion: ${skillRecord?.activeVersion}, versions: ${skillRecord?.versions?.map((v: any) => v.version).join(',')}`);
           if (skillRecord && skillRecord.versions && skillRecord.versions.length > 0) {
              // Use activeVersion if available, otherwise use the first/latest version
              const targetVersion = skillRecord.activeVersion || 0;
@@ -154,10 +214,12 @@ async function processUploadAsync(data: any, username: any, normalized: any, int
              if (sv && sv.content) {
                  skillDef = sv.content;
                  data.skill_version = sv.version;
+                 console.log(`[Upload-Async] Using active version ${sv.version} for skill ${primarySkillName}`);
              } else {
                  // Fallback to first/latest version
                  skillDef = skillRecord.versions[0].content;
                  data.skill_version = skillRecord.versions[0].version;
+                 console.log(`[Upload-Async] Using fallback version ${skillRecord.versions[0].version} for skill ${primarySkillName}`);
              }
          }
     }

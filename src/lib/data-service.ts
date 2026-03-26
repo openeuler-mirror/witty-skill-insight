@@ -94,7 +94,7 @@ export function findBestMatchConfig(configs: ConfigItem[], userQuery: string | u
 const DATA_DIR = path.join(process.cwd(), 'data');
 const EVALUATION_FILE = path.join(DATA_DIR, 'evaluation_result.json');
 
-export async function readRecords(user?: string, filters?: { query?: string; taskId?: string; framework?: string }): Promise<ExecutionRecord[]> {
+export async function readRecords(user?: string, filters?: { query?: string; taskId?: string; framework?: string; skill?: string; skillVersion?: number }): Promise<ExecutionRecord[]> {
     const where: any = {};
     if (user) {
         where.OR = [
@@ -115,6 +115,14 @@ export async function readRecords(user?: string, filters?: { query?: string; tas
     } else if (filters?.query) {
         where.query = filters.query;
         if (filters.framework) where.framework = filters.framework;
+    }
+
+    if (filters?.skill !== undefined) {
+        where.skill = filters.skill;
+    }
+
+    if (filters?.skillVersion !== undefined) {
+        where.skillVersion = filters.skillVersion;
     }
 
     const records = await db.findExecutions(where, { timestamp: 'desc' });
@@ -485,8 +493,10 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
 
     if (targetRecord.skill && targetRecord.skill_version !== undefined && targetRecord.skill_version !== null) {
         targetRecord.label = `${targetRecord.skill}-v${targetRecord.skill_version}`;
+    } else if (targetRecord.skill) {
+        targetRecord.label = `${targetRecord.skill}-v1`;
     } else {
-        targetRecord.label = `${targetRecord.skill}-v1` || 'without-skill';
+        targetRecord.label = 'without-skill';
     }
 
     await db.upsertExecution({

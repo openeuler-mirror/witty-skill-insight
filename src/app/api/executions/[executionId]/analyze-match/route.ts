@@ -18,7 +18,7 @@ interface SkillDetail {
   versions?: { version: number }[];
 }
 
-async function getSkillAndLatestVersion(skillName: string, user: string | null): Promise<{ skillId: string; version: number } | null> {
+async function getSkillAndActiveVersion(skillName: string, user: string | null): Promise<{ skillId: string; version: number } | null> {
   try {
     const skill = await db.findSkill(skillName, user) as SkillDetail | null;
     if (!skill) {
@@ -30,10 +30,16 @@ async function getSkillAndLatestVersion(skillName: string, user: string | null):
       return null;
     }
     
-    const versions = fullSkill.versions.map((v: { version: number }) => v.version);
-    const latestVersion = Math.max(...versions);
+    const targetVersion = (fullSkill as any).activeVersion || 0;
+    const versionExists = fullSkill.versions.some((v: { version: number }) => v.version === targetVersion);
     
-    return { skillId: skill.id, version: latestVersion };
+    if (versionExists) {
+      return { skillId: skill.id, version: targetVersion };
+    } else {
+      const versions = fullSkill.versions.map((v: { version: number }) => v.version);
+      const latestVersion = Math.max(...versions);
+      return { skillId: skill.id, version: latestVersion };
+    }
   } catch {
     return null;
   }
@@ -86,7 +92,7 @@ export async function POST(
       return NextResponse.json({ error: 'No skill associated with this execution' }, { status: 400 });
     }
     
-    const skillInfo = await getSkillAndLatestVersion(skillName, user);
+    const skillInfo = await getSkillAndActiveVersion(skillName, user);
     if (!skillInfo) {
       return NextResponse.json({ 
         error: `Skill "${skillName}" 未找到或没有版本。请确认 Skill 已创建并至少有一个版本，或者使用"动态分析"功能。` 

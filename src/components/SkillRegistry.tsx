@@ -394,6 +394,33 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
     }
   };
 
+  const handleDeleteVersion = async (version: number) => {
+    if (!confirm(`Are you sure you want to delete version ${version}? This action cannot be undone.`)) return;
+    
+    try {
+      const res = await fetch(`/api/skills/${skill.id}/versions/${version}?user=${encodeURIComponent(user || '')}`, {
+        method: 'DELETE'
+      });
+
+      if (res.ok) {
+        alert(`Version ${version} deleted successfully!`);
+        const vRes = await fetch(`/api/skills/${skill.id}/versions?user=${encodeURIComponent(user || '')}`);
+        const newVersions = await vRes.json();
+        setVersions(newVersions);
+        setHasUpdated(true);
+        
+        if (currentActiveVersion === version && newVersions.length > 0) {
+          setCurrentActiveVersion(newVersions[0].version);
+        }
+      } else {
+        const d = await res.json();
+        alert(`Failed to delete version: ${d.error}`);
+      }
+    } catch (e: any) {
+      alert(`Error: ${e.message}`);
+    }
+  };
+
   // Upload New Version Logic
   const versionFileInputRef = useRef<HTMLInputElement>(null);
   const handleVersionFolderSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -513,26 +540,67 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                         {v.changeLog || <span style={{ color: '#64748b', fontStyle: 'italic' }}>No changelog provided</span>}
                       </p>
                     </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                    <td style={{ textAlign: 'right', minWidth: '280px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', flexWrap: 'nowrap', alignItems: 'center' }}>
                           <button 
                             onClick={() => setViewingVersion(v.version)}
                             className="btn-sm"
-                            style={{ background: '#334155', border: '1px solid #475569', padding: '6px 12px' }}
+                            style={{ 
+                              background: '#334155', 
+                              border: '1px solid #475569', 
+                              padding: '6px 12px',
+                              whiteSpace: 'nowrap',
+                              fontSize: '0.85rem',
+                              minWidth: '60px'
+                            }}
                           >
                             View
                           </button>
                           
                           {!isActive ? (
-                            <button
-                              onClick={() => handleActivate(v.version)}
-                              className="btn-sm"
-                              style={{ background: '#1e293b', border: '1px solid #475569', padding: '6px 12px' }}
-                            >
-                              Set Active
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleActivate(v.version)}
+                                className="btn-sm"
+                                style={{ 
+                                  background: '#1e3a5f', 
+                                  border: '1px solid #3b82f6', 
+                                  padding: '6px 12px',
+                                  color: '#93c5fd',
+                                  whiteSpace: 'nowrap',
+                                  fontSize: '0.85rem',
+                                  minWidth: '85px'
+                                }}
+                              >
+                                Set Active
+                              </button>
+                              <button
+                                onClick={() => handleDeleteVersion(v.version)}
+                                className="btn-sm"
+                                style={{ 
+                                  background: '#7f1d1d', 
+                                  border: '1px solid #991b1b', 
+                                  padding: '6px 12px', 
+                                  color: '#fca5a5',
+                                  whiteSpace: 'nowrap',
+                                  fontSize: '0.85rem',
+                                  minWidth: '65px'
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </>
                           ) : (
-                            <span style={{ padding: '6px 12px', fontSize: '0.8rem', fontFamily: 'monospace', color: '#4ade80', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ 
+                              padding: '6px 12px', 
+                              fontSize: '0.85rem', 
+                              fontFamily: 'monospace', 
+                              color: '#4ade80', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '6px',
+                              whiteSpace: 'nowrap'
+                            }}>
                               <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4ade80' }}></span>
                               Current
                             </span>

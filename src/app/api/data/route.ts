@@ -11,8 +11,11 @@ export async function GET(request: Request) {
     const query = searchParams.get('query') || undefined;
     const taskId = searchParams.get('taskId') || undefined;
     const framework = searchParams.get('framework') || undefined;
+    const skill = searchParams.get('skill') || undefined;
+    const skillVersionStr = searchParams.get('skillVersion');
+    const skillVersion = skillVersionStr ? parseInt(skillVersionStr, 10) : undefined;
 
-    const data = await readRecords(user, { query, taskId, framework });
+    const data = await readRecords(user, { query, taskId, framework, skill, skillVersion });
     if (data.length > 0) {
         console.log(`[Data-API] 📤 Sending ${data.length} records. Top record skills: ${JSON.stringify(data[0].skills)}`);
     }
@@ -109,18 +112,43 @@ export async function PATCH(request: Request) {
         }
 
         if (typeof newFinalResult === 'string') {
-            const result = await saveExecutionRecord({
-                task_id: task_id || undefined,
-                upload_id: upload_id || undefined,
-                final_result: newFinalResult.trim(),
-                force_judgment: true
-            });
+            const id = upload_id || task_id;
+            if (!id) {
+                return NextResponse.json({ error: 'upload_id or task_id is required' }, { status: 400 });
+            }
 
-            return NextResponse.json({
-                success: result.success,
-                record: result.record,
-                message: 'Final Result 已更新'
-            });
+            try {
+                await db.upsertExecution({
+                    where: { id },
+                    create: {
+                        id,
+                        taskId: task_id,
+                        finalResult: newFinalResult.trim(),
+                        judgmentReason: '结果评估中...',
+                    },
+                    update: {
+                        finalResult: newFinalResult.trim(),
+                        judgmentReason: '结果评估中...',
+                    }
+                });
+
+                saveExecutionRecord({
+                    task_id: task_id || undefined,
+                    upload_id: upload_id || undefined,
+                    final_result: newFinalResult.trim(),
+                    force_judgment: true
+                }).catch(err => {
+                    console.error('[Background Re-judgment Error]', err);
+                });
+
+                return NextResponse.json({
+                    success: true,
+                    message: 'Final Result 已保存，正在后台重新评估'
+                });
+            } catch (error) {
+                console.error('Update Final Result Error:', error);
+                return NextResponse.json({ error: 'Failed to update final result' }, { status: 500 });
+            }
         }
 
         return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });

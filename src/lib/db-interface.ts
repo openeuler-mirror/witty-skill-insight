@@ -29,6 +29,8 @@ export interface DatabaseAdapter {
     // Skill Version operations
     findLatestSkillVersion(skillId: string): Promise<any>;
     createSkillVersion(data: any): Promise<any>;
+    deleteSkillVersion(skillId: string, version: number): Promise<any>;
+    findSkillVersion(skillId: string, version: number): Promise<any>;
 
     // Config operations
     findConfigs(where: any): Promise<any[]>;
@@ -111,9 +113,17 @@ class PrismaAdapter implements DatabaseAdapter {
     }
 
     async findSkill(name: string, user: string | null) {
-        return this.client.skill.findFirst({
-            where: { name, user }
+        const skills = await this.client.skill.findMany({
+            where: { user },
+            include: {
+                versions: {
+                    orderBy: { version: 'desc' }
+                }
+            }
         });
+        
+        const lowerName = name.toLowerCase();
+        return skills.find((s: any) => s.name.toLowerCase() === lowerName) || null;
     }
 
     async findSkillById(id: string) {
@@ -159,6 +169,18 @@ class PrismaAdapter implements DatabaseAdapter {
 
     async createSkillVersion(data: any) {
         return this.client.skillVersion.create({ data });
+    }
+
+    async findSkillVersion(skillId: string, version: number) {
+        return this.client.skillVersion.findFirst({
+            where: { skillId, version }
+        });
+    }
+
+    async deleteSkillVersion(skillId: string, version: number) {
+        return this.client.skillVersion.deleteMany({
+            where: { skillId, version }
+        });
     }
     
     async findConfigs(where: any) {
@@ -397,7 +419,7 @@ class OpenGaussAdapter implements DatabaseAdapter {
     }
 
     async findSkill(name: string, user: string | null) {
-        let sql = 'SELECT * FROM "Skill" WHERE name = $1';
+        let sql = 'SELECT * FROM "Skill" WHERE LOWER(name) = LOWER($1)';
         const params: any[] = [name];
         
         if (user) {
@@ -408,7 +430,14 @@ class OpenGaussAdapter implements DatabaseAdapter {
         }
         
         const res = await this.query(sql, params);
-        return res.rows[0] || null;
+        const skill = res.rows[0] || null;
+        
+        if (skill) {
+            const vRes = await this.query('SELECT * FROM "SkillVersion" WHERE "skillId" = $1 ORDER BY version DESC', [skill.id]);
+            skill.versions = vRes.rows;
+        }
+        
+        return skill;
     }
 
     async findSkillById(id: string) {
@@ -525,6 +554,18 @@ class OpenGaussAdapter implements DatabaseAdapter {
         const res = await this.query(sql, [...values, id]);
         return res.rows[0];
     }
+
+    async findSkillVersion(skillId: string, version: number) {
+        const sql = 'SELECT * FROM "SkillVersion" WHERE "skillId" = $1 AND version = $2';
+        const res = await this.query(sql, [skillId, version]);
+        return res.rows[0] || null;
+    }
+
+    async deleteSkillVersion(skillId: string, version: number) {
+        const sql = 'DELETE FROM "SkillVersion" WHERE "skillId" = $1 AND version = $2 RETURNING *';
+        const res = await this.query(sql, [skillId, version]);
+        return res.rows[0] || null;
+    }
     
     async findConfigs(where: any) {
         let sql = 'SELECT * FROM "Config"';
@@ -610,6 +651,56 @@ class OpenGaussAdapter implements DatabaseAdapter {
             }
             if (orConditions.length > 0) {
                 conditions.push(`(${orConditions.join(' OR ')})`);
+            }
+        }
+
+        if (where.id !== undefined) {
+            conditions.push(`"id" = $${params.length + 1}`);
+            params.push(where.id);
+        }
+
+        if (where.query !== undefined) {
+            if (where.query === null) {
+                conditions.push('"query" IS NULL');
+            } else {
+                conditions.push(`"query" = $${params.length + 1}`);
+                params.push(where.query);
+            }
+        }
+
+        if (where.framework !== undefined) {
+            if (where.framework === null) {
+                conditions.push('"framework" IS NULL');
+            } else {
+                conditions.push(`"framework" = $${params.length + 1}`);
+                params.push(where.framework);
+            }
+        }
+
+        if (where.taskId !== undefined) {
+            if (where.taskId === null) {
+                conditions.push('"taskId" IS NULL');
+            } else {
+                conditions.push(`"taskId" = $${params.length + 1}`);
+                params.push(where.taskId);
+            }
+        }
+
+        if (where.skill !== undefined) {
+            if (where.skill === null) {
+                conditions.push('skill IS NULL');
+            } else {
+                conditions.push(`skill = $${params.length + 1}`);
+                params.push(where.skill);
+            }
+        }
+
+        if (where.skillVersion !== undefined) {
+            if (where.skillVersion === null) {
+                conditions.push('"skillVersion" IS NULL');
+            } else {
+                conditions.push(`"skillVersion" = $${params.length + 1}`);
+                params.push(where.skillVersion);
             }
         }
 

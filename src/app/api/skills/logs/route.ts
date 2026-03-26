@@ -1,4 +1,6 @@
 import { readConfig, readRecords } from '@/lib/data-service';
+import { db } from '@/lib/prisma';
+import { resolveUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
@@ -9,7 +11,12 @@ export async function GET(request: Request) {
     const limitStr = searchParams.get('limit');
     let limit = 10;
 
-    const user = searchParams.get('user') || undefined;
+    const { username } = await resolveUser(request as any);
+
+    // 如果提供了API key但找不到用户，返回空数组
+    if (username === null && (request.headers.get('x-witty-api-key') || searchParams.get('apiKey'))) {
+        return NextResponse.json([]);
+    }
 
     if (!skillName) {
       return NextResponse.json({ error: 'Skill name is required' }, { status: 400 });
@@ -22,8 +29,23 @@ export async function GET(request: Request) {
         }
     }
 
-    const records = await readRecords(user);
-    const configs = await readConfig(user);
+    let targetVersion: number | undefined = undefined;
+    
+    if (skillVersionParam) {
+        targetVersion = parseInt(skillVersionParam.replace(/^v/, ''), 10);
+        if (isNaN(targetVersion)) {
+            return NextResponse.json({ error: 'Invalid skill_version format' }, { status: 400 });
+        }
+    } else {
+        const skillRecord = await db.findSkill(skillName, username || null);
+        if (skillRecord && skillRecord.activeVersion !== undefined && skillRecord.activeVersion !== null) {
+            targetVersion = skillRecord.activeVersion;
+            console.log(`[Skills-Logs] Using active version ${targetVersion} for skill ${skillName}`);
+        }
+    }
+
+    const records = await readRecords(username || undefined);
+    const configs = await readConfig(username || undefined);
     
     // Create a map for quick config lookup by query
     const configMap = new Map();
@@ -46,13 +68,9 @@ export async function GET(request: Request) {
         const inSingle = r.skill === skillName;
         if (!inList && !inSingle) return false;
 
-        // Skill Version Filter (v1, v2, etc.)
-        if (skillVersionParam) {
-             const versionNum = parseInt(skillVersionParam.replace(/^v/, ''), 10);
-             if (!isNaN(versionNum) && r.skill_version !== undefined) {
-                 return r.skill_version === versionNum;
-             }
-             return false;
+        // Skill Version Filter
+        if (targetVersion !== undefined) {
+            return r.skill_version === targetVersion;
         }
 
         return true;

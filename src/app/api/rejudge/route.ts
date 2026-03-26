@@ -27,8 +27,15 @@ export async function POST(request: Request) {
     let invokedSkills: InvokedSkill[] = [];
     if (existingRecord.invokedSkills) {
         try {
-            invokedSkills = JSON.parse(existingRecord.invokedSkills);
-        } catch {
+            const parsed = JSON.parse(existingRecord.invokedSkills);
+            if (Array.isArray(parsed)) {
+                invokedSkills = parsed;
+            } else {
+                console.warn('[Rejudge] invokedSkills is not an array, resetting to empty array');
+                invokedSkills = [];
+            }
+        } catch (e) {
+            console.warn('[Rejudge] Failed to parse invokedSkills:', e);
             invokedSkills = [];
         }
     }
@@ -45,22 +52,32 @@ export async function POST(request: Request) {
     const skillName = skills[0] || (existingRecord.skill || '').trim();
     let skillVersion = invokedSkills[0]?.version ?? existingRecord.skillVersion ?? undefined;
 
+    console.log(`[Rejudge] Extracted skills: ${JSON.stringify(invokedSkills)}, skillName: ${skillName || 'none'}, skillVersion: ${skillVersion}`);
+
     const actionUser = data.currentUser || existingRecord.user || null;
     let skillDef = undefined;
 
     if (skillName) {
+         console.log(`[Rejudge] Looking for skill: ${skillName} for user: ${actionUser || 'null'}`);
          try {
              const skillRecord = await db.findSkill(skillName, actionUser);
+             console.log(`[Rejudge] Skill record found: ${skillRecord ? 'yes' : 'no'}, versions: ${skillRecord?.versions?.length || 0}`);
              
              if (skillRecord && skillRecord.versions && skillRecord.versions.length > 0) {
                  skillDef = skillRecord.versions[0].content;
+                 console.log(`[Rejudge] Skill definition found, length: ${skillDef.length}`);
                  if (skillVersion === undefined) {
                      skillVersion = skillRecord.versions[0].version;
+                     console.log(`[Rejudge] Using skill version: ${skillVersion}`);
                  }
+             } else {
+                 console.warn(`[Rejudge] Skill record found but no versions available`);
              }
          } catch (e) {
              console.error('[Rejudge] Error fetching skill definition:', e);
          }
+    } else {
+         console.warn(`[Rejudge] No skillName found, skipping skill definition lookup`);
     }
 
     const criteria: any = { skill_definition: skillDef };
@@ -84,11 +101,16 @@ export async function POST(request: Request) {
     const judgment = await judgeAnswer(query, criteria, existingRecord.finalResult || '', actionUser);
     const score = typeof judgment?.score === 'number' ? judgment.score : 0;
     
+    console.log(`[Rejudge] Judgment result - score: ${score}, is_correct: ${judgment?.is_correct}, reason length: ${judgment?.reason?.length || 0}`);
+    console.log(`[Rejudge] Judgment reason preview: ${judgment?.reason?.substring(0, 200) || 'none'}...`);
+    
     if (score === 0 && (judgment.reason?.includes('failed') || judgment.reason?.includes('disabled') || judgment.reason?.includes('禁用'))) {
           return NextResponse.json({ 
               error: `Judgment failed: ${judgment.reason}` 
           }, { status: 500 });
     }
+    
+    console.log(`[Rejudge] Before analyzeFailures - skillName: ${skillName || 'none'}, skillDef: ${skillDef ? 'present' : 'absent'}, score: ${score}, judgmentReason: ${judgment.reason ? 'present' : 'absent'}`);
     
     const failureAnalysis = await analyzeFailures(
         normalized,
@@ -100,6 +122,8 @@ export async function POST(request: Request) {
         existingRecord.finalResult || '',
         actionUser
     );
+    
+    console.log(`[Rejudge] After analyzeFailures - failures: ${failureAnalysis.failures?.length || 0}, skill_issues: ${failureAnalysis.skill_issues?.length || 0}`);
 
     const result = await saveExecutionRecord({
         task_id: taskId,

@@ -136,6 +136,9 @@ export async function POST(request: NextRequest) {
             changeLog: `Uploaded version ${nextVersionNum}`
         });
 
+        await db.updateSkill(skill.id, { activeVersion: nextVersionNum });
+        console.log(`[Upload] Set activeVersion to ${nextVersionNum} for skill ${skill.name}`);
+
         return NextResponse.json({ success: true, skill, version: skillVersion });
 
     } catch (error: any) {

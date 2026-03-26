@@ -295,8 +295,10 @@ export async function analyzeEvaluationItems(
     conversationHistory: string,
     user?: string | null
 ): Promise<SkillImprovementItem[]> {
+    console.log(`[ItemAttribution] Starting analysis...`);
     const { client, model } = await getLlmClient(user);
     if (!client || !skillDef || !judgmentReason) {
+        console.warn(`[ItemAttribution] ✗ Early return: client=${client ? 'present' : 'absent'}, skillDef=${skillDef ? 'present' : 'absent'}, judgmentReason=${judgmentReason ? 'present' : 'absent'}`);
         return [];
     }
     
@@ -309,6 +311,7 @@ export async function analyzeEvaluationItems(
     console.log(`[ItemAttribution] ${imperfectItems.length} items need analysis (score < 100%)`);
     
     if (imperfectItems.length === 0) {
+        console.log(`[ItemAttribution] ✗ No imperfect items found, returning empty array`);
         return [];
     }
     
@@ -459,13 +462,16 @@ export async function analyzeFailures(
         console.log(`[SkillAnalysis] Checking: skillName=${skillName || 'none'}, skillDef=${skillDef ? 'present' : 'absent'}, failuresCount=${failures.length}, answerScore=${answerScore}`);
         
         if (skillName && skillDef) {
+            console.log(`[SkillAnalysis] ✓ Skill name and definition found`);
             // 【Skill 问题分析】如果分数 < 1.0，对未得满分的评分项逐项分析是否是 Skill 问题
             // 注意：actualAnswer 可能为空（旧数据），此时使用 history 作为替代
             const effectiveAnswer = actualAnswer || "(见交互历史)";
             const effectiveQuery = userQuery || "(未知)";
             
+            console.log(`[SkillAnalysis] Conditions check: answerScore=${answerScore}, judgmentReason=${judgmentReason ? 'present' : 'absent'}, history=${history ? 'present' : 'absent'}`);
+            
             if (answerScore !== undefined && answerScore < 1.0 && judgmentReason && history) {
-                console.log(`[SkillAnalysis] Score is imperfect (${answerScore}). Analyzing which items are Skill issues...`);
+                console.log(`[SkillAnalysis] ✓ All conditions met. Score is imperfect (${answerScore}). Analyzing which items are Skill issues...`);
                 console.log(`[SkillAnalysis] Using: query=${effectiveQuery.substring(0, 50)}..., answer=${effectiveAnswer.substring(0, 50)}..., history_len=${history.length}`);
                 
                 skillIssues = await analyzeEvaluationItems(
@@ -479,10 +485,12 @@ export async function analyzeFailures(
                 
                 console.log(`[SkillAnalysis] Analysis complete: ${skillIssues.length} items identified as Skill issues`);
             } else if (answerScore !== undefined && answerScore >= 1.0) {
-                 console.log(`[SkillAnalysis] Perfect score (${answerScore}). No Skill analysis needed.`);
+                 console.log(`[SkillAnalysis] ✗ Skipped: Perfect score (${answerScore}). No Skill analysis needed.`);
+            } else {
+                console.log(`[SkillAnalysis] ✗ Skipped: Conditions not met - answerScore=${answerScore}, judgmentReason=${judgmentReason ? 'present' : 'absent'}, history=${history ? 'present' : 'absent'}`);
             }
         } else {
-            console.warn(`[SkillAnalysis] Skipped: Missing skillName (${skillName || 'none'}) or skillDef (${skillDef ? 'present' : 'absent'})`);
+            console.warn(`[SkillAnalysis] ✗ Skipped: Missing skillName (${skillName || 'none'}) or skillDef (${skillDef ? 'present' : 'absent'})`);
         }
 
         return { 

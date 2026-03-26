@@ -328,12 +328,22 @@ export async function POST(
     const primarySkillVersion = skillsWithVersions.length > 0 ? skillsWithVersions[0].version : null;
 
     let skillDef = undefined;
+    let skillVersion = null;
     console.log(`[End] Primary skill name for ${taskId}: ${primarySkillName || '(none)'}`);
     if (primarySkillName) {
          const skillRecord = await db.findSkill(primarySkillName, session.user || null);
          if (skillRecord && skillRecord.versions && skillRecord.versions.length > 0) {
-             skillDef = skillRecord.versions[0].content;
-             console.log(`[End] Skill definition found for ${primarySkillName}, length: ${skillDef?.length || 0}`);
+             const targetVersion = skillRecord.activeVersion || 0;
+             const sv = skillRecord.versions.find((v: any) => v.version === targetVersion);
+             if (sv && sv.content) {
+                 skillDef = sv.content;
+                 skillVersion = sv.version;
+                 console.log(`[End] Skill definition found for ${primarySkillName} v${skillVersion}, length: ${skillDef?.length || 0}`);
+             } else {
+                 skillDef = skillRecord.versions[0].content;
+                 skillVersion = skillRecord.versions[0].version;
+                 console.log(`[End] Using fallback version ${skillVersion} for ${primarySkillName}, length: ${skillDef?.length || 0}`);
+             }
          } else {
              console.warn(`[End] Skill definition NOT FOUND for ${primarySkillName}. Attribution will be skipped.`);
          }
@@ -399,7 +409,7 @@ export async function POST(
       query: analysis.query,
       skills: skillsToSave,
       skill: primarySkillName,
-      skill_version: primarySkillVersion,
+      skill_version: skillVersion,
       final_result: analysis.final_result,
       tokens: totalTokens,
       latency: duration,
