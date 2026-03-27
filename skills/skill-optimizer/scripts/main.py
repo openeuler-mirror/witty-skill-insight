@@ -19,7 +19,7 @@ from architecture.genome import SkillGenome
 from constants import ENV_FILE
 from engine.report_generator import OptimizationReportGenerator
 from optimizer import SkillOptimizer
-from witty_insight_api import get_skill_logs
+from skill_insight_api import get_skill_logs
 from cli_args import CliArgsError, resolve_human_feedback_content
 
 # Configure logging

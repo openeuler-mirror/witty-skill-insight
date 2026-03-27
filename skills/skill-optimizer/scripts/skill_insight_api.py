@@ -67,7 +67,6 @@ def _get_headers():
 
     _headers_cache = {
         "Content-Type": "application/json",
-        "x-skill-insight-api-key": os.environ.get("SKILL_INSIGHT_API_KEY", ""),
     }
 
     return _headers_cache
@@ -79,10 +78,14 @@ def get_skill_logs(skill: str, skill_version: int = None, limit: int = 20):
     """
     base_url = _get_base_url()
     headers = _get_headers()
-    
+
+    _ensure_env_loaded()
+    api_key = os.environ.get("SKILL_INSIGHT_API_KEY", "")
+
     url = f"{base_url}/api/skills/logs"
     params = {
         "skill": skill,
+        "apiKey": api_key,
         "limit": limit,
     }
     if skill_version is not None:

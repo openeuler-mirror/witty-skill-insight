@@ -73,7 +73,7 @@ pip install uv
   - 检查
 - 若暂时无法获取日志，可先使用 static 模式完成结构化优化，再补充 dynamic。
 
-相关入口： scripts/witty_insight_api.py
+相关入口： scripts/skill_insight_api.py
 
 
 ## 7) skill优化完成后上传失败
