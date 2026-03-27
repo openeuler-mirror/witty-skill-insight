@@ -7,7 +7,11 @@ from architecture.scoring import Diagnosis
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
-from prompts.mutation_prompts import GENERAL_FIX_PROMPT, HUMAN_FEEDBACK_TEMPLATE
+from prompts.mutation_prompts import (
+    GENERAL_FIX_PROMPT,
+    HUMAN_FEEDBACK_TEMPLATE,
+    MUTATOR_SYSTEM_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,13 +102,11 @@ class DiagnosticMutator:
         """
         # Clone parent
         new_genome = SkillGenome(
-            role=parent.role,
-            structure=parent.structure,
-            instruction=parent.instruction,
-            content=parent.content,
-            risk=parent.risk,
+            name=parent.name,
             raw_text=parent.raw_text,
             files=parent.files.copy(),
+            file_meta=parent.file_meta.copy(),
+            changelog=list(parent.changelog),
         )
 
         # Define Tools as Closures to capture new_genome state
@@ -133,9 +135,15 @@ class DiagnosticMutator:
             return f"Recorded fix for Diagnosis #{diagnosis_index}."
 
         @tool
-        def write_auxiliary_file(path: str, content: str):
+        def write_auxiliary_file(
+            path: str,
+            content: str,
+            summary: str = "",
+        ):
             """Create or update a script or reference file (e.g., scripts/monitor.sh)."""
             new_genome.files[path] = content
+            if summary:
+                new_genome.file_meta[path] = summary
             return f"Successfully wrote {path}."
 
         @tool
@@ -368,8 +376,8 @@ class DiagnosticMutator:
                     extracted=new_content, raw_text=raw_text, last_msg=response
                 )
                 new_genome = SkillGenome.from_markdown(new_content)
-                # Preserve existing files since legacy mode can't edit them
                 new_genome.files = parent.files.copy()
+                new_genome.file_meta = parent.file_meta.copy()
                 return [new_genome]
             except Exception as e:
                 print(f"!!! Mutation failed: {e}")
@@ -387,15 +395,59 @@ class DiagnosticMutator:
 
         text = text.strip()
 
-        # Check for standard markdown block anywhere
+        def looks_like_skill_md(body: str) -> bool:
+            b = body.lstrip()
+            if b.startswith("---") and re.search(r"(?m)^name:\s*\S+", b):
+                return True
+            if "# Role" in body or "# Instruction" in body or "# Workflow" in body:
+                return True
+            if re.search(r"(?m)^#\s+\S+", body):
+                return True
+            return False
+
+        def looks_like_plan(body: str) -> bool:
+            b = body.lstrip()
+            if b.startswith("PLAN\n") or b.startswith("PLAN\r\n"):
+                return True
+            if "Diagnosis Grouping:" in body and "PLAN" in body.splitlines()[0:3]:
+                return True
+            return False
+
+        blocks: list[tuple[str, str]] = []
+        for m in re.finditer(
+            r"```(?P<lang>[A-Za-z0-9_-]+)?\s*\n(?P<body>.*?)(?:\n)?```",
+            text,
+            re.DOTALL,
+        ):
+            lang = (m.group("lang") or "").strip().lower()
+            body = (m.group("body") or "").strip()
+            blocks.append((lang, body))
+
+        best_body = ""
+        best_score = -10_000
+        for lang, body in blocks:
+            if not body:
+                continue
+            score = 0
+            if lang == "markdown":
+                score += 20
+            if looks_like_skill_md(body):
+                score += 15
+            if looks_like_plan(body):
+                score -= 1000
+            if lang in {"bash", "sh", "shell", "zsh", "json", "yaml", "yml"}:
+                score -= 5
+            score += min(len(body) // 200, 10)
+            if score > best_score:
+                best_score = score
+                best_body = body
+
+        if best_body and looks_like_skill_md(best_body):
+            return best_body.strip()
+
         match = re.search(r"```markdown\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
         if match:
             return match.group(1).strip()
-
-        # Check for generic code block anywhere
-        match_generic = re.search(r"```(?:.*?\n)?(.*?)\s*```", text, re.DOTALL)
-        if match_generic:
-            return match_generic.group(1).strip()
 
         return text.strip()
 

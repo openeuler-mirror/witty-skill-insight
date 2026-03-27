@@ -126,6 +126,17 @@ def validate_auxiliary_file(file_path: Path) -> tuple[bool, str]:
     return True, ""
 
 
+def sanitize_reference_content(content: str) -> str:
+    content = content or ""
+    content = re.sub(
+        r"\[([^\]]+)\]\(((?:scripts|references)/[^)]+)\)",
+        r"\1 (`\2`)",
+        content,
+        flags=re.IGNORECASE,
+    )
+    return content
+
+
 def update_skill_name_in_md(content: str, new_name: str) -> str:
     """Update skill name in SKILL.md content."""
     # Try YAML frontmatter first
@@ -145,13 +156,18 @@ def update_skill_name_in_md(content: str, new_name: str) -> str:
     return content
 
 
-def integrate_auxiliary_references(skill_content: str, auxiliary_files: dict[str, str]) -> str:
+def integrate_auxiliary_references(
+    skill_content: str,
+    auxiliary_files: dict[str, str],
+    auxiliary_meta: Optional[dict[str, str]] = None,
+) -> str:
     """
     在 SKILL.md 中自动添加对辅助文件的引用
     
     Args:
         skill_content: SKILL.md 的内容
         auxiliary_files: 辅助文件字典 {相对路径: 内容}
+        auxiliary_meta: 辅助文件元数据 {相对路径: summary}
     
     Returns:
         更新后的 SKILL.md 内容
@@ -683,6 +699,8 @@ def run_optimizer(
                         continue
                     dest_path = skill_save_dir / rel_path
                     dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    if rel_path.startswith("references/"):
+                        file_content = sanitize_reference_content(file_content)
                     with open(dest_path, "w", encoding="utf-8") as f:
                         f.write(file_content)
                     logger.info(f"Saved auxiliary file: {rel_path}")

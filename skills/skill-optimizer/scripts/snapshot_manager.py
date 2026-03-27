@@ -55,6 +55,20 @@ class SnapshotManager:
         versions.sort(key=lambda x: x[0])
         return versions[-1][2]
 
+    def get_current_base_version(self) -> Optional[str]:
+        """Get the version currently active in the workspace."""
+        path = self.skill_dir / ".opt" / "current_base_version"
+        if path.exists():
+            return path.read_text(encoding="utf-8").strip()
+        return self.get_latest_base_version()
+
+    def set_current_base_version(self, version_str: str) -> None:
+        """Set the version currently active in the workspace."""
+        opt_dir = self.skill_dir / ".opt"
+        opt_dir.mkdir(parents=True, exist_ok=True)
+        path = opt_dir / "current_base_version"
+        path.write_text(version_str, encoding="utf-8")
+
     def _copy_skill_files(self, dest_dir: Path, exclude_dirs: List[str] = None):
         """Copy skill files to destination, excluding specific directories."""
         if exclude_dirs is None:
@@ -85,8 +99,16 @@ class SnapshotManager:
             }
             with open(v0_dir / "meta.json", "w", encoding="utf-8") as f:
                 json.dump(meta, f, indent=2, ensure_ascii=False)
+            self.set_current_base_version("v0")
             return "v0"
-        return self.get_latest_base_version()
+            
+        curr = self.get_current_base_version()
+        if not curr:
+            latest = self.get_latest_base_version()
+            if latest:
+                self.set_current_base_version(latest)
+            return latest or "v0"
+        return curr
 
     def create_snapshot(self, mode: str, reason: str, source: str, is_feedback: bool = False) -> str:
         """Create a new snapshot directory and write meta.json.
@@ -96,20 +118,29 @@ class SnapshotManager:
         """
         self.create_v0_if_needed()
         
-        latest = self.get_latest_version()
-        latest_base = self.get_latest_base_version()
-        
-        major, minor = self._parse_version(latest)
+        current_base = self.get_current_base_version() or "v0"
+        base_major, base_minor = self._parse_version(current_base)
         
         if is_feedback:
-            # minor bump
-            new_version = f"v{major}.{minor + 1}"
-            base_version = latest_base
+            # Feedback conceptually bumps the minor version of its base
+            max_minor = base_minor
+            for d in self.snapshots_dir.iterdir():
+                if d.is_dir() and d.name.startswith(f"v{base_major}."):
+                    _, mi = self._parse_version(d.name)
+                    if mi > max_minor:
+                        max_minor = mi
+            new_version = f"v{base_major}.{max_minor + 1}"
+            base_version = current_base
         else:
-            # major bump from latest base
-            base_major, _ = self._parse_version(latest_base)
-            new_version = f"v{base_major + 1}"
-            base_version = latest_base
+            # Major optimization creates a NEW major version branch
+            highest_major = 0
+            for d in self.snapshots_dir.iterdir():
+                if d.is_dir() and d.name.startswith("v"):
+                    maj, _ = self._parse_version(d.name)
+                    if maj > highest_major:
+                        highest_major = maj
+            new_version = f"v{highest_major + 1}"
+            base_version = current_base
 
         new_dir = self.snapshots_dir / new_version
         if new_dir.exists():
@@ -128,50 +159,52 @@ class SnapshotManager:
         with open(new_dir / "meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
             
+        self.set_current_base_version(new_version)
         return new_version
         
     def accept_latest(self) -> Optional[str]:
         """Accept the latest candidate and make it a new base version."""
-        latest = self.get_latest_version()
-        if not latest:
+        current = self.get_current_base_version()
+        if not current:
+            current = self.get_latest_version()
+        if not current:
             return None
             
-        major, minor = self._parse_version(latest)
+        major, minor = self._parse_version(current)
         if minor == 0:
-            return latest # Already a base version
+            return current # Already a base version
             
-        new_version = f"v{major + 1}"
+        highest_major = 0
+        for d in self.snapshots_dir.iterdir():
+            if d.is_dir() and d.name.startswith("v"):
+                maj, _ = self._parse_version(d.name)
+                if maj > highest_major:
+                    highest_major = maj
+                    
+        new_version = f"v{highest_major + 1}"
         new_dir = self.snapshots_dir / new_version
         
-        # Copy from latest minor version to new major version
-        latest_dir = self.snapshots_dir / latest
+        # Copy from current version to new major version
+        current_dir = self.snapshots_dir / current
         if new_dir.exists():
             shutil.rmtree(new_dir)
-        shutil.copytree(latest_dir, new_dir, dirs_exist_ok=True)
+        shutil.copytree(current_dir, new_dir, dirs_exist_ok=True)
         
         # Update meta.json
         meta_path = new_dir / "meta.json"
-        base_version = None
-        latest_meta_path = latest_dir / "meta.json"
-        if latest_meta_path.exists():
-            try:
-                with open(latest_meta_path, "r", encoding="utf-8") as f:
-                    latest_meta = json.load(f)
-                base_version = latest_meta.get("base_version")
-            except Exception:
-                base_version = None
 
         meta = {
             "reason": "用户接受: Accept",
             "source": "user",
             "mode": "accept",
             "created_at": datetime.utcnow().isoformat() + "Z",
-            "base_version": base_version,
+            "base_version": current,
             "notes": []
         }
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
                 
+        self.set_current_base_version(new_version)
         return new_version
 
     def revert_to(self, target_version: str) -> bool:
@@ -198,4 +231,5 @@ class SnapshotManager:
             else:
                 shutil.copy2(item, self.skill_dir / item.name)
                 
+        self.set_current_base_version(target_version)
         return True
