@@ -77,12 +77,12 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <div className="upload-card">
-      <div style={{ fontSize: '3rem', marginBottom: '1rem', color: '#475569' }}>📂</div>
-      <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', color: '#f8fafc' }}>上传 Skill</h3>
-      <p style={{ color: '#94a3b8', marginBottom: '1.5rem', maxWidth: '400px', fontSize: '0.9rem', lineHeight: 1.5 }}>
+      <div style={{ fontSize: '3rem', marginBottom: '1rem', color: '#94a3b8' }}>📂</div>
+      <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', color: '#1e293b' }}>上传 Skill</h3>
+      <p style={{ color: '#64748b', marginBottom: '1.5rem', maxWidth: '400px', fontSize: '0.9rem', lineHeight: 1.5 }}>
         选择包含 <code>SKILL.md</code>的文件夹。
-        <br /><span style={{ color: '#fbbf24' }}>注意: 请上传整个文件夹</span>
-        <br /><span style={{ color: '#f87171', fontWeight: 'bold' }}>重要: 文件夹名称不得包含中文字符。</span>
+        <br /><span style={{ color: '#d97706' }}>注意: 请上传整个文件夹</span>
+        <br /><span style={{ color: '#dc2626', fontWeight: 'bold' }}>重要: 文件夹名称不得包含中文字符。</span>
       </p>
 
       <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -106,9 +106,9 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
       </div>
 
       {logs.length > 0 && (
-        <div style={{ marginTop: '2rem', width: '100%', maxWidth: '600px', textAlign: 'left', background: '#0f172a', padding: '1rem', borderRadius: '0.5rem', maxHeight: '150px', overflowY: 'auto' }}>
+        <div style={{ marginTop: '2rem', width: '100%', maxWidth: '600px', textAlign: 'left', background: '#f8fafc', padding: '1rem', borderRadius: '0.5rem', maxHeight: '150px', overflowY: 'auto' }}>
           {logs.map((log, i) => (
-            <div key={i} style={{ color: '#cbd5e1', fontSize: '0.8rem', fontFamily: 'monospace', marginBottom: '4px', borderBottom: '1px solid #1e293b', paddingBottom: '2px' }}>{log}</div>
+            <div key={i} style={{ color: '#475569', fontSize: '0.8rem', fontFamily: 'monospace', marginBottom: '4px', borderBottom: '1px solid #e2e8f0', paddingBottom: '2px' }}>{log}</div>
           ))}
         </div>
       )}
@@ -177,16 +177,16 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
     <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
       <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ width: '1200px', maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
         
-        <div className="modal-header-new" style={{ padding: '1rem 1.5rem', background: '#0f172a', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: 'white' }}>Version Details (v{version})</h3>
+        <div className="modal-header-new" style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: '#1e293b' }}>Version Details (v{version})</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <button
               onClick={handleParseFlow}
               disabled={parsing}
               style={{
                 padding: '6px 16px',
-                background: parsing ? '#334155' : '#38bdf8',
-                color: parsing ? '#94a3b8' : '#0f172a',
+                background: parsing ? '#cbd5e1' : '#2563eb',
+                color: parsing ? '#64748b' : '#ffffff',
                 border: 'none',
                 borderRadius: '4px',
                 cursor: parsing ? 'not-allowed' : 'pointer',
@@ -198,7 +198,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
             </button>
             <button 
               onClick={onClose} 
-              style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '1.5rem', cursor: 'pointer', padding: '0 0.5rem', lineHeight: 1 }}
+              style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '1.5rem', cursor: 'pointer', padding: '0 0.5rem', lineHeight: 1 }}
             >
               &times;
             </button>
@@ -207,56 +207,56 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
         
         <div style={{ flex: 1, display: 'flex', gap: '1.5rem', padding: '1.5rem', minHeight: 0, overflowY: 'auto' }}>
           {loading ? (
-             <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8', flex: 1 }}>Loading details...</div>
+             <div style={{ textAlign: 'center', padding: '2rem', color: '#64748b', flex: 1 }}>Loading details...</div>
           ) : detail ? (
             <>
               <div style={{ flex: '1 1 50%', display: 'flex', flexDirection: 'column', gap: '1.5rem', minWidth: 0 }}>
-                <div style={{ background: '#1e293b', padding: '1rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                     <div>
-                        <span style={{ color: '#94a3b8', fontSize: '0.85rem', display: 'block', marginBottom: '4px' }}>Created At</span>
-                        <div style={{ color: '#f8fafc', fontWeight: 500 }}>{new Date(detail.createdAt).toLocaleString()}</div>
+                        <span style={{ color: '#64748b', fontSize: '0.85rem', display: 'block', marginBottom: '4px' }}>Created At</span>
+                        <div style={{ color: '#1e293b', fontWeight: 500 }}>{new Date(detail.createdAt).toLocaleString()}</div>
                     </div>
                 </div>
 
                 <div>
-                    <h4 style={{ color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>变更历史</h4>
-                    <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', color: '#e2e8f0', whiteSpace: 'pre-wrap', border: '1px solid #334155', fontSize: '0.9rem', lineHeight: 1.6 }}>
-                        {detail.changeLog || <span style={{ color: '#64748b', fontStyle: 'italic' }}>无变更历史</span>}
+                    <h4 style={{ color: '#64748b', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>变更历史</h4>
+                    <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '6px', color: '#334155', whiteSpace: 'pre-wrap', border: '1px solid #e2e8f0', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                        {detail.changeLog || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>无变更历史</span>}
                     </div>
                 </div>
 
                 <div>
-                     <h4 style={{ color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill Content (SKILL.md)</h4>
+                     <h4 style={{ color: '#64748b', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill Content (SKILL.md)</h4>
                      <pre style={{ 
-                         background: '#0f172a', 
+                         background: '#f8fafc', 
                          padding: '1rem', 
                          borderRadius: '6px', 
-                         color: '#e2e8f0', 
+                         color: '#334155', 
                          overflowX: 'auto', 
                          fontFamily: 'monospace', 
                          fontSize: '0.85rem',
-                         border: '1px solid #334155',
+                         border: '1px solid #e2e8f0',
                          maxHeight: '300px',
                          whiteSpace: 'pre-wrap'
                      }}>
-                         {detail.content || <span style={{ color: '#64748b', fontStyle: 'italic' }}>(Empty content)</span>}
+                         {detail.content || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>(Empty content)</span>}
                      </pre>
                 </div>
 
                 <div>
-                    <h4 style={{ color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Included Files</h4>
-                    <div style={{ background: '#0f172a', padding: '1rem', borderRadius: '6px', border: '1px solid #334155' }}>
+                    <h4 style={{ color: '#64748b', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Included Files</h4>
+                    <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                         {(() => {
                             try {
                                 const files = detail.files ? JSON.parse(detail.files) : [];
-                                if (files.length === 0) return <span style={{ color: '#64748b', fontSize: '0.9rem', fontStyle: 'italic' }}>No additional files.</span>;
+                                if (files.length === 0) return <span style={{ color: '#94a3b8', fontSize: '0.9rem', fontStyle: 'italic' }}>No additional files.</span>;
                                 return (
-                                    <ul style={{ margin: 0, paddingLeft: '1.2rem', color: '#cbd5e1', fontSize: '0.9rem' }}>
+                                    <ul style={{ margin: 0, paddingLeft: '1.2rem', color: '#475569', fontSize: '0.9rem' }}>
                                         {files.map((f: string, i: number) => <li key={i} style={{ marginBottom: '4px' }}>{f}</li>)}
                                     </ul>
                                 );
                             } catch (e) {
-                                return <span style={{ color: '#ef4444', fontSize: '0.9rem' }}>Error parsing file list.</span>;
+                                return <span style={{ color: '#dc2626', fontSize: '0.9rem' }}>Error parsing file list.</span>;
                             }
                         })()}
                     </div>
@@ -264,18 +264,18 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
               </div>
 
               <div style={{ flex: '1 1 50%', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                <h4 style={{ color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>预期执行流程</h4>
+                <h4 style={{ color: '#64748b', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>预期执行流程</h4>
                 {parsedFlow ? (
                   <div style={{ 
-                    background: '#0f172a', 
+                    background: '#f8fafc', 
                     padding: '1rem', 
                     borderRadius: '6px', 
-                    border: '1px solid #334155', 
+                    border: '1px solid #e2e8f0', 
                     flex: 1,
                     display: 'flex',
                     flexDirection: 'column'
                   }}>
-                    <div style={{ marginBottom: '0.5rem', fontSize: '0.8rem', color: '#64748b', flexShrink: 0 }}>
+                    <div style={{ marginBottom: '0.5rem', fontSize: '0.8rem', color: '#94a3b8', flexShrink: 0 }}>
                       解析时间: {new Date(parsedFlow.parsedAt).toLocaleString()}
                     </div>
                     <div style={{ flex: 1, overflow: 'auto' }}>
@@ -284,15 +284,15 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                   </div>
                 ) : (
                   <div style={{ 
-                    background: '#0f172a', 
+                    background: '#f8fafc', 
                     padding: '2rem', 
                     borderRadius: '6px', 
-                    border: '1px solid #334155', 
+                    border: '1px solid #e2e8f0', 
                     flex: 1, 
                     display: 'flex', 
                     alignItems: 'center', 
                     justifyContent: 'center', 
-                    color: '#64748b'
+                    color: '#94a3b8'
                   }}>
                     点击「解析流程」按钮生成预期执行流程图
                   </div>
@@ -300,7 +300,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
               </div>
             </>
           ) : (
-            <div style={{ color: '#ef4444', textAlign: 'center', padding: '2rem', flex: 1 }}>Failed to load details.</div>
+            <div style={{ color: '#dc2626', textAlign: 'center', padding: '2rem', flex: 1 }}>Failed to load details.</div>
           )}
         </div>
       </div>
@@ -318,7 +318,7 @@ function MermaidFlowChart({ code }: { code: string }) {
         const mermaid = (await import('mermaid')).default;
         mermaid.initialize({ 
           startOnLoad: false, 
-          theme: 'dark',
+          theme: 'default',
           flowchart: { useMaxWidth: false }
         });
         const { svg } = await mermaid.render('mermaid-' + Date.now(), code);
@@ -333,7 +333,7 @@ function MermaidFlowChart({ code }: { code: string }) {
   }, [code]);
 
   if (error) {
-    return <div style={{ color: '#f87171' }}>{error}</div>;
+    return <div style={{ color: '#dc2626' }}>{error}</div>;
   }
 
   return (
@@ -466,10 +466,10 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
         {/* Header */}
         <div className="modal-header-new">
           <div>
-            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: 'white' }}>{skill.name}</h3>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', fontSize: '0.875rem', color: '#94a3b8' }}>
+            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: '#1e293b' }}>{skill.name}</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', fontSize: '0.875rem', color: '#64748b' }}>
               <span>当前使用 (Active):</span>
-              <span style={{ color: '#4ade80', fontFamily: 'monospace', fontWeight: 'bold', background: 'rgba(74, 222, 128, 0.1)', padding: '0 6px', borderRadius: '4px' }}>v{currentActiveVersion}</span>
+              <span style={{ color: '#16a34a', fontFamily: 'monospace', fontWeight: 'bold', background: 'rgba(22, 163, 74, 0.1)', padding: '0 6px', borderRadius: '4px' }}>v{currentActiveVersion}</span>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -482,7 +482,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
             </button>
             <button
               onClick={handleClose}
-              style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '1.5rem', cursor: 'pointer', padding: '0 0.5rem' }}
+              style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '1.5rem', cursor: 'pointer', padding: '0 0.5rem' }}
             >
               &times;
             </button>
@@ -516,28 +516,28 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                   <tr key={v.id} className={`version-row ${isActive ? 'version-active-row' : ''}`}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '1rem', fontFamily: 'monospace', fontWeight: 'bold', color: isActive ? '#4ade80' : '#60a5fa' }}>
+                        <span style={{ fontSize: '1rem', fontFamily: 'monospace', fontWeight: 'bold', color: isActive ? '#16a34a' : '#2563eb' }}>
                           v{v.version}
                         </span>
                         {isActive && (
                           <span style={{
                             fontSize: '0.7rem',
-                            backgroundColor: 'rgba(74, 222, 128, 0.2)',
-                            color: '#4ade80',
+                            backgroundColor: 'rgba(22, 163, 74, 0.15)',
+                            color: '#16a34a',
                             padding: '2px 6px',
                             borderRadius: '4px',
                             fontWeight: 'bold',
-                            border: '1px solid rgba(74, 222, 128, 0.3)'
+                            border: '1px solid rgba(22, 163, 74, 0.3)'
                           }}>
                             ACTIVE
                           </span>
                         )}
                       </div>
-                      <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{new Date(v.createdAt).toLocaleDateString()}</span>
+                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{new Date(v.createdAt).toLocaleDateString()}</span>
                     </td>
                     <td>
-                      <p style={{ margin: 0, color: '#e2e8f0', whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.9rem' }}>
-                        {v.changeLog || <span style={{ color: '#64748b', fontStyle: 'italic' }}>无变更历史</span>}
+                      <p style={{ margin: 0, color: '#334155', whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.9rem' }}>
+                        {v.changeLog || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>无变更历史</span>}
                       </p>
                     </td>
                     <td style={{ textAlign: 'right', minWidth: '280px' }}>
@@ -546,9 +546,10 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                             onClick={() => setViewingVersion(v.version)}
                             className="btn-sm"
                             style={{ 
-                              background: '#334155', 
-                              border: '1px solid #475569', 
+                              background: '#f1f5f9', 
+                              border: '1px solid #cbd5e1', 
                               padding: '6px 12px',
+                              color: '#475569',
                               whiteSpace: 'nowrap',
                               fontSize: '0.85rem',
                               minWidth: '60px'
@@ -563,10 +564,10 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                                 onClick={() => handleActivate(v.version)}
                                 className="btn-sm"
                                 style={{ 
-                                  background: '#1e3a5f', 
+                                  background: '#dbeafe', 
                                   border: '1px solid #3b82f6', 
                                   padding: '6px 12px',
-                                  color: '#93c5fd',
+                                  color: '#1d4ed8',
                                   whiteSpace: 'nowrap',
                                   fontSize: '0.85rem',
                                   minWidth: '85px'
@@ -578,10 +579,10 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                                 onClick={() => handleDeleteVersion(v.version)}
                                 className="btn-sm"
                                 style={{ 
-                                  background: '#7f1d1d', 
-                                  border: '1px solid #991b1b', 
+                                  background: '#fee2e2', 
+                                  border: '1px solid #f87171', 
                                   padding: '6px 12px', 
-                                  color: '#fca5a5',
+                                  color: '#dc2626',
                                   whiteSpace: 'nowrap',
                                   fontSize: '0.85rem',
                                   minWidth: '65px'
@@ -595,13 +596,13 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                               padding: '6px 12px', 
                               fontSize: '0.85rem', 
                               fontFamily: 'monospace', 
-                              color: '#4ade80', 
+                              color: '#16a34a', 
                               display: 'flex', 
                               alignItems: 'center', 
                               gap: '6px',
                               whiteSpace: 'nowrap'
                             }}>
-                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4ade80' }}></span>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#16a34a' }}></span>
                               当前
                             </span>
                           )}
@@ -615,7 +616,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
 
 
           {versions.length === 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: '#64748b' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: '#94a3b8' }}>
               <div style={{ fontSize: '2rem', marginBottom: '1rem', opacity: 0.5 }}>📂</div>
               <p>没有历史版本</p>
             </div>
@@ -704,7 +705,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
 
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '5rem' }}>
-      <div className="loading-spinner" style={{ width: '2rem', height: '2rem', border: '2px solid #334155', borderTopColor: '#38bdf8', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+      <div className="loading-spinner" style={{ width: '2rem', height: '2rem', border: '2px solid #e2e8f0', borderTopColor: '#2563eb', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
       <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
     </div>
   );
@@ -716,19 +717,19 @@ function SkillCatalog({ refresh }: { refresh: number }) {
         display: 'flex',
         gap: '2rem',
         marginBottom: '2rem',
-        background: '#1e293b',
+        background: '#f8fafc',
         padding: '1.5rem',
         borderRadius: '0.75rem',
-        border: '1px solid #334155'
+        border: '1px solid #e2e8f0'
       }}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: '0.875rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill 总数</span>
-          <span style={{ fontSize: '2.5rem', fontWeight: 700, color: '#f8fafc', lineHeight: 1 }}>{totalSkills}</span>
+          <span style={{ fontSize: '0.875rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill 总数</span>
+          <span style={{ fontSize: '2.5rem', fontWeight: 700, color: '#1e293b', lineHeight: 1 }}>{totalSkills}</span>
         </div>
-        <div style={{ width: '1px', background: '#334155' }}></div>
+        <div style={{ width: '1px', background: '#e2e8f0' }}></div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: '0.875rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>已上传 Skill</span>
-          <span style={{ fontSize: '2.5rem', fontWeight: 700, color: '#4ade80', lineHeight: 1 }}>{uploadedSkills}</span>
+          <span style={{ fontSize: '0.875rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>已上传 Skill</span>
+          <span style={{ fontSize: '2.5rem', fontWeight: 700, color: '#16a34a', lineHeight: 1 }}>{uploadedSkills}</span>
         </div>
       </div>
 
@@ -754,7 +755,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
             {/* Body */}
             <div className="skill-body">
               <div className="skill-description">
-                {skill.description || <span style={{ fontStyle: 'italic', color: '#64748b' }}>No description provided for this skill.</span>}
+                {skill.description || <span style={{ fontStyle: 'italic', color: '#94a3b8' }}>No description provided for this skill.</span>}
               </div>
 
               <div className="skill-tags">
@@ -763,7 +764,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
                     #{tag}
                   </span>
                 ))}
-                {(skill.tags?.length || 0) > 3 && <span className="skill-tag" style={{ background: 'transparent', border: 'none', color: '#64748b' }}>+{skill.tags!.length - 3}</span>}
+                {(skill.tags?.length || 0) > 3 && <span className="skill-tag" style={{ background: 'transparent', border: 'none', color: '#94a3b8' }}>+{skill.tags!.length - 3}</span>}
               </div>
             </div>
 
@@ -775,9 +776,9 @@ function SkillCatalog({ refresh }: { refresh: number }) {
                 className={`btn-icon ${skill.isUploaded ? 'uploaded' : ''}`}
                 title={skill.isUploaded ? "Withdraw Skill (Stop Sync)" : "Upload Skill (Enable Sync)"}
                 style={{
-                  background: skill.isUploaded ? 'rgba(74, 222, 128, 0.1)' : 'transparent',
-                  border: `1px solid ${skill.isUploaded ? '#4ade80' : '#475569'}`,
-                  color: skill.isUploaded ? '#4ade80' : '#94a3b8',
+                  background: skill.isUploaded ? 'rgba(22, 163, 74, 0.1)' : 'transparent',
+                  border: `1px solid ${skill.isUploaded ? '#16a34a' : '#cbd5e1'}`,
+                  color: skill.isUploaded ? '#16a34a' : '#64748b',
                   padding: '0.4rem',
                   borderRadius: '4px',
                   cursor: 'pointer',
@@ -812,8 +813,8 @@ function SkillCatalog({ refresh }: { refresh: number }) {
         {skills.length === 0 && (
           <div className="upload-card" style={{ gridColumn: '1 / -1', background: 'transparent', borderStyle: 'dashed' }}>
             <div style={{ fontSize: '3rem', marginBottom: '1rem', opacity: 0.3 }}>📦</div>
-            <p style={{ color: '#94a3b8', fontSize: '1.2rem' }}>无 skill</p>
-            <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '0.5rem' }}>上传 skill</p>
+            <p style={{ color: '#64748b', fontSize: '1.2rem' }}>无 skill</p>
+            <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginTop: '0.5rem' }}>上传 skill</p>
           </div>
         )}
       </div>

@@ -1,13 +1,55 @@
 :root {
+  --background: #f8fafc;
+  --foreground: #1e293b;
+  --card-bg: #ffffff;
+  --card-border: rgba(148, 163, 184, 0.25);
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --secondary: #7c3aed;
+  --accent: #db2777;
+  --success: #16a34a;
+  --warning: #d97706;
+  --error: #dc2626;
+  --border: #e2e8f0;
+  --border-dark: #cbd5e1;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --code-block-bg: #f1f5f9;
+  --table-border: #e2e8f0;
+  --table-row-border: #f1f5f9;
+  --dropdown-bg: #ffffff;
+  --dropdown-border: #e2e8f0;
+  --shadow-color: rgba(0, 0, 0, 0.1);
+  --foreground-secondary: #64748b;
+  --foreground-muted: #94a3b8;
+  --background-secondary: #f1f5f9;
+}
+
+[data-theme='dark'] {
   --background: #0f172a;
   --foreground: #f8fafc;
   --card-bg: rgba(30, 41, 59, 0.7);
   --card-border: rgba(148, 163, 184, 0.1);
   --primary: #38bdf8;
+  --primary-hover: #7dd3fc;
   --secondary: #818cf8;
   --accent: #f472b6;
   --success: #4ade80;
   --warning: #fbbf24;
+  --error: #f87171;
+  --border: #334155;
+  --border-dark: #475569;
+  --input-bg: #0f172a;
+  --input-border: #334155;
+  --code-block-bg: #1e293b;
+  --table-border: #334155;
+  --table-row-border: #1e293b;
+  --dropdown-bg: #1e293b;
+  --dropdown-border: #334155;
+  --shadow-color: rgba(0, 0, 0, 0.5);
+  --foreground-secondary: #94a3b8;
+  --foreground-muted: #64748b;
+  --background-secondary: #1e293b;
 }
 
 body {
@@ -18,6 +60,7 @@ body {
   color: var(--foreground);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 * {
@@ -52,7 +95,7 @@ body {
 }
 
 .subtitle {
-  color: #94a3b8;
+  color: var(--foreground-secondary);
   margin-top: 0.5rem;
   font-size: 1.1rem;
 }
@@ -64,14 +107,15 @@ body {
 }
 
 select {
-  background: #1e293b;
-  color: #f8fafc;
-  border: 1px solid #334155;
+  background: var(--input-bg);
+  color: var(--foreground);
+  border: 1px solid var(--input-border);
   padding: 0.5rem 1rem;
   border-radius: 0.5rem;
   font-size: 0.875rem;
   outline: none;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 select:focus {
@@ -98,21 +142,21 @@ select:focus {
   border: 1px solid var(--card-border);
   border-radius: 1rem;
   padding: 1.5rem;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.2s, box-shadow 0.2s, background-color 0.3s ease;
   display: flex;
   flex-direction: column;
 }
 
 .card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px -10px var(--shadow-color);
 }
 
 .card-title {
   font-size: 1.1rem;
   font-weight: 600;
   margin-bottom: 1rem;
-  color: #94a3b8;
+  color: var(--foreground-secondary);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -126,7 +170,7 @@ select:focus {
 
 .stat-sub {
   font-size: 0.875rem;
-  color: #64748b;
+  color: var(--foreground-muted);
   margin-top: 0.25rem;
 }
 
@@ -149,11 +193,11 @@ table {
 th, td {
   padding: 1rem;
   text-align: left;
-  border-bottom: 1px solid var(--card-border);
+  border-bottom: 1px solid var(--table-border);
 }
 
 th {
-  color: #94a3b8;
+  color: var(--foreground-secondary);
   font-weight: 600;
   font-size: 0.75rem;
   text-transform: uppercase;
@@ -162,6 +206,10 @@ th {
 
 tr:last-child td {
   border-bottom: none;
+}
+
+tr {
+  border-bottom: 1px solid var(--table-row-border);
 }
 
 .tag {
@@ -201,6 +249,7 @@ tr:last-child td {
   padding: 1rem;
   border-radius: 1rem;
   border: 1px solid var(--card-border);
+  transition: background-color 0.3s ease;
 }
 
 .control-group {
@@ -211,7 +260,7 @@ tr:last-child td {
 
 .control-label {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--foreground-secondary);
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -220,22 +269,22 @@ tr:last-child td {
 .highlight-good { color: var(--success); }
 
 /* Shared Components */
-.tab-btn { background: transparent; border: none; color: #94a3b8; padding: 0.5rem 1rem; cursor: pointer; font-size: 1rem; border-bottom: 2px solid transparent; }
-.tab-btn.active { color: #38bdf8; border-bottom-color: #38bdf8; }
+.tab-btn { background: transparent; border: none; color: var(--foreground-secondary); padding: 0.5rem 1rem; cursor: pointer; font-size: 1rem; border-bottom: 2px solid transparent; transition: color 0.2s ease; }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
 
-.btn-primary { background: #38bdf8; color: #0f172a; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-weight: bold; }
-.btn-primary:hover { opacity: 0.9; }
+.btn-primary { background: var(--primary); color: #ffffff; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s ease; }
+.btn-primary:hover { background: var(--primary-hover); }
 
 .btn-sm { color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; transition: background 0.2s; }
 .btn-sm:hover { opacity: 0.8; }
 
 /* Modal Styles */
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(2px); }
-.modal-content { background: #1e293b; padding: 2rem; border: 1px solid #334155; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); }
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(2px); }
+.modal-content { background: var(--background); padding: 2rem; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 20px 25px -5px var(--shadow-color), 0 10px 10px -5px var(--shadow-color); transition: background-color 0.3s ease; }
 
 /* Form Styles */
-input, textarea, select { background: #0f172a; border: 1px solid #334155; color: #f8fafc; border-radius: 4px; padding: 8px; }
-input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8; }
+input, textarea, select { background: var(--input-bg); border: 1px solid var(--input-border); color: var(--foreground); border-radius: 4px; padding: 8px; transition: all 0.2s ease; }
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--primary); }
 
 /* =========================================
    Skill Registry New Styles
@@ -251,24 +300,24 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: rgba(30, 41, 59, 0.6);
+  background: var(--card-bg);
   backdrop-filter: blur(5px);
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  border: 1px solid var(--card-border);
   border-radius: 0.75rem;
   overflow: hidden;
   transition: all 0.2s ease;
 }
 
 .skill-card:hover {
-  border-color: rgba(148, 163, 184, 0.3);
+  border-color: var(--border);
   transform: translateY(-2px);
-  box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 20px -5px var(--shadow-color);
 }
 
 .skill-card-header {
   padding: 1.25rem;
-  background: linear-gradient(to right, rgba(30, 41, 59, 0.8), transparent);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  background: linear-gradient(to right, var(--background-secondary), transparent);
+  border-bottom: 1px solid var(--card-border);
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -277,7 +326,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
 .skill-title {
   font-size: 1.125rem;
   font-weight: 700;
-  color: #f8fafc;
+  color: var(--foreground);
   margin: 0 0 0.5rem 0;
   white-space: nowrap;
   overflow: hidden;
@@ -292,24 +341,29 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
 }
 
 .skill-version-badge {
-  background: rgba(56, 189, 248, 0.1);
-  color: #38bdf8;
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--primary);
   padding: 0.125rem 0.5rem;
   border-radius: 4px;
-  border: 1px solid rgba(56, 189, 248, 0.2);
+  border: 1px solid rgba(37, 99, 235, 0.2);
   font-family: monospace;
   font-size: 0.75rem;
 }
 
+[data-theme='dark'] .skill-version-badge {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.2);
+}
+
 .skill-date {
-  color: #64748b;
+  color: var(--foreground-muted);
   font-size: 0.75rem;
 }
 
 .skill-icon {
   width: 2.75rem;
   height: 2.75rem;
-  background: rgba(51, 65, 85, 0.3);
+  background: var(--background-secondary);
   border-radius: 0.5rem;
   display: flex;
   align-items: center;
@@ -327,14 +381,14 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
 
 .skill-description {
   font-size: 0.875rem;
-  color: #94a3b8;
+  color: var(--foreground-secondary);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  height: 4.5em; /* Fallback */
+  height: 4.5em;
 }
 
 .skill-tags {
@@ -347,15 +401,15 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
   font-size: 0.7rem;
   padding: 0.2rem 0.5rem;
   border-radius: 9999px;
-  background: rgba(51, 65, 85, 0.5);
-  color: #cbd5e1;
-  border: 1px solid rgba(71, 85, 105, 0.5);
+  background: var(--background-secondary);
+  color: var(--foreground-secondary);
+  border: 1px solid var(--border);
 }
 
 .skill-actions {
   padding: 1rem;
-  background: rgba(15, 23, 42, 0.4);
-  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  background: var(--background-secondary);
+  border-top: 1px solid var(--card-border);
   display: flex;
   gap: 0.75rem;
 }
@@ -394,8 +448,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
   align-items: center;
   justify-content: center;
   background: transparent;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  color: #94a3b8;
+  border: 1px solid var(--border);
+  color: var(--foreground-secondary);
   border-radius: 0.5rem;
   cursor: pointer;
   font-size: 1.1rem;
@@ -403,9 +457,9 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
 }
 
 .btn-delete:hover {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--error);
 }
 
 /* Modal Specifics Override */
@@ -413,19 +467,20 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
   width: 900px;
   max-width: 95vw;
   height: 85vh;
-  background: #1e293b;
-  border: 1px solid #334155;
+  background: var(--background);
+  border: 1px solid var(--border);
   border-radius: 0.75rem;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 25px 50px -12px var(--shadow-color);
+  transition: background-color 0.3s ease;
 }
 
 .modal-header-new {
   padding: 1.25rem 1.5rem;
-  background: #0f172a;
-  border-bottom: 1px solid #334155;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -433,8 +488,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
 
 .modal-sync-banner {
   padding: 0.75rem 1.5rem;
-  background: rgba(30, 41, 59, 0.8);
-  border-bottom: 1px solid #334155;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -443,7 +498,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
 /* Tab Navigation */
 .nav-tabs {
   display: flex;
-  border-bottom: 1px solid #334155;
+  border-bottom: 1px solid var(--border);
   margin-bottom: 1.5rem;
 }
 
@@ -451,7 +506,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
   padding: 0.75rem 1.5rem;
   font-size: 0.9rem;
   font-weight: 500;
-  color: #94a3b8;
+  color: var(--foreground-secondary);
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
@@ -460,21 +515,21 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
 }
 
 .nav-tab-item:hover {
-  color: #e2e8f0;
+  color: var(--foreground);
 }
 
 .nav-tab-item.active {
-  color: #38bdf8;
-  border-bottom-color: #38bdf8;
+  color: var(--primary);
+  border-bottom-color: var(--primary);
 }
 
 /* Upload Area */
 .upload-card {
-  border: 2px dashed #475569;
+  border: 2px dashed var(--border);
   border-radius: 1rem;
   padding: 4rem 2rem;
   text-align: center;
-  background: rgba(30, 41, 59, 0.3);
+  background: var(--background-secondary);
   transition: all 0.2s;
   display: flex;
   flex-direction: column;
@@ -483,8 +538,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
 }
 
 .upload-card:hover {
-  border-color: #94a3b8;
-  background: rgba(30, 41, 59, 0.5);
+  border-color: var(--foreground-muted);
+  background: var(--background-secondary);
 }
 
 /* Login Page Styles */
@@ -494,7 +549,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at top center, #1e293b 0%, #0f172a 100%);
+  background: radial-gradient(circle at top center, var(--background-secondary) 0%, var(--background) 100%);
   padding: 1rem;
 }
 
@@ -510,17 +565,18 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
 }
 
 .login-form {
-  background: rgba(30, 41, 59, 0.5);
+  background: var(--card-bg);
   backdrop-filter: blur(12px);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 25px 50px -12px var(--shadow-color);
   border-radius: 1rem;
   padding: 2.5rem;
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  border: 1px solid var(--card-border);
+  transition: background-color 0.3s ease;
 }
 
 .login-label {
   display: block;
-  color: #cbd5e1;
+  color: var(--foreground);
   font-size: 0.9rem;
   font-weight: 600;
   margin-bottom: 0.5rem;
@@ -528,24 +584,24 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
 }
 
 .login-input {
-  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 2px 4px 0 var(--shadow-color);
   appearance: none;
-  border: 1px solid #334155;
+  border: 1px solid var(--input-border);
   border-radius: 0.5rem;
   width: 100%;
   padding: 0.75rem 1rem;
   font-size: 1rem;
-  color: #f8fafc;
+  color: var(--foreground);
   line-height: 1.5;
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--input-bg);
   transition: all 0.2s;
 }
 
 .login-input:focus {
   outline: none;
   border-color: var(--primary);
-  background: rgba(15, 23, 42, 0.8);
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2), inset 0 2px 4px 0 rgba(0, 0, 0, 0.2);
+  background: var(--input-bg);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15), inset 0 2px 4px 0 var(--shadow-color);
 }
 
 .login-btn {
@@ -560,16 +616,41 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: #38bdf8
   transition: all 0.2s;
   width: 100%;
   margin-top: 1rem;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.2);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 6px -1px var(--shadow-color);
 }
 
 .login-btn:hover {
   opacity: 0.9;
   transform: translateY(-1px);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 10px 15px -3px var(--shadow-color);
 }
 
 .login-btn:active {
   transform: translateY(0);
+}
+
+/* Theme Toggle Button */
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--foreground);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 1.2rem;
+}
+
+.theme-toggle-btn:hover {
+  background: var(--background-secondary);
+  border-color: var(--primary);
+}
+
+.theme-toggle-btn:active {
+  transform: scale(0.95);
 }
