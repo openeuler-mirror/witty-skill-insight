@@ -205,7 +205,8 @@ import { getFilteredSteps } from '@/lib/guide-config';
 
 // --- Main Component ---
 export default function Dashboard() {
-    const { user, apiKey } = useAuth(); // Destructure apiKey from useAuth
+    const { user, apiKey } = useAuth();
+    const [isOrgMode, setIsOrgMode] = useState(false);
     const { theme, toggleTheme, isDark } = useTheme();
     const [localApiKey, setLocalApiKey] = useState<string | null>(null);
 
@@ -440,6 +441,14 @@ export default function Dashboard() {
 
     useEffect(() => {
         fetchServerSettings();
+    }, []);
+
+    useEffect(() => {
+        fetch('/api').catch(() => {});
+        fetch('/api/config/status?check_org=true')
+            .then(res => res.json())
+            .then(data => setIsOrgMode(data.org_mode || false))
+            .catch(() => {});
     }, []);
 
     // When modal opens, if we have configs, show list. if empty, show edit new.
@@ -3232,6 +3241,7 @@ export default function Dashboard() {
                             >
                                 Close
                             </button>
+                            {!isOrgMode && (
                             <button
                                 onClick={() => {
                                     localStorage.removeItem('user_id');
@@ -3251,6 +3261,7 @@ export default function Dashboard() {
                             >
                                 Sign Out
                             </button>
+                            )}
                         </div>
                     </div>
                 </div>

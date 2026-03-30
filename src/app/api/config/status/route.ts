@@ -12,6 +12,13 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Missing id parameter' }, { status: 400 });
         }
 
+        if (searchParams.get('check_org') === 'true') {
+            return NextResponse.json({
+                org_mode: process.env.ORGANIZATION_MODE === 'true',
+                org_login_redirect_url: process.env.ORG_LOGIN_REDIRECT_URL || ''
+            });
+        }
+
         const config = await db.findConfigById(id);
 
         if (!config) {
