@@ -29,7 +29,7 @@ TEXT_EXTENSIONS = {
     ".java", ".c", ".cpp", ".h", ".hpp", ".sql", ".r", ".toml", ".cfg",
     ".ini", ".env", ".mjs", ".cjs", ".lua", ".pl", ".swift", ".kt",
 }
-SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", ".DS_Store"}
+SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".venv", "venv", ".opt", "snapshots", ".DS_Store"}
 ALWAYS_INCLUDE = {"SKILL.md", "Makefile", "Dockerfile", "LICENSE", "LICENSE.txt"}
 
 
@@ -294,6 +294,49 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .btn-revert { background: transparent; color: var(--mod-text); border-color: var(--border); }
   .btn-revert:hover { background: var(--surface-hover); border-color: var(--mod-text); }
   .action-hint { font-size: 11px; color: var(--text-dim); }
+
+  /* ── Tabs ─────────────────────────────────────── */
+  .diff-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 16px 22px 0;
+    background: var(--bg);
+  }
+  .diff-tab {
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-family: var(--sans);
+    transition: all 0.2s;
+  }
+  .diff-tab:hover {
+    color: var(--text);
+  }
+  .diff-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .tab-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-raised);
+    color: var(--text-dim);
+    border-radius: 10px;
+    padding: 2px 6px;
+    font-size: 11px;
+    margin-left: 6px;
+    font-family: var(--mono);
+  }
+  .diff-tab.active .tab-badge {
+    background: rgba(9, 105, 218, 0.1);
+    color: var(--accent);
+  }
 
   /* ── Diff container ───────────────────────────── */
   .diff-container {
@@ -583,7 +626,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div class="toast" id="toast"></div>
 
 <div class="toolbar" id="toolbar"></div>
+<div id="diff-tabs-container"></div>
 <div class="diff-container" id="diff-container"></div>
+<div class="diff-container" id="opt-diff-container" style="display: none;"></div>
 
 <script>
 /*__DIFF_DATA__*/
@@ -728,6 +773,32 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     return [];
   }
 
+  // ── Split Diff ────────────────────────────────────────
+  function isOptFile(path) {
+    const p = path.toLowerCase();
+    return p.endsWith('diagnoses.json') || p.endsWith('optimization_report.md') || p.endsWith('meta.json');
+  }
+
+  function splitDiff(diffStr) {
+    const lines = diffStr.split('\n');
+    const codeDiff = [];
+    const optDiff = [];
+    let currentTarget = codeDiff;
+    for (const l of lines) {
+      if (l.startsWith('diff --git ')) {
+         const match = l.match(/ b\/(.*)$/);
+         const path = match ? match[1] : '';
+         if (isOptFile(path)) {
+           currentTarget = optDiff;
+         } else {
+           currentTarget = codeDiff;
+         }
+      }
+      currentTarget.push(l);
+    }
+    return { code: codeDiff.join('\n'), opt: optDiff.join('\n') };
+  }
+
   // ── Stats ─────────────────────────────────────────────
   function countStats(diffStr) {
     const lines = diffStr.split('\n');
@@ -785,7 +856,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
     // Stats
     const diffStr = getDiffString(baseIdx, curIdx);
-    const stats = countStats(diffStr);
+    const split = splitDiff(diffStr);
+    const stats = countStats(split.code);
     const sec3 = mkEl('div','toolbar-section');
     const pill = mkEl('div','stats-pill');
     pill.innerHTML = `<span class="stat-files">${stats.files} file${stats.files!==1?'s':''}</span><span class="stat-add">+${stats.adds}</span><span class="stat-del">\u2212${stats.dels}</span>`;
@@ -831,7 +903,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     br.onclick = () => trySend('我对当前版本（' + versions[curIdx].label + '）有反馈，请按如下修改：\n');
     sec5.appendChild(br);
 
-    if (versions.length > 2) {
+    if (versions.length >= 2) {
       const bv = mkEl('button','btn btn-revert');
       bv.innerHTML = '\u21A9 Revert to ' + versions[baseIdx].label;
       bv.onclick = () => trySend('请回滚到 ' + versions[baseIdx].label + ' 并从该版本继续。');
@@ -844,24 +916,83 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     tb.appendChild(sec5);
   }
 
+  let currentTab = 'code'; // 'code' | 'opt'
+
+  function switchTab(skipRedraw = false) {
+    if (!skipRedraw) {
+      const tabs = document.querySelectorAll('.diff-tab');
+      if (tabs[0]) tabs[0].className = 'diff-tab' + (currentTab === 'code' ? ' active' : '');
+      if (tabs[1]) tabs[1].className = 'diff-tab' + (currentTab === 'opt' ? ' active' : '');
+    }
+    document.getElementById('diff-container').style.display = currentTab === 'code' ? 'block' : 'none';
+    document.getElementById('opt-diff-container').style.display = currentTab === 'opt' ? 'block' : 'none';
+  }
+
   function renderDiff() {
     const container = document.getElementById('diff-container');
+    const optContainer = document.getElementById('opt-diff-container');
+    const tabsContainer = document.getElementById('diff-tabs-container');
+
     container.innerHTML = '';
+    optContainer.innerHTML = '';
+    tabsContainer.innerHTML = '';
 
     if (baseIdx === curIdx) {
       container.innerHTML = '<div class="empty-msg"><div class="icon">\u27F7</div><div>Same version selected \u2014 choose two different versions</div></div>';
+      container.style.display = 'block';
+      optContainer.style.display = 'none';
       return;
     }
 
     const diffStr = getDiffString(baseIdx, curIdx);
     if (!diffStr.trim()) {
       container.innerHTML = '<div class="empty-msg"><div class="icon">\u2713</div><div>Versions are identical</div></div>';
+      container.style.display = 'block';
+      optContainer.style.display = 'none';
       return;
     }
 
-    const targetEl = document.createElement('div');
-    container.appendChild(targetEl);
+    const splits = splitDiff(diffStr);
+    const codeStats = countStats(splits.code);
+    const optStats = countStats(splits.opt);
 
+    // Render Tabs
+    const tabsDiv = mkEl('div', 'diff-tabs');
+    const codeBtn = mkEl('button', 'diff-tab' + (currentTab === 'code' ? ' active' : ''));
+    codeBtn.innerHTML = `Code Changes <span class="tab-badge">${codeStats.files}</span>`;
+    codeBtn.onclick = () => { currentTab = 'code'; switchTab(); };
+    tabsDiv.appendChild(codeBtn);
+
+    if (optStats.files > 0) {
+      const optBtn = mkEl('button', 'diff-tab' + (currentTab === 'opt' ? ' active' : ''));
+      optBtn.innerHTML = `Optimization Details <span class="tab-badge">${optStats.files}</span>`;
+      optBtn.onclick = () => { currentTab = 'opt'; switchTab(); };
+      tabsDiv.appendChild(optBtn);
+    } else if (currentTab === 'opt') {
+      currentTab = 'code';
+      codeBtn.className = 'diff-tab active';
+    }
+    tabsContainer.appendChild(tabsDiv);
+
+    // Render diff views
+    const codeTarget = document.createElement('div');
+    container.appendChild(codeTarget);
+    if (splits.code.trim()) {
+      renderDiff2Html(codeTarget, splits.code);
+    } else {
+      codeTarget.innerHTML = '<div class="empty-msg"><div class="icon">\u2713</div><div>No code changes</div></div>';
+    }
+
+    const optTarget = document.createElement('div');
+    optContainer.appendChild(optTarget);
+    if (splits.opt.trim()) {
+      renderDiff2Html(optTarget, splits.opt);
+    }
+
+    switchTab(true);
+  }
+
+  function renderDiff2Html(targetEl, diffStr) {
     const d2h = new Diff2HtmlUI(targetEl, diffStr, {
       drawFileList: true,
       fileListToggle: true,
@@ -965,6 +1096,7 @@ def main() -> None:
     parser.add_argument("--default-base", type=str, default=None, help="Label of the default base version to select in snapshots mode")
     parser.add_argument("--default-current", type=str, default=None, help="Default current version label (e.g. v1.1)")
     parser.add_argument("--output", "-o", "--static", type=Path, default=None, help="Output HTML file (if not set, opens in browser)")
+    parser.add_argument("--no-open", action="store_true", help="Do not open browser even if --output is not set")
     
     args = parser.parse_args()
 
@@ -1024,7 +1156,8 @@ def main() -> None:
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
             f.write(html)
         print(f"Opening diff in browser: file://{path}")
-        webbrowser.open(f"file://{path}")
+        if not args.no_open:
+            webbrowser.open(f"file://{path}")
 
 
 if __name__ == "__main__":

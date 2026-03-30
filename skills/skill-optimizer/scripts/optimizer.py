@@ -114,6 +114,40 @@ class SkillOptimizer:
 
         return genome, static_diagnoses
 
+    def optimize_feedback(
+        self,
+        skill_path: Path,
+        trace_id: Optional[str] = None,
+        human_feedback: Optional[str] = None,
+    ):
+        logger.info(">>> Starting Feedback Optimization (User Revision)...")
+
+        try:
+            genome = SkillGenome.from_directory(skill_path.parent)
+        except Exception as e:
+            logger.warning(
+                f"Could not load from directory, falling back to file content. Error: {e}"
+            )
+            with open(skill_path, "r", encoding="utf-8") as f:
+                genome = SkillGenome.from_markdown(f.read())
+
+        feedback = (human_feedback or "").strip()
+        if not feedback:
+            logger.info(">>> No feedback provided. Skipping feedback optimization.")
+            return genome, []
+
+        variants = self.mutator.mutate(
+            genome,
+            diagnoses=[],
+            trace_id=trace_id,
+            reflection=feedback,
+        )
+
+        if variants:
+            return variants[0], []
+
+        return genome, []
+
     def optimize_dynamic(
         self,
         genome: SkillGenome,

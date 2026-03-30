@@ -62,7 +62,7 @@ class RealLLMClient:
             api_key=api_key,
             http_client=httpx.Client(verify=False, timeout=300.0),
             http_async_client=httpx.AsyncClient(verify=False, timeout=300.0),
-            max_tokens=4096,
+            max_tokens=8192,
             request_timeout=300.0,
         )
 
@@ -126,6 +126,17 @@ def validate_auxiliary_file(file_path: Path) -> tuple[bool, str]:
     return True, ""
 
 
+def sanitize_reference_content(content: str) -> str:
+    content = content or ""
+    content = re.sub(
+        r"\[([^\]]+)\]\(((?:scripts|references)/[^)]+)\)",
+        r"\1 (`\2`)",
+        content,
+        flags=re.IGNORECASE,
+    )
+    return content
+
+
 def update_skill_name_in_md(content: str, new_name: str) -> str:
     """Update skill name in SKILL.md content."""
     # Try YAML frontmatter first
@@ -145,13 +156,18 @@ def update_skill_name_in_md(content: str, new_name: str) -> str:
     return content
 
 
-def integrate_auxiliary_references(skill_content: str, auxiliary_files: dict[str, str]) -> str:
+def integrate_auxiliary_references(
+    skill_content: str,
+    auxiliary_files: dict[str, str],
+    auxiliary_meta: Optional[dict[str, str]] = None,
+) -> str:
     """
     在 SKILL.md 中自动添加对辅助文件的引用
     
     Args:
         skill_content: SKILL.md 的内容
         auxiliary_files: 辅助文件字典 {相对路径: 内容}
+        auxiliary_meta: 辅助文件元数据 {相对路径: summary}
     
     Returns:
         更新后的 SKILL.md 内容
@@ -159,30 +175,257 @@ def integrate_auxiliary_references(skill_content: str, auxiliary_files: dict[str
     if not auxiliary_files:
         return skill_content
     
-    has_section = any(
-        section in skill_content.lower() 
-        for section in ['## 辅助文件', '## 相关文件', '## auxiliary files', '## related files']
-    )
-    
-    if has_section:
-        return skill_content
-    
-    section_header = "\n\n## 辅助文件\n\n以下文件由优化器自动创建，用于支持本 Skill 的功能：\n\n"
-    
-    file_list = ""
+    auxiliary_meta = auxiliary_meta or {}
+    section_titles = ["## 辅助文件", "## 相关文件", "## auxiliary files", "## related files"]
+    content_lower = skill_content.lower()
+    has_section = any(title.lower() in content_lower for title in section_titles)
+    should_replace = has_section and ("由优化器自动创建" in skill_content)
+
+    base_content = skill_content
+    if should_replace:
+        idx = content_lower.rfind("## 辅助文件")
+        if idx != -1:
+            base_content = skill_content[:idx].rstrip()
+
+    excluded_prefixes = ("snapshots/", ".opt/")
+    excluded_exact = {
+        "AUXILIARY_META.json",
+        "diagnoses.json",
+        "OPTIMIZATION_REPORT.md",
+        "meta.json",
+    }
+
+    def is_excluded(rel_path: str) -> bool:
+        if not rel_path:
+            return True
+        if rel_path.startswith(excluded_prefixes):
+            return True
+        if rel_path in excluded_exact:
+            return True
+        if "/__pycache__/" in f"/{rel_path}/":
+            return True
+        return False
+
+    def normalize_summary(text: str) -> str:
+        text = (text or "").strip()
+        text = re.sub(r"\s+", " ", text)
+        if len(text) > 160:
+            text = text[:157].rstrip() + "..."
+        return text
+
+    def auto_summary(rel_path: str, content: str) -> str:
+        content = content or ""
+        lines = content.splitlines()
+
+        def meaningful(line: str) -> bool:
+            s = (line or "").strip()
+            if not s:
+                return False
+            low = s.lower()
+            if low.startswith("#!/"):
+                return False
+            if low in {"set -e", "set -eu", "set -euo pipefail"}:
+                return False
+            if low.startswith(("import ", "from ")):
+                return False
+            return True
+
+        def pick_first_meaningful() -> str:
+            for ln in lines[:200]:
+                s = (ln or "").strip()
+                if not s:
+                    continue
+                if s.startswith("#") and not s.startswith("# "):
+                    continue
+                if meaningful(s):
+                    return s.lstrip("#").strip()
+            for ln in lines:
+                s = (ln or "").strip()
+                if meaningful(s):
+                    return s.lstrip("#").strip()
+            return ""
+
+        if rel_path.endswith(".md"):
+            for ln in lines[:80]:
+                s = (ln or "").strip()
+                if s.startswith("#"):
+                    s = s.lstrip("#").strip()
+                    if s:
+                        return s
+            return pick_first_meaningful()
+
+        if rel_path.endswith((".sh", ".bash")):
+            for ln in lines[:200]:
+                s = (ln or "").strip()
+                if not s:
+                    continue
+                if "用法:" in s or "usage:" in s.lower() or "作用:" in s or "功能:" in s:
+                    return s.lstrip("#").strip()
+            return pick_first_meaningful()
+
+        if rel_path.endswith(".py"):
+            m = re.search(r'(?s)^\s*(?:"""|\'\'\')\s*(.*?)\s*(?:"""|\'\'\')', content)
+            if m:
+                doc = (m.group(1) or "").strip().splitlines()
+                for ln in doc:
+                    s = (ln or "").strip()
+                    if s:
+                        return s
+            return pick_first_meaningful()
+
+        return pick_first_meaningful()
+
+    def ensure_summary(rel_path: str) -> str:
+        summary = (auxiliary_meta.get(rel_path) or "").strip()
+        if summary:
+            return normalize_summary(summary)
+        generated = normalize_summary(auto_summary(rel_path, auxiliary_files.get(rel_path, "")))
+        if generated:
+            auxiliary_meta[rel_path] = generated
+            return generated
+        generated = normalize_summary(rel_path)
+        auxiliary_meta[rel_path] = generated
+        return generated
+
+    entrypoints: list[str] = []
+    references: list[str] = []
+    others: list[str] = []
+
+    def is_entrypoint_script(rel_path: str, summary: str) -> bool:
+        if not rel_path.startswith("scripts/"):
+            return False
+        s = (summary or "").strip().lower()
+        if not s:
+            return False
+        if "用法:" in s and ("作用:" in s or "功能:" in s):
+            return True
+        if rel_path.lower() in s:
+            return True
+        if re.search(r"\b(python|bash|sh|node|uv)\b", s) and "scripts/" in s:
+            return True
+        return False
+
     for rel_path in sorted(auxiliary_files.keys()):
-        if rel_path.endswith('.py'):
-            desc = "Python 脚本"
-        elif rel_path.endswith('.sh'):
-            desc = "Shell 脚本"
-        elif rel_path.endswith('.md'):
-            desc = "参考文档"
+        if is_excluded(rel_path):
+            continue
+        if not (rel_path.startswith("scripts/") or rel_path.startswith("references/")):
+            continue
+        summary = ensure_summary(rel_path)
+        is_ref = rel_path.startswith("references/")
+        is_entry = is_entrypoint_script(rel_path, summary)
+        if is_ref:
+            references.append(rel_path)
+        elif is_entry:
+            entrypoints.append(rel_path)
         else:
-            desc = "辅助文件"
-        
-        file_list += f"- **{rel_path}** - {desc}\n"
-    
-    return skill_content.rstrip() + section_header + file_list
+            others.append(rel_path)
+
+    def line_for(rel_path: str) -> str:
+        desc = ensure_summary(rel_path)
+        return f"- **{rel_path}** - {desc}\n"
+
+    def inject_progressive_references(content: str) -> str:
+        if not references and not entrypoints:
+            return content
+        if re.search(r"(?im)^##\s+file references\s*$", content):
+            return content
+
+        def choose_reference() -> Optional[str]:
+            preferred = ["references/REFERENCE.md", "references/README.md"]
+            for p in preferred:
+                if p in auxiliary_files:
+                    return p
+            return references[0] if references else None
+
+        ref_path = choose_reference()
+        parts: list[str] = []
+        parts.append("## File references\n")
+        added_any = False
+        if ref_path and f"({ref_path})" not in content and ref_path not in content:
+            parts.append(f"See [the reference guide]({ref_path}) for details.\n")
+            added_any = True
+        if entrypoints:
+            new_entrypoints = [p for p in entrypoints if p not in content]
+            if new_entrypoints:
+                parts.append("\nRun the extraction script:\n")
+                for p in new_entrypoints:
+                    parts.append(f"\n{p}\n")
+                added_any = True
+        if added_any:
+            parts.append(
+                "\nKeep file references one level deep from SKILL.md. Avoid deeply nested reference chains.\n"
+            )
+        block = "\n".join(parts).strip() + "\n"
+        if not added_any:
+            return content
+
+        insert_match = re.search(r"(?im)^#\s+(instruction|workflow)\b.*$", content)
+        if insert_match:
+            insert_at = insert_match.end()
+            return content[:insert_at] + "\n\n" + block + "\n" + content[insert_at:].lstrip("\n")
+
+        fm_match = re.match(r"^---\n.*?\n---\n?", content, re.DOTALL)
+        if fm_match:
+            insert_at = fm_match.end()
+            return content[:insert_at].rstrip() + "\n\n" + block + "\n" + content[insert_at:].lstrip("\n")
+
+        return block + "\n" + content.lstrip("\n")
+
+    section = "\n\n## 辅助文件\n\n"
+    if entrypoints:
+        section += "### 执行入口\n\n"
+        for p in entrypoints:
+            section += line_for(p)
+        section += "\n"
+    if references:
+        section += "### 参考资料\n\n"
+        for p in references:
+            section += line_for(p)
+        section += "\n"
+    if others:
+        section += "### 其他\n\n"
+        for p in others:
+            section += line_for(p)
+        section += "\n"
+
+    if has_section and not should_replace:
+        injected = inject_progressive_references(skill_content)
+        return injected
+
+    injected = inject_progressive_references(base_content)
+    return injected.rstrip() + section.rstrip() + "\n"
+
+
+def extract_referenced_skill_paths(skill_content: str) -> set[str]:
+    if not skill_content:
+        return set()
+    matches = re.findall(r"\b(?:scripts|references)/[A-Za-z0-9._/\-]+\b", skill_content)
+    return set(matches)
+
+
+def build_auto_snapshot_reason(mode: str, diagnoses: list) -> str:
+    base = f"自动优化: {mode} mode"
+    if not diagnoses:
+        return f"{base}（无诊断）"
+
+    def clean_line(text: str) -> str:
+        text = (text or "").strip()
+        text = re.sub(r"\s+", " ", text)
+        return text
+
+    def format_item(d) -> str:
+        dim = clean_line(str(getattr(d, "dimension", "") or "")) or "Unknown"
+        severity = clean_line(str(getattr(d, "severity", "") or ""))
+        desc = str(getattr(d, "description", "") or "").strip() or "（无描述）"
+        header = f"[{dim}]"
+        if severity:
+            header = f"[{dim}/{severity}]"
+        return f"{header} {desc}"
+
+    lines = [base, "问题列表:"]
+    for i, d in enumerate(diagnoses, start=1):
+        lines.append(f"- {i}. {format_item(d)}")
+    return "\n".join(lines)
 
 
 def print_completion_summary(
@@ -228,6 +471,7 @@ def run_optimizer(
     input_path: Path,
     output_path: Optional[Path] = None,
     human_feedback: Optional[str] = None,
+    open_diff: bool = True,
 ) -> List[Path]:
     """
     Main entry point for function calls.
@@ -281,7 +525,8 @@ def run_optimizer(
 
     # 3. Locate SKILL.md
     skill_files = []
-    if input_path.is_file() and input_path.name.lower() == "skill.md":
+    explicit_skill_file = input_path.is_file() and input_path.name.lower() == "skill.md"
+    if explicit_skill_file:
         try:
             rel_path = input_path.relative_to(input_dir)
             skill_files.append(workspace_dir / rel_path)
@@ -290,7 +535,15 @@ def run_optimizer(
     else:
         skill_files = list(workspace_dir.rglob("SKILL.md"))  # Recursive search
 
-    skill_files = [f for f in skill_files if f.exists()]
+    if explicit_skill_file:
+        skill_files = [f for f in skill_files if f.exists()]
+    else:
+        skill_files = [
+            f
+            for f in skill_files
+            if f.exists() and "snapshots" not in f.parts and ".opt" not in f.parts
+        ]
+    skill_files.sort()
 
     if not skill_files:
         logger.error(f"No SKILL.md found in {workspace_dir}")
@@ -299,6 +552,7 @@ def run_optimizer(
     logger.info(f"Found {len(skill_files)} skill(s) to process in workspace {workspace_dir}.")
 
     optimized_paths = []
+    diff_open_payload = None
 
     # 4. Processing Loop
     for skill_file in skill_files:
@@ -320,40 +574,40 @@ def run_optimizer(
 
             if mode == "static":
                 logger.info("Mode: Static (Cold Start)")
-                print("\n⏳ [进度] 正在执行静态评估...")
-                print("⏳ [进度] 预计需要 1-3 分钟，请耐心等待...")
-                print("⏳ [进度] LLM 调用中...\n")
+                logger.info("⏳ [进度] 正在执行静态评估...")
+                logger.info("⏳ [进度] 预计需要 1-3 分钟，请耐心等待...")
+                logger.info("⏳ [进度] LLM 调用中...")
                 optimized_genome, diagnoses = optimizer.optimize_static(
                     skill_file
                 )
 
             elif mode == "feedback":
                 logger.info("Mode: Feedback (User Revision)")
-                print("\n⏳ [进度] 正在执行反馈优化（基于你的修改意见）...")
-                print("⏳ [进度] 预计需要 1-3 分钟，请耐心等待...")
-                print("⏳ [进度] LLM 调用中...\n")
-                optimized_genome, diagnoses = optimizer.optimize_static(
+                logger.info("⏳ [进度] 正在执行反馈改写（基于你的修改意见）...")
+                logger.info("⏳ [进度] 预计需要 1-3 分钟，请耐心等待...")
+                logger.info("⏳ [进度] LLM 调用中...")
+                optimized_genome, diagnoses = optimizer.optimize_feedback(
                     skill_file, human_feedback=human_feedback
                 )
 
             elif mode == "dynamic":
                 logger.info("Mode: Dynamic (Experience Crystallization)")
-                print("\n⏳ [进度] 正在获取历史执行记录...")
+                logger.info("⏳ [进度] 正在获取历史执行记录...")
                 report_items = get_skill_logs(skill=initial_genome.name, limit=3)
-                print("⏳ [进度] 正在执行动态优化（经验结晶）...")
-                print("⏳ [进度] 预计需要 3-5 分钟，请耐心等待...")
-                print("⏳ [进度] LLM 调用中...\n")
+                logger.info("⏳ [进度] 正在执行动态优化（经验结晶）...")
+                logger.info("⏳ [进度] 预计需要 3-5 分钟，请耐心等待...")
+                logger.info("⏳ [进度] LLM 调用中...")
                 optimized_genome, diagnoses = optimizer.optimize_dynamic(
                     genome=initial_genome, report_items=report_items
                 )
 
             elif mode == "hybrid":
                 logger.info("Mode: Hybrid (Static + Dynamic)")
-                print("\n⏳ [进度] 正在获取历史执行记录...")
-                report_items = get_skill_logs(skill=initial_genome.name)
-                print("⏳ [进度] 正在执行混合优化（静态 + 动态）...")
-                print("⏳ [进度] 预计需要 5-8 分钟，请耐心等待...")
-                print("⏳ [进度] LLM 调用中...\n")
+                logger.info("⏳ [进度] 正在获取历史执行记录...")
+                report_items = get_skill_logs(skill=initial_genome.name, limit=3)
+                logger.info("⏳ [进度] 正在执行混合优化（静态 + 动态）...")
+                logger.info("⏳ [进度] 预计需要 5-8 分钟，请耐心等待...")
+                logger.info("⏳ [进度] LLM 调用中...")
                 optimized_genome, diagnoses = optimizer.optimize_hybrid(
                     skill_path=skill_file,
                     report_items=report_items,
@@ -363,14 +617,18 @@ def run_optimizer(
             from snapshot_manager import SnapshotManager
             sm = SnapshotManager(skill_file.parent)
             sm.create_v0_if_needed()
-            base_for_diff = sm.get_latest_base_version() or "v0"
+            base_for_diff = (
+                sm.get_current_base_version()
+                or sm.get_latest_base_version()
+                or "v0"
+            )
             
             is_feedback = mode == "feedback"
             if is_feedback:
                 reason = f"用户反馈: {human_feedback[:50]}..."
                 source = "user"
             else:
-                reason = f"自动优化: {mode} mode"
+                reason = build_auto_snapshot_reason(mode, diagnoses)
                 source = "auto"
                 
             new_version = sm.create_snapshot(
@@ -389,8 +647,27 @@ def run_optimizer(
                     logger.warning(
                         "Optimized SKILL.md content is suspiciously short or empty!"
                     )
+
+                referenced = extract_referenced_skill_paths(new_content)
+                if referenced:
+                    missing = []
+                    for p in referenced:
+                        if p in optimized_genome.files:
+                            continue
+                        if p in initial_genome.files:
+                            optimized_genome.files[p] = initial_genome.files[p]
+                            if p in initial_genome.file_meta and p not in optimized_genome.file_meta:
+                                optimized_genome.file_meta[p] = initial_genome.file_meta[p]
+                            continue
+                        missing.append(p)
+                    if missing:
+                        logger.warning(f"Optimized SKILL.md references missing files. Falling back to original. Missing: {missing}")
+                        optimized_genome = initial_genome
+                        new_content = optimized_genome.to_markdown()
                 
-                new_content = integrate_auxiliary_references(new_content, optimized_genome.files)
+                new_content = integrate_auxiliary_references(
+                    new_content, optimized_genome.files, optimized_genome.file_meta
+                )
 
                 save_file = skill_save_dir / "SKILL.md"
                 with open(save_file, "w", encoding="utf-8") as f:
@@ -411,8 +688,19 @@ def run_optimizer(
                     )
 
                 for rel_path, file_content in optimized_genome.files.items():
+                    if rel_path.startswith(("snapshots/", ".opt/")):
+                        continue
+                    if rel_path in {
+                        "AUXILIARY_META.json",
+                        "diagnoses.json",
+                        "OPTIMIZATION_REPORT.md",
+                        "meta.json",
+                    }:
+                        continue
                     dest_path = skill_save_dir / rel_path
                     dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    if rel_path.startswith("references/"):
+                        file_content = sanitize_reference_content(file_content)
                     with open(dest_path, "w", encoding="utf-8") as f:
                         f.write(file_content)
                     logger.info(f"Saved auxiliary file: {rel_path}")
@@ -422,6 +710,41 @@ def run_optimizer(
                         logger.warning(f"辅助文件验证失败: {error_msg}")
                     else:
                         logger.info(f"辅助文件验证通过: {rel_path}")
+
+                try:
+                    import json
+
+                    meta_out: dict[str, str] = {}
+                    for rel_path in sorted(optimized_genome.files.keys()):
+                        if rel_path.startswith(("snapshots/", ".opt/")):
+                            continue
+                        if rel_path in {
+                            "AUXILIARY_META.json",
+                            "diagnoses.json",
+                            "OPTIMIZATION_REPORT.md",
+                            "meta.json",
+                        }:
+                            continue
+                        if not (
+                            rel_path.startswith("scripts/")
+                            or rel_path.startswith("references/")
+                        ):
+                            continue
+                        meta_out[rel_path] = (optimized_genome.file_meta.get(rel_path) or "").strip()
+
+                    snapshot_meta_path = skill_save_dir / "AUXILIARY_META.json"
+                    with open(snapshot_meta_path, "w", encoding="utf-8") as f:
+                        json.dump(meta_out, f, indent=2, ensure_ascii=False)
+                    logger.info(f"Saved auxiliary meta: {snapshot_meta_path}")
+
+                    skill_opt_dir = skill_file.parent / ".opt"
+                    skill_opt_dir.mkdir(parents=True, exist_ok=True)
+                    cache_meta_path = skill_opt_dir / "auxiliary_meta.json"
+                    with open(cache_meta_path, "w", encoding="utf-8") as f:
+                        json.dump(meta_out, f, indent=2, ensure_ascii=False)
+                    logger.info(f"Saved auxiliary meta cache: {cache_meta_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to save auxiliary meta: {e}")
             else:
                 logger.warning("Optimization returned None. Skipping save.")
 
@@ -460,20 +783,13 @@ def run_optimizer(
             # Also update the actual skill directory to match the latest snapshot
             sm.revert_to(new_version)
 
-            # Generate and open diff
-            base_version = sm.get_latest_base_version()
-            if base_version:
-                try:
-                    import subprocess
-                    diff_script = Path(__file__).parent / "diff_viewer.py"
-                    subprocess.run([
-                        sys.executable, str(diff_script),
-                        "--snapshots", str(sm.snapshots_dir),
-                        "--title", initial_genome.name,
-                        "--default-base", base_version
-                    ])
-                except Exception as e:
-                    logger.error(f"Failed to open diff viewer: {e}")
+            diff_open_payload = {
+                "snapshots_dir": sm.snapshots_dir,
+                "title": initial_genome.name,
+                "default_base": base_for_diff,
+                "default_current": new_version,
+                "skill_dir": skill_file.parent,
+            }
 
             # Record successful optimization path
             optimized_paths.append(skill_save_dir)
@@ -481,7 +797,7 @@ def run_optimizer(
             
             print("\n" + "=" * 60)
             print(f"✅ 优化完成！已生成新版本: {new_version}")
-            print(f"👉 请在弹出的 Diff 页面查看更改。")
+            print("👉 Diff 页面将在本次运行结束后生成（必要时自动打开）。")
             print("👉 下一步选择：满意就继续下一步 / 不满意先改 / 到此为止")
             print("=" * 60 + "\n")
 
@@ -490,6 +806,37 @@ def run_optimizer(
             import traceback
 
             traceback.print_exc()
+
+    if diff_open_payload:
+        try:
+            import subprocess
+            import webbrowser
+
+            diff_script = Path(__file__).parent / "diff_viewer.py"
+            diff_out = diff_open_payload["skill_dir"] / ".opt" / "diff.html"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(diff_script),
+                    "--snapshots",
+                    str(diff_open_payload["snapshots_dir"]),
+                    "--title",
+                    diff_open_payload["title"],
+                    "--default-base",
+                    diff_open_payload["default_base"],
+                    "--default-current",
+                    diff_open_payload["default_current"],
+                    "--no-open",
+                    "--output",
+                    str(diff_out),
+                ],
+                check=False,
+            )
+            logger.info(f"Diff HTML written to: {diff_out}")
+            if open_diff and len(skill_files) == 1:
+                webbrowser.open(diff_out.resolve().as_uri())
+        except Exception as e:
+            logger.error(f"Failed to generate/open diff viewer: {e}")
 
     return optimized_paths
 
@@ -523,6 +870,11 @@ def main():
         "-o",
         type=str,
         help="Output directory (optional, defaults to input dir)",
+    )
+    parser.add_argument(
+        "--no-open-diff",
+        action="store_true",
+        help="Generate diff HTML but do not open it in the browser.",
     )
     parser.add_argument(
         "--feedback",
@@ -583,7 +935,11 @@ def main():
         parser.error(f"Failed to read feedback file: {e}")
 
     optimized_paths = run_optimizer(
-        args.mode, input_path, output_path, human_feedback=human_feedback_content
+        args.mode,
+        input_path,
+        output_path,
+        human_feedback=human_feedback_content,
+        open_diff=not args.no_open_diff,
     )
 
     if optimized_paths:

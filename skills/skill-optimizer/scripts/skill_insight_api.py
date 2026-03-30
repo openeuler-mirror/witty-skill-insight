@@ -2,8 +2,10 @@ import json
 import os
 import sys
 
-import requests
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
@@ -19,11 +21,13 @@ def _ensure_env_loaded():
     if not _env_loaded:
         from constants import ENV_FILE
 
-        load_dotenv(ENV_FILE)
+        if load_dotenv is not None:
+            load_dotenv(ENV_FILE)
 
         global_env_path = os.path.expanduser("~/.witty/.env")
         if os.path.exists(global_env_path):
-            load_dotenv(global_env_path, override=False)
+            if load_dotenv is not None:
+                load_dotenv(global_env_path, override=False)
 
         _env_loaded = True
 
@@ -52,6 +56,8 @@ def _get_base_url():
         _base_url_cache = base_ip
     else:
         _base_url_cache = f"http://{base_ip}:3000"
+
+    _base_url_cache = _base_url_cache.rstrip("/")
 
     return _base_url_cache
 
@@ -96,6 +102,8 @@ def get_skill_logs(skill: str, skill_version: int = None, limit: int = 20):
     print(f"Params: {json.dumps(params, indent=2, ensure_ascii=False)}")
 
     try:
+        import requests
+
         response = requests.get(url, params=params, headers=headers)
         print(f"Status Code: {response.status_code}")
         try:
