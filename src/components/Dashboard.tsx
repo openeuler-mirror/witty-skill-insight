@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { SkillLinks } from './SkillLink';
+import { useTheme } from '@/lib/theme-context';
 
 
 // --- Types ---
@@ -78,7 +79,7 @@ interface AvgComparison {
     [key: string]: string | number | null;
 }
 
-const COLORS = ['#38bdf8', '#f472b6', '#4ade80', '#fbbf24', '#818cf8', '#f87171'];
+const COLORS = ['#2563eb', '#db2777', '#16a34a', '#d97706', '#7c3aed', '#dc2626'];
 
 // --- Helpers ---
 const formatLatency = (ms: number) => {
@@ -164,16 +165,16 @@ const CustomTooltip = ({ content }: { content: React.ReactNode }) => {
                     top: coords.top - 8,
                     left: coords.left,
                     transform: 'translate(-50%, -100%)',
-                    background: '#0f172a',
-                    border: '1px solid #334155',
-                    color: '#f1f5f9',
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    color: '#334155',
                     padding: '6px 10px',
                     borderRadius: '4px',
                     whiteSpace: 'pre-wrap',
                     minWidth: '200px',
                     textAlign: 'left',
                     zIndex: 9999,
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
                     pointerEvents: 'none'
                 }}>
                     {content}
@@ -187,7 +188,7 @@ const CustomTooltip = ({ content }: { content: React.ReactNode }) => {
                         height: 0,
                         borderLeft: '4px solid transparent',
                         borderRight: '4px solid transparent',
-                        borderTop: '4px solid #334155'
+                        borderTop: '4px solid #e2e8f0'
                     }} />
                 </div>,
                 document.body
@@ -204,7 +205,9 @@ import { getFilteredSteps } from '@/lib/guide-config';
 
 // --- Main Component ---
 export default function Dashboard() {
-    const { user, apiKey } = useAuth(); // Destructure apiKey from useAuth
+    const { user, apiKey } = useAuth();
+    const [isOrgMode, setIsOrgMode] = useState(false);
+    const { theme, toggleTheme, isDark } = useTheme();
     const [localApiKey, setLocalApiKey] = useState<string | null>(null);
 
     const {
@@ -438,6 +441,14 @@ export default function Dashboard() {
 
     useEffect(() => {
         fetchServerSettings();
+    }, []);
+
+    useEffect(() => {
+        fetch('/api').catch(() => {});
+        fetch('/api/config/status?check_org=true')
+            .then(res => res.json())
+            .then(data => setIsOrgMode(data.org_mode || false))
+            .catch(() => {});
     }, []);
 
     // When modal opens, if we have configs, show list. if empty, show edit new.
@@ -1172,12 +1183,12 @@ export default function Dashboard() {
             <div style={{ flex: 1, minHeight: 0 }}>
                 <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                        <XAxis dataKey="shortQuery" stroke="#94a3b8" fontSize={11} angle={-20} textAnchor="end" height={60} />
-                        <YAxis stroke="#94a3b8" tickFormatter={yFormatter} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                        <XAxis dataKey="shortQuery" stroke="var(--foreground-secondary)" fontSize={11} angle={-20} textAnchor="end" height={60} />
+                        <YAxis stroke="var(--foreground-secondary)" tickFormatter={yFormatter} />
                         <Tooltip
                             formatter={(val, name) => [val !== undefined ? (yFormatter ? yFormatter(val as number) : val + unit) : '-', name || '']}
-                            contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }}
+                            contentStyle={{ backgroundColor: 'var(--dropdown-bg)', borderColor: 'var(--border)', color: 'var(--foreground)' }}
                         />
                         <Legend />
                         {frameworks.map((fw, i) => (
@@ -1198,7 +1209,7 @@ export default function Dashboard() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <h1 className="title" style={{ marginBottom: 0 }}>Skill-Insight</h1>
-                        <span style={{ fontSize: '0.8rem', color: '#94a3b8', letterSpacing: '1px' }}>智能体技能评估、分析与优化</span>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)', letterSpacing: '1px' }}>智能体技能评估、分析与优化</span>
                     </div>
 
                     {/* Main Navigation Tabs */}
@@ -1225,6 +1236,13 @@ export default function Dashboard() {
                 </div>
                 {activeTab === 'dashboard' && (
                     <div className="controls" style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            className="theme-toggle-btn"
+                            onClick={toggleTheme}
+                            title={isDark ? '切换到浅色主题' : '切换到深色主题'}
+                        >
+                            {isDark ? '☀️' : '🌙'}
+                        </button>
                         <select value={timeFilter} onChange={(e) => setTimeFilter(e.target.value)}>
                             <option value="all">全部时间</option>
                             <option value="24h">24H</option>
@@ -1232,19 +1250,19 @@ export default function Dashboard() {
                             <option value="1h">1H</option>
                         </select>
                         {allConfigs.length > 0 ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', background: '#0f172a' }}>
-                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>模型:</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px 8px', background: 'var(--background-secondary)' }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)' }}>模型:</span>
                                 <select
                                     value={activeConfigId || 'none'}
                                     onChange={(e) => activateConfig(e.target.value)}
-                                    style={{ background: 'transparent', color: '#e2e8f0', border: 'none', maxWidth: '140px', outline: 'none', cursor: 'pointer' }}
+                                    style={{ background: 'transparent', color: 'var(--foreground)', border: 'none', maxWidth: '140px', outline: 'none', cursor: 'pointer' }}
                                 >
                                     <option value="none">未配置模型</option>
                                     {allConfigs.map(c => (
                                         <option key={c.id} value={c.id}>{c.name}</option>
                                     ))}
                                 </select>
-                                <div style={{ width: '1px', height: '14px', background: '#334155', margin: '0 4px' }}></div>
+                                <div style={{ width: '1px', height: '14px', background: 'var(--border)', margin: '0 4px' }}></div>
                                 <button
                                     onClick={() => setShowSettingsModal(true)}
                                     style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '0', fontSize: '1rem' }}
@@ -1259,8 +1277,8 @@ export default function Dashboard() {
                                 style={{
                                     padding: '4px 8px',
                                     background: 'transparent',
-                                    border: '1px solid #334155',
-                                    color: '#94a3b8'
+                                    border: '1px solid var(--border)',
+                                    color: 'var(--foreground-secondary)'
                                 }}
                                 onClick={() => setShowSettingsModal(true)}
                             >
@@ -1290,8 +1308,8 @@ export default function Dashboard() {
                         {!editingConfigId && (
                             <>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
-                                    <h3 style={{ margin: 0, color: '#f1f5f9' }}>管理模型配置</h3>
-                                    <button onClick={() => setShowSettingsModal(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+                                    <h3 style={{ margin: 0, color: '#1e293b' }}>管理模型配置</h3>
+                                    <button onClick={() => setShowSettingsModal(false)} style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
                                 </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '1.5rem' }}>
@@ -1301,15 +1319,15 @@ export default function Dashboard() {
                                             justifyContent: 'space-between',
                                             alignItems: 'center',
                                             padding: '10px',
-                                            background: activeConfigId === config.id ? 'rgba(59, 130, 246, 0.1)' : '#1e293b',
-                                            border: activeConfigId === config.id ? '1px solid #3b82f6' : '1px solid #334155',
+                                            background: activeConfigId === config.id ? 'rgba(37, 99, 235, 0.1)' : '#f8fafc',
+                                            border: activeConfigId === config.id ? '1px solid #2563eb' : '1px solid #e2e8f0',
                                             borderRadius: '6px'
                                         }}>
                                             <div>
-                                                <div style={{ fontWeight: 'bold', color: activeConfigId === config.id ? '#60a5fa' : '#f1f5f9' }}>
+                                                <div style={{ fontWeight: 'bold', color: activeConfigId === config.id ? '#2563eb' : '#1e293b' }}>
                                                     {config.name} {activeConfigId === config.id && '(Active)'}
                                                 </div>
-                                                <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
                                                     {config.provider} • {config.model}
                                                 </div>
                                             </div>
@@ -1337,7 +1355,7 @@ export default function Dashboard() {
                                                 </button>
                                                 <button
                                                     className="btn-secondary"
-                                                    style={{ padding: '4px 8px', fontSize: '0.8rem', color: '#f87171', borderColor: '#7f1d1d' }}
+                                                    style={{ padding: '4px 8px', fontSize: '0.8rem', color: '#dc2626', borderColor: '#f87171' }}
                                                     onClick={() => deleteEvalConfig(config.id)}
                                                 >
                                                     Del
@@ -1372,10 +1390,10 @@ export default function Dashboard() {
                         {editingConfigId && (
                             <>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
-                                    <h3 style={{ margin: 0, color: '#f1f5f9' }}>{editingConfigId === 'new' ? '新配置' : '编辑'}</h3>
+                                    <h3 style={{ margin: 0, color: '#1e293b' }}>{editingConfigId === 'new' ? '新配置' : '编辑'}</h3>
                                     <button
                                         onClick={() => setEditingConfigId(null)}
-                                        style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '0.9rem', cursor: 'pointer' }}
+                                        style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: '0.9rem', cursor: 'pointer' }}
                                     >
                                         Back to List
                                     </button>
@@ -1387,9 +1405,9 @@ export default function Dashboard() {
                                         padding: '10px',
                                         marginBottom: '1rem',
                                         borderRadius: '4px',
-                                        background: settingsStatus.type === 'success' ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)',
-                                        border: `1px solid ${settingsStatus.type === 'success' ? '#4ade80' : '#f87171'}`,
-                                        color: settingsStatus.type === 'success' ? '#4ade80' : '#f87171',
+                                        background: settingsStatus.type === 'success' ? 'rgba(22, 163, 74, 0.1)' : 'rgba(220, 38, 38, 0.1)',
+                                        border: `1px solid ${settingsStatus.type === 'success' ? '#16a34a' : '#dc2626'}`,
+                                        color: settingsStatus.type === 'success' ? '#16a34a' : '#dc2626',
                                         fontSize: '0.9rem'
                                     }}>
                                         {settingsStatus.msg}
@@ -1402,7 +1420,7 @@ export default function Dashboard() {
                                         placeholder="e.g. My DeepSeek, Company OpenAI Proxy"
                                         value={tempConfig.name || ''}
                                         onChange={e => setTempConfig({ ...tempConfig, name: e.target.value })}
-                                        style={{ width: '100%', padding: '10px', background: '#0f172a', border: '1px solid #334155', color: 'white', borderRadius: '4px' }}
+                                        style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
                                     />
                                 </div>
 
@@ -1428,7 +1446,7 @@ export default function Dashboard() {
                                             }
                                             setTempConfig({ ...tempConfig, ...updates });
                                         }}
-                                        style={{ width: '100%', padding: '10px', background: '#0f172a', border: '1px solid #334155', color: 'white', borderRadius: '4px' }}
+                                        style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
                                     >
                                         <option value="deepseek">DeepSeek (Official)</option>
                                         <option value="siliconflow">SiliconFlow (DeepSeek V3 High Speed)</option>
@@ -1450,7 +1468,7 @@ export default function Dashboard() {
                                             val = val.replace(/\/chat\/completions\/?$/, '');
                                             setTempConfig({ ...tempConfig, baseUrl: val });
                                         }}
-                                        style={{ width: '100%', padding: '10px', background: '#0f172a', border: '1px solid #334155', color: 'white', borderRadius: '4px' }}
+                                        style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
                                     />
                                 </div>
 
@@ -1461,7 +1479,7 @@ export default function Dashboard() {
                                         placeholder="sk-..."
                                         value={tempConfig.apiKey || ''}
                                         onChange={e => setTempConfig({ ...tempConfig, apiKey: e.target.value })}
-                                        style={{ width: '100%', padding: '10px', background: '#0f172a', border: '1px solid #334155', color: 'white', borderRadius: '4px' }}
+                                        style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
                                     />
                                 </div>
 
@@ -1471,7 +1489,7 @@ export default function Dashboard() {
                                         placeholder="e.g. deepseek-chat, gpt-4o"
                                         value={tempConfig.model || ''}
                                         onChange={e => setTempConfig({ ...tempConfig, model: e.target.value })}
-                                        style={{ width: '100%', padding: '10px', background: '#0f172a', border: '1px solid #334155', color: 'white', borderRadius: '4px' }}
+                                        style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
                                     />
                                 </div>
 
@@ -1525,31 +1543,31 @@ export default function Dashboard() {
                             return (
                                 <div className="card" key={fw} style={{ borderLeft: `4px solid ${COLORS[idx % COLORS.length]}` }}>
                                     <div className="card-title" style={{ color: COLORS[idx % COLORS.length] }}>{fw}</div>
-                                    <div className="stat-value">{fwData.length} <small style={{ fontSize: '1rem', color: '#64748b' }}>执行数</small></div>
+                                    <div className="stat-value">{fwData.length} <small style={{ fontSize: '1rem', color: 'var(--foreground-muted)' }}>执行数</small></div>
                                     <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.2rem' }}>
                                         {/* Latency */}
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8', textTransform: 'uppercase' }}>时延</span>
-                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f1f5f9' }}>{formatLatency(avgLat)}</span>
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)', textTransform: 'uppercase' }}>时延</span>
+                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--foreground)' }}>{formatLatency(avgLat)}</span>
                                         </div>
                                         {/* Token */}
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8', textTransform: 'uppercase' }}>TOKEN</span>
-                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f1f5f9' }}>{formatTokens(Math.round(avgTok))}</span>
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)', textTransform: 'uppercase' }}>TOKEN</span>
+                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--foreground)' }}>{formatTokens(Math.round(avgTok))}</span>
                                         </div>
                                     </div>
-                                    <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid #334155', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.2rem' }}>
+                                    <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid var(--border)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.2rem' }}>
                                         {/* Accuracy */}
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>准确率</span>
-                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: !hasEvaluatedData ? '#94a3b8' : (avgScore > 0.8 ? '#4ade80' : '#fbbf24') }}>
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)' }}>准确率</span>
+                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: !hasEvaluatedData ? 'var(--foreground-muted)' : (avgScore > 0.8 ? 'var(--success)' : 'var(--warning)') }}>
                                                 {hasEvaluatedData ? `${(avgScore * 100).toFixed(1)}%` : '--'}
                                             </span>
                                         </div>
                                         {/* Skill Recall Rate */}
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>技能召回率</span>
-                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: '#fbbf24' }}>
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)' }}>技能召回率</span>
+                                            <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--warning)' }}>
                                                 {skillRecallRate.toFixed(1)}%
                                             </span>
                                         </div>
@@ -1564,7 +1582,7 @@ export default function Dashboard() {
                     <div className="analysis-controls">
                         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                             {['latest_10', 'all', 'single'].map(m => (
-                                <label key={m} style={{ cursor: 'pointer', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <label key={m} style={{ cursor: 'pointer', color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                     <input type="radio" checked={comparisonMode === m} onChange={() => setComparisonMode(m as any)} />
                                     {m === 'latest_10' ? '最新10问' : m === 'all' ? '所有' : '单问题'}
                                 </label>
@@ -1576,19 +1594,19 @@ export default function Dashboard() {
                             </select>
                         )}
 
-                        <div style={{ marginLeft: '10px', display: 'flex', gap: '8px', borderLeft: '1px solid #475569', paddingLeft: '10px' }}>
-                            <span style={{ color: '#94a3b8', fontSize: '0.9rem', display: 'flex', alignItems: 'center' }}>分类:</span>
+                        <div style={{ marginLeft: '10px', display: 'flex', gap: '8px', borderLeft: '1px solid var(--border)', paddingLeft: '10px' }}>
+                            <span style={{ color: 'var(--foreground-secondary)', fontSize: '0.9rem', display: 'flex', alignItems: 'center' }}>分类:</span>
                             <button
                                 className={`tab-btn-sm ${comparisonDimension === 'framework' ? 'active' : ''}`}
                                 onClick={() => setComparisonDimension('framework')}
-                                style={{ padding: '2px 8px', fontSize: '0.8rem', background: comparisonDimension === 'framework' ? '#38bdf8' : 'transparent', color: comparisonDimension === 'framework' ? '#0f172a' : '#94a3b8', border: '1px solid #38bdf8' }}
+                                style={{ padding: '2px 8px', fontSize: '0.8rem', background: comparisonDimension === 'framework' ? 'var(--primary)' : 'transparent', color: comparisonDimension === 'framework' ? '#ffffff' : 'var(--foreground-secondary)', border: '1px solid var(--primary)' }}
                             >
                                 框架
                             </button>
                             <button
                                 className={`tab-btn-sm ${comparisonDimension === 'model' ? 'active' : ''}`}
                                 onClick={() => setComparisonDimension('model')}
-                                style={{ padding: '2px 8px', fontSize: '0.8rem', background: comparisonDimension === 'model' ? '#38bdf8' : 'transparent', color: comparisonDimension === 'model' ? '#0f172a' : '#94a3b8', border: '1px solid #38bdf8' }}
+                                style={{ padding: '2px 8px', fontSize: '0.8rem', background: comparisonDimension === 'model' ? 'var(--primary)' : 'transparent', color: comparisonDimension === 'model' ? '#ffffff' : 'var(--foreground-secondary)', border: '1px solid var(--primary)' }}
                             >
                                 模型
                             </button>
@@ -1596,7 +1614,7 @@ export default function Dashboard() {
 
 
                         <div style={{ marginLeft: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <label style={{ cursor: 'pointer', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <label style={{ cursor: 'pointer', color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                 <input type="checkbox" checked={comparisonGroupByLabel} onChange={(e) => {
                                     setComparisonGroupByLabel(e.target.checked);
                                     if (e.target.checked && selectedComparisonLabels.length === 0) {
@@ -1609,25 +1627,25 @@ export default function Dashboard() {
 
                             {comparisonGroupByLabel && (
                                 <div style={{ position: 'relative', display: 'inline-block' }}>
-                                    <div className="dropdown-trigger" style={{ background: '#1e293b', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', border: '1px solid #334155', minWidth: '150px' }}>
-                                        {selectedComparisonLabels.length === 0 ? '所有标签 (All)' : `已选 ${selectedComparisonLabels.length} 个`}
+                                    <div className="dropdown-trigger" style={{ background: 'var(--dropdown-bg)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--dropdown-border)', minWidth: '150px', color: 'var(--foreground)' }}>
+                                        {selectedComparisonLabels.length === 0 ? '所有标签' : `已选 ${selectedComparisonLabels.length} 个`}
                                         <span style={{ float: 'right', fontSize: '0.8rem' }}>▼</span>
                                     </div>
                                     <div className="dropdown-content" style={{
                                         position: 'absolute', top: '100%', left: 0, zIndex: 10,
-                                        background: '#1e293b', border: '1px solid #334155', borderRadius: '4px',
+                                        background: 'var(--dropdown-bg)', border: '1px solid var(--dropdown-border)', borderRadius: '4px',
                                         padding: '0.5rem', minWidth: '200px', maxHeight: '300px', overflowY: 'auto',
-                                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)'
+                                        boxShadow: '0 4px 6px -1px var(--shadow-color)'
                                     }}>
-                                        <label style={{ display: 'block', marginBottom: '4px', cursor: 'pointer' }}>
+                                        <label style={{ display: 'block', marginBottom: '4px', cursor: 'pointer', color: 'var(--foreground)' }}>
                                             <input type="checkbox"
                                                 checked={selectedComparisonLabels.length === 0}
                                                 onChange={() => setSelectedComparisonLabels([])}
-                                            /> <span style={{ marginLeft: '4px' }}>所有标签 (All)</span>
+                                            /> <span style={{ marginLeft: '4px' }}>所有标签</span>
                                         </label>
-                                        <hr style={{ borderColor: '#334155', margin: '4px 0' }} />
+                                        <hr style={{ borderColor: 'var(--border)', margin: '4px 0' }} />
                                         {comparisonAvailableLabels.map(l => (
-                                            <label key={l} style={{ display: 'block', marginBottom: '4px', cursor: 'pointer' }}>
+                                            <label key={l} style={{ display: 'block', marginBottom: '4px', cursor: 'pointer', color: 'var(--foreground)' }}>
                                                 <input type="checkbox"
                                                     checked={selectedComparisonLabels.includes(l)}
                                                     onChange={(e) => {
@@ -1652,8 +1670,8 @@ export default function Dashboard() {
                         <div>
                             {comparisonData.map((group: any) => (
                                 <div key={group.label} style={{ marginBottom: '2rem' }}>
-                                    <h3 style={{ color: '#f8fafc', borderBottom: '1px solid #334155', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
-                                        Tag: <span style={{ color: '#38bdf8' }}>{group.label}</span>
+                                    <h3 style={{ color: '#1e293b', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
+                                        Tag: <span style={{ color: '#2563eb' }}>{group.label}</span>
                                     </h3>
                                     <div className="analysis-grid">
                                         <ChartLayout title="平均时延" unit="m" dataKey="lat" data={group.data} frameworks={comparisonSeries} yFormatter={(v) => (v / 60000).toFixed(2) + 'm'} />
@@ -1663,7 +1681,7 @@ export default function Dashboard() {
                                     </div>
                                 </div>
                             ))}
-                            {comparisonData.length === 0 && <div className="card" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>无数据</div>}
+                            {comparisonData.length === 0 && <div className="card" style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>无数据</div>}
                         </div>
                     ) : (
                         // Default View
@@ -1702,7 +1720,7 @@ export default function Dashboard() {
                                 />
                             </div>
                         ) : (
-                            <div className="card" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>无数据</div>
+                            <div className="card" style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>无数据</div>
                         )
                     )}
 
@@ -2072,17 +2090,17 @@ export default function Dashboard() {
                             placeholder="搜索问题..."
                             value={tableQuery}
                             onChange={e => setTableQuery(e.target.value)}
-                            style={{ padding: '0.5rem', background: '#1e293b', border: '1px solid #334155', borderRadius: '4px', color: 'white', minWidth: '250px' }}
+                            style={{ padding: '0.5rem', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: '4px', color: 'var(--foreground)', minWidth: '250px' }}
                         />
 
-                        <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: '0.9rem' }}>
+                        <span style={{ marginLeft: 'auto', color: 'var(--foreground-secondary)', fontSize: '0.9rem' }}>
                             共有 {tableFilteredData.length} 条数据
                         </span>
                     </div>
 
                     <div className="card table-container">
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead style={{ textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155' }}>
+                            <thead style={{ textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)' }}>
                                 <tr>
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}>时间</th>
                                     <th className="p-2" style={{ whiteSpace: 'nowrap' }}>框架</th>
@@ -2101,14 +2119,14 @@ export default function Dashboard() {
                                 {currentTableData.map((row, i) => {
                                     const recordId = row.upload_id || row.task_id || '';
                                     return (
-                                        <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
+                                        <tr key={i} style={{ borderBottom: '1px solid var(--table-row-border)' }}>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{formatDateTime(row.timestamp)}</td>
                                             <td className="p-2" style={{ whiteSpace: 'nowrap' }}>{row.framework}</td>
                                             <td className="p-2" title={row.query}>{row.query.length > 30 ? row.query.substring(0, 30) + '...' : row.query}</td>
                                             <td className="p-2">{formatLatency(row.latency)}</td>
                                             <td className="p-2">{formatTokens(row.tokens)}</td>
                                             <td className="p-2">
-                                                <span style={{ color: row.answer_score === null ? '#94a3b8' : ((row.answer_score || 0) > 0.8 ? '#4ade80' : '#ef4444'), fontWeight: 'bold' }}>
+                                                <span style={{ color: row.answer_score === null ? 'var(--foreground-muted)' : ((row.answer_score || 0) > 0.8 ? 'var(--success)' : 'var(--error)'), fontWeight: 'bold' }}>
                                                     {row.answer_score === null ? '--' : (row.answer_score || 0).toFixed(2)}
                                                 </span>
                                             </td>
@@ -2122,7 +2140,7 @@ export default function Dashboard() {
                                             }>
                                                 {row.cost != null
                                                     ? formatCost(row.cost)
-                                                    : (row.tokens ? <span style={{ color: '#64748b' }}>N/A</span> : '-')
+                                                    : (row.tokens ? <span style={{ color: 'var(--foreground-muted)' }}>N/A</span> : '-')
                                                 }
                                             </td>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{row.model || '-'}</td>
@@ -2133,10 +2151,10 @@ export default function Dashboard() {
                                                         <input
                                                             value={tempLabelValue}
                                                             onChange={e => setTempLabelValue(e.target.value)}
-                                                            style={{ width: '80px', padding: '2px 4px', fontSize: '0.8rem', background: '#0f172a', border: '1px solid #334155' }}
+                                                            style={{ width: '80px', padding: '2px 4px', fontSize: '0.8rem', background: 'var(--input-bg)', border: '1px solid var(--input-border)', color: 'var(--foreground)' }}
                                                         />
-                                                        <button onClick={() => handleUpdateLabel(row, tempLabelValue)} style={{ color: '#4ade80', background: 'none', border: 'none', cursor: 'pointer' }}>✓</button>
-                                                        <button onClick={() => setEditingLabelId(null)} style={{ color: '#f87171', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                                                        <button onClick={() => handleUpdateLabel(row, tempLabelValue)} style={{ color: 'var(--success)', background: 'none', border: 'none', cursor: 'pointer' }}>✓</button>
+                                                        <button onClick={() => setEditingLabelId(null)} style={{ color: 'var(--error)', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
                                                     </div>
                                                 ) : (
                                                     <div
@@ -2148,8 +2166,8 @@ export default function Dashboard() {
                                                             }
                                                         }}
                                                     >
-                                                        {row.label ? <span style={{ padding: '2px 6px', background: '#334155', borderRadius: '4px', fontSize: '0.8rem' }}>{row.label}</span> : <span style={{ color: '#64748b' }}>-</span>}
-                                                        <span style={{ fontSize: '0.7rem', color: '#475569', opacity: 0.5 }}>✎</span>
+                                                        {row.label ? <span style={{ padding: '2px 6px', background: 'var(--background-secondary)', borderRadius: '4px', fontSize: '0.8rem', border: '1px solid var(--border)' }}>{row.label}</span> : <span style={{ color: 'var(--foreground-muted)' }}>-</span>}
+                                                        <span style={{ fontSize: '0.7rem', color: 'var(--foreground-muted)', opacity: 0.5 }}>✎</span>
                                                     </div>
                                                 )}
                                             </td>
@@ -2158,7 +2176,7 @@ export default function Dashboard() {
                                                     <button onClick={() => {
                                                         const url = `/details?framework=${encodeURIComponent(row.framework)}&expandTaskId=${recordId}`;
                                                         window.open(url, '_blank');
-                                                    }} className="btn-sm" style={{ background: '#3b82f6' }}>
+                                                    }} className="btn-sm" style={{ background: 'var(--primary)' }}>
                                                         详情
                                                     </button>
                                                     <button
@@ -2166,8 +2184,8 @@ export default function Dashboard() {
                                                         className="btn-sm"
                                                         disabled={rejudgingIds.has(recordId)}
                                                         style={{
-                                                            background: rejudgingIds.has(recordId) ? '#94a3b8' : '#fbbf24',
-                                                            color: '#0f172a',
+                                                            background: rejudgingIds.has(recordId) ? 'var(--foreground-muted)' : 'var(--warning)',
+                                                            color: '#ffffff',
                                                             cursor: rejudgingIds.has(recordId) ? 'not-allowed' : 'pointer',
                                                             display: 'inline-flex',
                                                             alignItems: 'center',
@@ -3223,6 +3241,7 @@ export default function Dashboard() {
                             >
                                 Close
                             </button>
+                            {!isOrgMode && (
                             <button
                                 onClick={() => {
                                     localStorage.removeItem('user_id');
@@ -3242,6 +3261,7 @@ export default function Dashboard() {
                             >
                                 Sign Out
                             </button>
+                            )}
                         </div>
                     </div>
                 </div>

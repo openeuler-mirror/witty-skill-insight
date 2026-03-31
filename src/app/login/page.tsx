@@ -2,13 +2,64 @@
 
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
+  const [isOrgMode, setIsOrgMode] = useState(false);
+  const [orgRedirectUrl, setOrgRedirectUrl] = useState('');
   const { login } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    fetch('/api').catch(() => {});
+    fetch('/api/config').catch(() => {});
+    fetch('/api/config/status?check_org=true')
+      .then(res => res.json())
+      .then(data => {
+        setIsOrgMode(data.org_mode || false);
+        setOrgRedirectUrl(data.org_login_redirect_url || '');
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!isOrgMode || !orgRedirectUrl) return;
+
+    let cancelled = false;
+
+    const tryOrgLogin = async () => {
+      try {
+        const res = await fetch('/api/auth/organization', { cache: 'no-store' });
+
+        if (!res.ok) {
+          // 如果企业侧还没有登录态，则跳转到企业登录页
+          if (!cancelled && (res.status === 401 || res.status === 403)) {
+            window.location.href = orgRedirectUrl;
+          }
+          return;
+        }
+
+        const data = await res.json();
+        if (!cancelled && data?.username) {
+          login(data.username, data.apiKey);
+          router.replace('/');
+        }
+      } catch (e) {
+        // 网络等异常场景，兜底走企业登录
+        if (!cancelled) {
+          window.location.href = orgRedirectUrl;
+        }
+      }
+    };
+
+    tryOrgLogin();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOrgMode, orgRedirectUrl, login, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,7 +81,6 @@ export default function LoginPage() {
         
         if (res.ok) {
             login(data.username, data.apiKey);
-            router.push('/');
         } else {
             // Show error from API
             setError(data.error || '登录失败，请重试');
@@ -40,6 +90,16 @@ export default function LoginPage() {
         setError('网络错误，请检查连接');
     }
   };
+
+  if (isOrgMode) {
+    return (
+      <div className="login-container">
+        <div className="login-box">
+          <p style={{ color: '#94a3b8', textAlign: 'center' }}>正在跳转到企业登录页...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-container">

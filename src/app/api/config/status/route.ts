@@ -6,8 +6,15 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
-        const id = searchParams.get('id');
+        
+        if (searchParams.get('check_org') === 'true') {
+            return NextResponse.json({
+                org_mode: process.env.ORGANIZATION_MODE === 'true',
+                org_login_redirect_url: process.env.ORG_LOGIN_REDIRECT_URL || ''
+            });
+        }
 
+        const id = searchParams.get('id');
         if (!id) {
             return NextResponse.json({ error: 'Missing id parameter' }, { status: 400 });
         }

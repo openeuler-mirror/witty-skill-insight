@@ -15,23 +15,54 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(null);
+  const [isOrgMode, setIsOrgMode] = useState(false);
+  const [isOrgLoading, setIsOrgLoading] = useState(false);
+  const [orgModeChecked, setOrgModeChecked] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    // Check localStorage on mount
+    fetch('/api').catch(() => {});
+    fetch('/api/config/status?check_org=true')
+      .then(res => res.json())
+      .then(data => setIsOrgMode(data.org_mode || false))
+      .catch(() => {})
+      .finally(() => setOrgModeChecked(true));
+  }, []);
+
+  useEffect(() => {
+    if (!orgModeChecked) return;
+
     const storedUser = localStorage.getItem('user_id');
     const storedApiKey = localStorage.getItem('api_key');
+    
     if (storedUser) {
       setUser(storedUser);
       if (storedApiKey) setApiKey(storedApiKey);
-    } else {
-        // If not logged in and not on login page, redirect
-        if (pathname !== '/login') {
-            router.push('/login');
-        }
+    } else if (isOrgMode && !isOrgLoading) {
+      setIsOrgLoading(true);
+      fetch('/api/auth/organization')
+        .then(async res => {
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(json?.error || `Organization auth failed: ${res.status}`);
+          return json;
+        })
+        .then(data => {
+          const nextUser = data?.displayName || data?.username;
+          const nextApiKey = data?.apiKey;
+          if (!nextUser) throw new Error('Organization auth response missing username');
+
+          localStorage.setItem('user_id', nextUser);
+          if (nextApiKey) localStorage.setItem('api_key', nextApiKey);
+          setUser(nextUser);
+          if (nextApiKey) setApiKey(nextApiKey);
+        })
+        .catch(err => console.error('Organization auth failed:', err))
+        .finally(() => setIsOrgLoading(false));
+    } else if (pathname !== '/login') {
+      router.push('/login');
     }
-  }, [pathname, router]);
+  }, [pathname, router, isOrgMode, isOrgLoading, orgModeChecked]);
 
   const login = (username: string, key?: string) => {
     localStorage.setItem('user_id', username);
@@ -40,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('api_key', key);
         setApiKey(key);
     }
-    router.push('/');
+    router.replace('/');
   };
 
   const logout = () => {
