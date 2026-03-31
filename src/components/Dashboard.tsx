@@ -1670,7 +1670,7 @@ export default function Dashboard() {
                         <div>
                             {comparisonData.map((group: any) => (
                                 <div key={group.label} style={{ marginBottom: '2rem' }}>
-                                    <h3 style={{ color: '#1e293b', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
+                                    <h3 style={{ color: 'var(--foreground)', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
                                         Tag: <span style={{ color: '#2563eb' }}>{group.label}</span>
                                     </h3>
                                     <div className="analysis-grid">
@@ -1737,7 +1737,7 @@ export default function Dashboard() {
                             {filteredQueries.map(q => <option key={q} value={q}>{q.substring(0, 80)}</option>)}
                         </select>
                         <div style={{ marginLeft: '10px', display: 'flex', alignItems: 'center', gap: '20px' }}>
-                            <label style={{ cursor: 'pointer', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <label style={{ cursor: 'pointer', color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                 <input type="checkbox" checked={drillDownGroupByLabel} onChange={(e) => {
                                     setDrillDownGroupByLabel(e.target.checked);
                                     if (e.target.checked) setDrillDownGroupByModel(false);
@@ -1745,7 +1745,7 @@ export default function Dashboard() {
                                 按标签分类
                             </label>
 
-                            <label style={{ cursor: 'pointer', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <label style={{ cursor: 'pointer', color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                 <input type="checkbox" checked={drillDownGroupByModel} onChange={(e) => {
                                     setDrillDownGroupByModel(e.target.checked);
                                     if (e.target.checked) setDrillDownGroupByLabel(false);
@@ -1755,15 +1755,16 @@ export default function Dashboard() {
 
                             {drillDownGroupByLabel && (
                                 <div className="dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
-                                    <div className="dropdown-trigger" style={{ background: '#1e293b', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', border: '1px solid #334155', minWidth: '150px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div className="dropdown-trigger" style={{ background: 'var(--dropdown-bg)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--dropdown-border)', minWidth: '150px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--foreground)' }}>
                                         {selectedDrillDownLabels.length === 0 ? '所有标签 (All Labels)' : `已选 ${selectedDrillDownLabels.length} 个`}
                                         <span style={{ fontSize: '0.8rem', marginLeft: '8px' }}>▼</span>
                                     </div>
                                     <div className="dropdown-content" style={{
                                         position: 'absolute', top: '100%', left: 0, zIndex: 10,
-                                        background: '#1e293b', border: '1px solid #334155', borderRadius: '4px',
+                                        background: 'var(--dropdown-bg)', border: '1px solid var(--dropdown-border)', borderRadius: '4px',
                                         padding: '0.5rem', minWidth: '200px', maxHeight: '300px', overflowY: 'auto',
-                                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)'
+                                        boxShadow: '0 4px 6px -1px var(--shadow-color)',
+                                        color: 'var(--foreground)'
                                     }}>
                                         <label style={{ display: 'block', marginBottom: '4px', cursor: 'pointer' }}>
                                             <input type="checkbox"
@@ -1771,7 +1772,7 @@ export default function Dashboard() {
                                                 onChange={() => setSelectedDrillDownLabels([])}
                                             /> <span style={{ marginLeft: '4px' }}>所有标签 (All)</span>
                                         </label>
-                                        <hr style={{ borderColor: '#334155', margin: '4px 0' }} />
+                                        <hr style={{ borderColor: 'var(--border)', margin: '4px 0' }} />
                                         {drillDownAvailableLabels.map(l => (
                                             <label key={l} style={{ display: 'block', marginBottom: '4px', cursor: 'pointer' }}>
                                                 <input type="checkbox"
@@ -1792,15 +1793,16 @@ export default function Dashboard() {
 
                             {drillDownGroupByModel && (
                                 <div className="dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
-                                    <div className="dropdown-trigger" style={{ background: '#1e293b', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', border: '1px solid #334155', minWidth: '150px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div className="dropdown-trigger" style={{ background: 'var(--dropdown-bg)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--dropdown-border)', minWidth: '150px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--foreground)' }}>
                                         {selectedDrillDownModels.length === 0 ? '所有模型 (All Models)' : `已选 ${selectedDrillDownModels.length} 个`}
                                         <span style={{ fontSize: '0.8rem', marginLeft: '8px' }}>▼</span>
                                     </div>
                                     <div className="dropdown-content" style={{
                                         position: 'absolute', top: '100%', left: 0, zIndex: 10,
-                                        background: '#1e293b', border: '1px solid #334155', borderRadius: '4px',
+                                        background: 'var(--dropdown-bg)', border: '1px solid var(--dropdown-border)', borderRadius: '4px',
                                         padding: '0.5rem', minWidth: '200px', maxHeight: '300px', overflowY: 'auto',
-                                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)'
+                                        boxShadow: '0 4px 6px -1px var(--shadow-color)',
+                                        color: 'var(--foreground)'
                                     }}>
                                         <label style={{ display: 'block', marginBottom: '4px', cursor: 'pointer' }}>
                                             <input type="checkbox"
@@ -1808,7 +1810,7 @@ export default function Dashboard() {
                                                 onChange={() => setSelectedDrillDownModels([])}
                                             /> <span style={{ marginLeft: '4px' }}>所有模型 (All)</span>
                                         </label>
-                                        <hr style={{ borderColor: '#334155', margin: '4px 0' }} />
+                                        <hr style={{ borderColor: 'var(--border)', margin: '4px 0' }} />
                                         {drillDownAvailableModels.map(m => (
                                             <label key={m} style={{ display: 'block', marginBottom: '4px', cursor: 'pointer' }}>
                                                 <input type="checkbox"

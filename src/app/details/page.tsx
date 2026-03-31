@@ -1828,11 +1828,11 @@ function DetailPage() {
                                                 <h4 style={sectionHeader}>会话数据（原始JSON）</h4>
                                             </div>
                                             {isSessionJsonExpanded && (
-                                                <div style={{ background: 'var(--code-block-bg)', padding: '1rem', borderRadius: '8px', overflowY: 'auto', maxHeight: '600px' }}>
+                                                <div style={{ background: 'var(--code-block-bg)', padding: '1rem', borderRadius: '8px', overflowY: 'auto', maxHeight: '600px', border: '1px solid var(--border)' }}>
                                                     <ReactJson
                                                         key={`json-${focusedStep !== null ? focusedStep : 'default'}`}
                                                         src={formatSessionForDisplay(session)}
-                                                        theme="monokai"
+                                                        theme={isDark ? 'monokai' : 'rjv-default'}
                                                         shouldCollapse={(field) => {
                                                             const path = [...(field.namespace || []), field.name]
                                                                 .filter(key => key != null && String(key).trim() !== '')
@@ -1916,29 +1916,29 @@ function DetailPage() {
                                                 return (
                                                     <div style={{
                                                         ...codeBlock,
-                                                        background: '#1e293b',
+                                                        background: 'var(--code-block-bg)',
                                                         padding: '1rem',
                                                         borderRadius: '6px',
-                                                        border: '1px solid #334155'
+                                                        border: '1px solid var(--border)'
                                                     }}>
                                                         {currentRecord.judgment_reason || '-'}
                                                     </div>
                                                 );
                                             }
                                             return (
-                                                <div style={{ background: '#1e293b', borderRadius: '6px', border: '1px solid #334155', overflowX: 'visible' }}>
+                                                <div style={{ background: 'var(--card-bg)', borderRadius: '6px', border: '1px solid var(--border)', overflowX: 'visible' }}>
                                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', minWidth: '950px' }}>
                                                         <thead>
-                                                            <tr style={{ background: '#0f172a' }}>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: '#94a3b8', borderBottom: '1px solid #334155', width: '60px', whiteSpace: 'nowrap' }}>ID</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155', minWidth: '180px' }}>评分标准</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: '#94a3b8', borderBottom: '1px solid #334155', width: '60px', whiteSpace: 'nowrap' }}>得分</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: '#94a3b8', borderBottom: '1px solid #334155', width: '50px', whiteSpace: 'nowrap' }}>权重</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: '#94a3b8', borderBottom: '1px solid #334155', width: '60px', whiteSpace: 'nowrap' }}>扣分</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: '#94a3b8', borderBottom: '1px solid #334155', width: '50px', whiteSpace: 'nowrap' }}>关联<CustomTooltip content="表示扣分来源。若与skill相关，则体现在“分析依据”和“改进建议”" /></th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155', minWidth: '150px' }}>扣分原因</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155', minWidth: '150px' }}>分析依据</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155', minWidth: '150px' }}>改进建议</th>
+                                                            <tr style={{ background: 'var(--background-secondary)' }}>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '60px', whiteSpace: 'nowrap' }}>ID</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '180px' }}>评分标准</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '60px', whiteSpace: 'nowrap' }}>得分</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '50px', whiteSpace: 'nowrap' }}>权重</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '60px', whiteSpace: 'nowrap' }}>扣分</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '50px', whiteSpace: 'nowrap' }}>关联<CustomTooltip content="表示扣分来源。若与skill相关，则体现在“分析依据”和“改进建议”" /></th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '150px' }}>扣分原因</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '150px' }}>分析依据</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '150px' }}>改进建议</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -1958,13 +1958,13 @@ function DetailPage() {
                                                                         key={idx}
                                                                         id={`eval-item-${taskId}-${evalItem.id}`}
                                                                         style={{
-                                                                            background: idx % 2 === 0 ? '#1e293b' : '#1a2530',
+                                                                            background: idx % 2 === 0 ? 'var(--card-bg)' : 'var(--background-secondary)',
                                                                             transition: 'background 0.2s'
                                                                         }}
                                                                         onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(56, 189, 248, 0.05)'; }}
-                                                                        onMouseLeave={(e) => { e.currentTarget.style.background = idx % 2 === 0 ? '#1e293b' : '#1a2530'; }}
+                                                                        onMouseLeave={(e) => { e.currentTarget.style.background = idx % 2 === 0 ? 'var(--card-bg)' : 'var(--background-secondary)'; }}
                                                                     >
-                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155', textAlign: 'center' }}>
+                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                                                                             <span style={{
                                                                                 background: evalItem.type === 'root_cause' ? '#f472b6' : '#38bdf8',
                                                                                 color: '#0f172a',
@@ -1977,12 +1977,12 @@ function DetailPage() {
                                                                                 {evalItem.id}
                                                                             </span>
                                                                         </td>
-                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155', color: '#e2e8f0' }}>
+                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', color: 'var(--foreground)' }}>
                                                                             <div style={{ fontWeight: 500, marginBottom: '4px', wordBreak: 'break-word' }}>
                                                                                 {relatedSkillIssue?.content || evalItem.content}
                                                                             </div>
                                                                         </td>
-                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155', textAlign: 'center' }}>
+                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                                                                             <span style={{
                                                                                 color: evalItem.match_score >= 1 ? '#4ade80' : evalItem.match_score >= 0.5 ? '#fbbf24' : '#f87171',
                                                                                 fontWeight: 'bold',
@@ -1991,10 +1991,10 @@ function DetailPage() {
                                                                                 {(evalItem.match_score * 100).toFixed(0)}%
                                                                             </span>
                                                                         </td>
-                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155', textAlign: 'center', color: '#94a3b8' }}>
+                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center', color: 'var(--foreground-secondary)' }}>
                                                                             {evalItem.weight.toFixed(1)}
                                                                         </td>
-                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155', textAlign: 'center' }}>
+                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                                                                             <span style={{
                                                                                 color: deduction > 0 ? '#f87171' : '#4ade80',
                                                                                 fontWeight: 'bold',
@@ -2003,7 +2003,7 @@ function DetailPage() {
                                                                                 -{deduction.toFixed(2)}
                                                                             </span>
                                                                         </td>
-                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155', textAlign: 'center' }}>
+                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                                                                             {relatedSkillIssue && (
                                                                                 <span style={{
                                                                                     background: '#ef4444',
@@ -2017,13 +2017,13 @@ function DetailPage() {
                                                                                 </span>
                                                                             )}
                                                                         </td>
-                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155', color: '#cbd5e1', fontSize: '0.85rem' }}>
+                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', color: 'var(--foreground)', fontSize: '0.85rem' }}>
                                                                             {relatedSkillIssue?.explanation || evalItem.explanation || '-'}
                                                                         </td>
-                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155', color: '#fcd34d', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', color: 'var(--warning)', fontSize: '0.85rem', fontStyle: 'italic' }}>
                                                                             {relatedSkillIssue?.reasoning || '-'}
                                                                         </td>
-                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155', color: '#86efac', fontSize: '0.85rem' }}>
+                                                                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', color: 'var(--success)', fontSize: '0.85rem' }}>
                                                                             {relatedSkillIssue?.improvement_suggestion ? (
                                                                                 <div style={{ background: 'rgba(74, 222, 128, 0.1)', padding: '4px 8px', borderRadius: '4px' }}>
                                                                                     {relatedSkillIssue.improvement_suggestion}
@@ -2050,9 +2050,9 @@ function DetailPage() {
                                                         value={failureFilter}
                                                         onChange={(e) => setFailureFilter(e.target.value as 'all' | 'failure' | 'anomaly')}
                                                         style={{
-                                                            background: '#0f172a',
-                                                            border: '1px solid #334155',
-                                                            color: '#94a3b8',
+                                                            background: 'var(--input-bg)',
+                                                            border: '1px solid var(--input-border)',
+                                                            color: 'var(--foreground)',
                                                             borderRadius: '4px',
                                                             padding: '4px 8px',
                                                             fontSize: '0.8rem'
@@ -2064,13 +2064,13 @@ function DetailPage() {
                                                     </select>
                                                 </div>
                                             </div>
-                                            <div style={{ background: '#1e293b', borderRadius: '6px', border: '1px solid #334155', overflow: 'hidden' }}>
+                                            <div style={{ background: 'var(--card-bg)', borderRadius: '6px', border: '1px solid var(--border)', overflow: 'hidden' }}>
                                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                                                     <thead>
-                                                        <tr style={{ background: '#0f172a' }}>
-                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155', width: '100px' }}>类型</th>
-                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155', width: 'auto' }}>描述</th>
-                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155', width: '500px' }}>恢复措施</th>
+                                                        <tr style={{ background: 'var(--background-secondary)' }}>
+                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '100px' }}>类型</th>
+                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: 'auto' }}>描述</th>
+                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '500px' }}>恢复措施</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -2083,8 +2083,8 @@ function DetailPage() {
                                                                 return true;
                                                             })
                                                             .map((fail, idx) => (
-                                                            <tr key={idx} style={{ background: idx % 2 === 0 ? '#1e293b' : '#1a2530' }}>
-                                                                <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155' }}>
+                                                            <tr key={idx} style={{ background: idx % 2 === 0 ? 'var(--card-bg)' : 'var(--background-secondary)' }}>
+                                                                <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
                                                                     <span style={{
                                                                         background: fail.failure_type.toLowerCase().includes('error') || fail.failure_type.toLowerCase().includes('fail') ? '#f87171' : '#fbbf24',
                                                                         color: '#0f172a',
@@ -2096,14 +2096,14 @@ function DetailPage() {
                                                                         {fail.failure_type}
                                                                     </span>
                                                                 </td>
-                                                                <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155' }}>
+                                                                <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
                                                                     <div style={{ color: '#fca5a5', fontWeight: 500, marginBottom: '4px' }}>{fail.description}</div>
                                                                     {fail.context && (
                                                                         <div style={{
                                                                             fontSize: '0.8rem',
-                                                                            color: '#94a3b8',
+                                                                            color: 'var(--foreground-secondary)',
                                                                             fontFamily: 'monospace',
-                                                                            background: 'rgba(0,0,0,0.3)',
+                                                                            background: 'var(--code-block-bg)',
                                                                             padding: '6px 8px',
                                                                             borderRadius: '4px',
                                                                             marginTop: '4px',
@@ -2374,8 +2374,8 @@ function DetailPage() {
                         onClick={() => setShowContextWindowChart(!showContextWindowChart)}
                         style={{
                             background: 'transparent',
-                            border: '1px solid #334155',
-                            color: '#94a3b8',
+                            border: '1px solid var(--border)',
+                            color: 'var(--foreground-secondary)',
                             padding: '6px 14px',
                             borderRadius: '4px',
                             cursor: 'pointer',
@@ -2397,18 +2397,18 @@ function DetailPage() {
                             </h3>
                             <ResponsiveContainer width="100%" height={200}>
                                 <LineChart data={filteredData.filter(d => d.context_window_pct != null)}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                                    <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="#64748b" fontSize={11} />
-                                    <YAxis stroke="#64748b" fontSize={11} domain={[0, 100]} />
-                                    <Tooltip contentStyle={{ background: '#1e293b', borderColor: '#334155' }} />
-                                    <ReferenceLine y={90} stroke="#f87171" strokeDasharray="4 4" label={{ value: '90%', fill: '#f87171', fontSize: 11 }} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                                    <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="var(--foreground-secondary)" fontSize={11} />
+                                    <YAxis stroke="var(--foreground-secondary)" fontSize={11} domain={[0, 100]} />
+                                    <Tooltip contentStyle={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)', color: 'var(--foreground)' }} />
+                                    <ReferenceLine y={90} stroke="var(--error)" strokeDasharray="4 4" label={{ value: '90%', fill: 'var(--error)', fontSize: 11 }} />
                                     {currentRecord && currentRecord.context_window_pct != null && (
                                         <ReferenceLine
                                             x={currentRecord.timestamp}
-                                            stroke="#fbbf24"
+                                            stroke="var(--warning)"
                                             strokeDasharray="5 5"
                                             strokeWidth={2}
-                                            label={{ value: '本次', fill: '#fbbf24', fontSize: 11, position: 'insideTopLeft' }}
+                                            label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                         />
                                     )}
                                     <Line type="monotone" dataKey="context_window_pct" stroke="#a78bfa" dot={true} strokeWidth={2} />
@@ -2428,17 +2428,17 @@ function DetailPage() {
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={filteredData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                            <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="#64748b" fontSize={11} />
-                            <YAxis stroke="#64748b" fontSize={11} />
-                            <Tooltip contentStyle={{ background: '#1e293b', borderColor: '#334155' }} />
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                            <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="var(--foreground-secondary)" fontSize={11} />
+                            <YAxis stroke="var(--foreground-secondary)" fontSize={11} />
+                            <Tooltip contentStyle={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)', color: 'var(--foreground)' }} />
                             {currentRecord && (
                                 <ReferenceLine
                                     x={currentRecord.timestamp}
-                                    stroke="#fbbf24"
+                                    stroke="var(--warning)"
                                     strokeDasharray="5 5"
                                     strokeWidth={2}
-                                    label={{ value: '本次', fill: '#fbbf24', fontSize: 11, position: 'insideTopLeft' }}
+                                    label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                 />
                             )}
                             <Line type="monotone" dataKey="latency" stroke="#38bdf8" dot={true} strokeWidth={2} />
@@ -2452,17 +2452,17 @@ function DetailPage() {
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={filteredData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                            <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="#64748b" fontSize={11} />
-                            <YAxis stroke="#64748b" fontSize={11} />
-                            <Tooltip contentStyle={{ background: '#1e293b', borderColor: '#334155' }} />
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                            <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="var(--foreground-secondary)" fontSize={11} />
+                            <YAxis stroke="var(--foreground-secondary)" fontSize={11} />
+                            <Tooltip contentStyle={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)', color: 'var(--foreground)' }} />
                             {currentRecord && (
                                 <ReferenceLine
                                     x={currentRecord.timestamp}
-                                    stroke="#fbbf24"
+                                    stroke="var(--warning)"
                                     strokeDasharray="5 5"
                                     strokeWidth={2}
-                                    label={{ value: '本次', fill: '#fbbf24', fontSize: 11, position: 'insideTopLeft' }}
+                                    label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                 />
                             )}
                             <Line type="monotone" dataKey="tokens" stroke="#f472b6" dot={true} strokeWidth={2} />
@@ -2476,17 +2476,17 @@ function DetailPage() {
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={filteredData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                            <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="#64748b" fontSize={11} />
-                            <YAxis stroke="#64748b" fontSize={11} domain={[0, 1]} />
-                            <Tooltip contentStyle={{ background: '#1e293b', borderColor: '#334155' }} />
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                            <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="var(--foreground-secondary)" fontSize={11} />
+                            <YAxis stroke="var(--foreground-secondary)" fontSize={11} domain={[0, 1]} />
+                            <Tooltip contentStyle={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)', color: 'var(--foreground)' }} />
                             {currentRecord && (
                                 <ReferenceLine
                                     x={currentRecord.timestamp}
-                                    stroke="#fbbf24"
+                                    stroke="var(--warning)"
                                     strokeDasharray="5 5"
                                     strokeWidth={2}
-                                    label={{ value: '本次', fill: '#fbbf24', fontSize: 11, position: 'insideTopLeft' }}
+                                    label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                 />
                             )}
                             <Line type="monotone" dataKey="answer_score" stroke="#4ade80" dot={true} strokeWidth={2} />
@@ -2500,17 +2500,17 @@ function DetailPage() {
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={filteredData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                            <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="#64748b" fontSize={11} />
-                            <YAxis stroke="#64748b" fontSize={11} domain={[0, 1]} />
-                            <Tooltip contentStyle={{ background: '#1e293b', borderColor: '#334155' }} />
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                            <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="var(--foreground-secondary)" fontSize={11} />
+                            <YAxis stroke="var(--foreground-secondary)" fontSize={11} domain={[0, 1]} />
+                            <Tooltip contentStyle={{ background: 'var(--dropdown-bg)', borderColor: 'var(--border)', color: 'var(--foreground)' }} />
                             {currentRecord && (
                                 <ReferenceLine
                                     x={currentRecord.timestamp}
-                                    stroke="#fbbf24"
+                                    stroke="var(--warning)"
                                     strokeDasharray="5 5"
                                     strokeWidth={2}
-                                    label={{ value: '本次', fill: '#fbbf24', fontSize: 11, position: 'insideTopLeft' }}
+                                    label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                 />
                             )}
                             <Line type="monotone" dataKey="skill_recall_rate" stroke="#f472b6" dot={true} strokeWidth={2} />
@@ -2525,23 +2525,23 @@ function DetailPage() {
                       </h3>
                       <ResponsiveContainer width="100%" height={200}>
                           <LineChart data={cpsrTrendData}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                              <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="#64748b" fontSize={11} />
-                              <YAxis stroke="#64748b" fontSize={11} tickFormatter={(v) => `$${v.toFixed(3)}`} />
+                              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                              <XAxis dataKey="timestamp" tickFormatter={formatTime} stroke="var(--foreground-secondary)" fontSize={11} />
+                              <YAxis stroke="var(--foreground-secondary)" fontSize={11} tickFormatter={(v) => `$${v.toFixed(3)}`} />
                               <Tooltip
                                   formatter={(val: any, name: any) => {
                                       if (name === 'CPSR') return [`$${val?.toFixed(4) || 'N/A'}`, 'CPSR'];
                                       return [val, String(name)];
                                   }}
-                                  contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#f8fafc' }}
+                                  contentStyle={{ backgroundColor: 'var(--dropdown-bg)', borderColor: 'var(--border)', color: 'var(--foreground)' }}
                               />
                               {currentRecord && currentRecord.cost != null && (
                                   <ReferenceLine
                                       x={currentRecord.timestamp}
-                                      stroke="#fbbf24"
+                                      stroke="var(--warning)"
                                       strokeDasharray="5 5"
                                       strokeWidth={2}
-                                      label={{ value: '本次', fill: '#fbbf24', fontSize: 11, position: 'insideTopLeft' }}
+                                      label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                   />
                               )}
                               <Line type="monotone" dataKey="cpsr" name="CPSR" stroke="#a78bfa" strokeWidth={2} dot={true} />
@@ -2723,8 +2723,8 @@ function DetailPage() {
 }
 
 const cardStyle: React.CSSProperties = {
-    background: '#1e293b',
-    border: '1px solid #334155',
+    background: 'var(--card-bg)',
+    border: '1px solid var(--border)',
     borderRadius: '8px',
     padding: '1rem',
     display: 'flex',
@@ -2734,7 +2734,7 @@ const cardStyle: React.CSSProperties = {
 const chartTitleStyle: React.CSSProperties = {
     margin: '0 0 1rem 0',
     fontSize: '0.9rem',
-    color: '#94a3b8',
+    color: 'var(--foreground-secondary)',
     fontWeight: 'normal'
 };
 
