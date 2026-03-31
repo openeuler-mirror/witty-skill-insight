@@ -17,6 +17,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [isOrgMode, setIsOrgMode] = useState(false);
   const [isOrgLoading, setIsOrgLoading] = useState(false);
+  const [orgModeChecked, setOrgModeChecked] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -25,10 +26,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetch('/api/config/status?check_org=true')
       .then(res => res.json())
       .then(data => setIsOrgMode(data.org_mode || false))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setOrgModeChecked(true));
   }, []);
 
   useEffect(() => {
+    if (!orgModeChecked) return;
+
     const storedUser = localStorage.getItem('user_id');
     const storedApiKey = localStorage.getItem('api_key');
     
@@ -38,19 +42,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else if (isOrgMode && !isOrgLoading) {
       setIsOrgLoading(true);
       fetch('/api/auth/organization')
-        .then(res => res.json())
+        .then(async res => {
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(json?.error || `Organization auth failed: ${res.status}`);
+          return json;
+        })
         .then(data => {
-          localStorage.setItem('user_id', data.username);
-          localStorage.setItem('api_key', data.apiKey);
-          setUser(data.username);
-          setApiKey(data.apiKey);
+          const nextUser = data?.displayName || data?.username;
+          const nextApiKey = data?.apiKey;
+          if (!nextUser) throw new Error('Organization auth response missing username');
+
+          localStorage.setItem('user_id', nextUser);
+          if (nextApiKey) localStorage.setItem('api_key', nextApiKey);
+          setUser(nextUser);
+          if (nextApiKey) setApiKey(nextApiKey);
         })
         .catch(err => console.error('Organization auth failed:', err))
         .finally(() => setIsOrgLoading(false));
     } else if (pathname !== '/login') {
       router.push('/login');
     }
-  }, [pathname, router, isOrgMode, isOrgLoading]);
+  }, [pathname, router, isOrgMode, isOrgLoading, orgModeChecked]);
 
   const login = (username: string, key?: string) => {
     localStorage.setItem('user_id', username);
@@ -59,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('api_key', key);
         setApiKey(key);
     }
-    router.push('/');
+    router.replace('/');
   };
 
   const logout = () => {

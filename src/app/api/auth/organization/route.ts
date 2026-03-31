@@ -10,9 +10,15 @@ export async function GET(request: Request) {
   }
   
   try {
+    // 从前端请求中读取 Cookie，用于转发给企业用户信息接口
+    const incomingCookie = request.headers.get('cookie') || undefined;
+
     const response = await fetch(orgUserInfoUrl, {
       method: 'GET',
-      headers: { 'Accept': '*/*' }
+      headers: {
+        'Accept': '*/*',
+        ...(incomingCookie ? { Cookie: incomingCookie } : {})
+      }
     });
     
     if (!response.ok) {
@@ -20,7 +26,11 @@ export async function GET(request: Request) {
     }
     
     const data = await response.json();
-    const userId = data.data.id;
+    const orgData = data?.data ?? data;
+    const rawId = orgData?.id;
+    const rawUserName = orgData?.userName;
+    const rawUserEmail = orgData?.userEmail;
+    const userId = rawId || rawUserEmail || rawUserName;
     
     if (!userId) {
       return NextResponse.json({ error: 'No user ID returned from organization' }, { status: 400 });
@@ -34,6 +44,7 @@ export async function GET(request: Request) {
     
     return NextResponse.json({ 
       username: user.username,
+      displayName: rawUserName || rawUserEmail || user.username,
       apiKey: user.apiKey 
     });
     

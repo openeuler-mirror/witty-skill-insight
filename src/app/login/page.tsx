@@ -25,10 +25,41 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    if (isOrgMode && orgRedirectUrl) {
-      window.location.href = orgRedirectUrl;
-    }
-  }, [isOrgMode, orgRedirectUrl]);
+    if (!isOrgMode || !orgRedirectUrl) return;
+
+    let cancelled = false;
+
+    const tryOrgLogin = async () => {
+      try {
+        const res = await fetch('/api/auth/organization', { cache: 'no-store' });
+
+        if (!res.ok) {
+          // 如果企业侧还没有登录态，则跳转到企业登录页
+          if (!cancelled && (res.status === 401 || res.status === 403)) {
+            window.location.href = orgRedirectUrl;
+          }
+          return;
+        }
+
+        const data = await res.json();
+        if (!cancelled && data?.username) {
+          login(data.username, data.apiKey);
+          router.replace('/');
+        }
+      } catch (e) {
+        // 网络等异常场景，兜底走企业登录
+        if (!cancelled) {
+          window.location.href = orgRedirectUrl;
+        }
+      }
+    };
+
+    tryOrgLogin();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOrgMode, orgRedirectUrl, login, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +81,6 @@ export default function LoginPage() {
         
         if (res.ok) {
             login(data.username, data.apiKey);
-            router.push('/');
         } else {
             // Show error from API
             setError(data.error || '登录失败，请重试');
