@@ -19,15 +19,13 @@ def _ensure_env_loaded():
     """延迟加载环境变量"""
     global _env_loaded
     if not _env_loaded:
-        from constants import ENV_FILE
+        from constants import ENV_FILE, GLOBAL_ENV_FILE
 
         if load_dotenv is not None:
             load_dotenv(ENV_FILE)
 
-        global_env_path = os.path.expanduser("~/.witty/.env")
-        if os.path.exists(global_env_path):
-            if load_dotenv is not None:
-                load_dotenv(global_env_path, override=False)
+        if load_dotenv is not None and GLOBAL_ENV_FILE.exists():
+            load_dotenv(GLOBAL_ENV_FILE, override=False)
 
         _env_loaded = True
 
