@@ -13,8 +13,6 @@ export default function LoginPage() {
   const router = useRouter();
 
   useEffect(() => {
-    fetch('/api').catch(() => {});
-    fetch('/api/config').catch(() => {});
     fetch('/api/config/status?check_org=true')
       .then(res => res.json())
       .then(data => {
