@@ -13,6 +13,11 @@ export interface GuideStep {
     actionLabel?: string;
     linkUrl?: string;
     linkText?: string;
+    setupCommands?: {
+        linux: string;
+        windows: string;
+    };
+    apiKey?: string;
 }
 
 interface GuideBubbleProps {
@@ -52,6 +57,33 @@ function GuideBubble({
     const [arrowPosition, setArrowPosition] = useState<ArrowPositionState>({ top: 0, left: 0 });
     const bubbleRef = useRef<HTMLDivElement>(null);
     const mounted = typeof window !== 'undefined';
+
+    const handleCopy = (text: string) => {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('复制成功！');
+            }).catch(() => {
+                alert('复制失败，请手动复制');
+            });
+        } else {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-9999px";
+            textArea.style.top = "0";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                alert('复制成功！');
+            } catch (err) {
+                console.error('Fallback: Fallback: Oops, unable to copy', err);
+                alert('复制失败，请手动复制');
+            }
+            document.body.removeChild(textArea);
+        }
+    };
 
     const calculatePosition = useCallback(() => {
         if (step.position === 'center') {
@@ -273,7 +305,7 @@ function GuideBubble({
                             style={{
                                 color: '#38bdf8',
                                 textDecoration: 'none',
-                                fontSize: '0.9rem',
+                                                               fontSize: '0.9rem',
                                 fontWeight: 500,
                                 display: 'inline-flex',
                                 alignItems: 'center',
@@ -289,6 +321,206 @@ function GuideBubble({
                             {step.linkText}
                             <span style={{ fontSize: '0.8rem' }}>↗</span>
                         </a>
+                    </div>
+                )}
+
+                {step.setupCommands && (
+                    <div style={{ marginBottom: '16px', textAlign: 'left' }}>
+                        <div style={{ 
+                            color: '#94a3b8', 
+                            fontSize: '0.85rem', 
+                            marginBottom: '12px',
+                            lineHeight: 1.5
+                        }}>
+                            为了让客户端能够连接到平台并上报数据，需要配置客户端环境。请根据您的操作系统选择以下命令执行：
+                        </div>
+                        
+                        <div style={{ marginBottom: '10px' }}>
+                            <div style={{ 
+                                color: '#38bdf8', 
+                                fontSize: '0.85rem', 
+                                fontWeight: 600,
+                                marginBottom: '6px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}>
+                                <span>🐧</span>
+                                <span>Linux / macOS</span>
+                            </div>
+                            <div style={{ 
+                                background: '#0f172a',
+                                border: '1px solid #334155',
+                                borderRadius: '6px',
+                                padding: '10px',
+                                position: 'relative'
+                            }}>
+                                <code style={{ 
+                                    color: '#e2e8f0', 
+                                    fontSize: '0.8rem',
+                                    fontFamily: 'monospace',
+                                    wordBreak: 'break-all',
+                                    display: 'block',
+                                    paddingRight: '40px'
+                                }}>
+                                    {step.setupCommands.linux}
+                                </code>
+                                <button
+                                    onClick={() => {
+                                        handleCopy(step.setupCommands!.linux);
+                                    }}
+                                    style={{
+                                        position: 'absolute',
+                                        top: '8px',
+                                        right: '8px',
+                                        background: 'rgba(56, 189, 248, 0.2)',
+                                        border: '1px solid rgba(56, 189, 248, 0.4)',
+                                        color: '#38bdf8',
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 500,
+                                        transition: 'all 0.2s',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = 'rgba(56, 189, 248, 0.3)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = 'rgba(56, 189, 248, 0.2)';
+                                    }}
+                                >
+                                    复制
+                                </button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div style={{ 
+                                color: '#38bdf8', 
+                                fontSize: '0.85rem', 
+                                fontWeight: 600,
+                                marginBottom: '6px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}>
+                                <span>🪟</span>
+                                <span>Windows</span>
+                            </div>
+                            <div style={{ 
+                                background: '#0f172a',
+                                border: '1px solid #334155',
+                                borderRadius: '6px',
+                                padding: '10px',
+                                position: 'relative'
+                            }}>
+                                <code style={{ 
+                                    color: '#e2e8f0', 
+                                    fontSize: '0.8rem',
+                                    fontFamily: 'monospace',
+                                    wordBreak: 'break-all',
+                                    display: 'block',
+                                    paddingRight: '40px'
+                                }}>
+                                    {step.setupCommands.windows}
+                                </code>
+                                <button
+                                    onClick={() => {
+                                        handleCopy(step.setupCommands!.windows);
+                                    }}
+                                    style={{
+                                        position: 'absolute',
+                                        top: '8px',
+                                        right: '8px',
+                                        background: 'rgba(56, 189, 248, 0.2)',
+                                        border: '1px solid rgba(56, 189, 248, 0.4)',
+                                        color: '#38bdf8',
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 500,
+                                        transition: 'all 0.2s',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = 'rgba(56, 189, 248, 0.3)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = 'rgba(56, 189, 248, 0.2)';
+                                    }}
+                                >
+                                    复制
+                                </button>
+                            </div>
+                        </div>
+                        
+                        {step.apiKey && (
+                            <div style={{ 
+                                background: 'rgba(56, 189, 248, 0.1)',
+                                border: '1px solid rgba(56, 189, 248, 0.3)',
+                                borderRadius: '6px',
+                                padding: '10px',
+                                marginTop: '12px'
+                            }}>
+                                <div style={{ 
+                                    color: '#38bdf8', 
+                                    fontSize: '0.85rem', 
+                                    fontWeight: 600,
+                                    marginBottom: '6px'
+                                }}>
+                                    🔑 您的 API Key
+                                </div>
+                                <div style={{ 
+                                    position: 'relative'
+                                }}>
+                                    <div style={{ 
+                                        color: '#e2e8f0', 
+                                        fontSize: '0.8rem',
+                                        fontFamily: 'monospace',
+                                        wordBreak: 'break-all',
+                                        marginBottom: '6px',
+                                        paddingRight: '50px'
+                                    }}>
+                                        {step.apiKey}
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            handleCopy(step.apiKey!);
+                                        }}
+                                        style={{
+                                            position: 'absolute',
+                                            top: '0',
+                                            right: '0',
+                                            background: 'rgba(56, 189, 248, 0.2)',
+                                            border: '1px solid rgba(56, 189, 248, 0.4)',
+                                            color: '#38bdf8',
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 500,
+                                            transition: 'all 0.2s',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.background = 'rgba(56, 189, 248, 0.3)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.background = 'rgba(56, 189, 248, 0.2)';
+                                        }}
+                                    >
+                                        复制
+                                    </button>
+                                </div>
+                                <div style={{ 
+                                    color: '#94a3b8', 
+                                    fontSize: '0.75rem',
+                                    lineHeight: 1.4
+                                }}>
+                                    执行上述命令时，系统会提示您输入 API Key，请复制上面的 Key 粘贴到终端中。
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 

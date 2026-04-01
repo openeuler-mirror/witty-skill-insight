@@ -228,9 +228,32 @@ export default function Dashboard() {
                 guideState.completedSteps,
                 guideState.skippedSteps
             );
-            setGuideSteps(filtered);
+            
+            // Generate setup commands for welcome step
+            const stepsWithCommands = filtered.map(step => {
+                if (step.id === 'welcome' && apiKey && typeof window !== 'undefined') {
+                    const host = window.location.host;
+                    const protocol = window.location.protocol;
+                    const baseUrl = `${protocol}//${host}`;
+                    
+                    const linuxCommand = `curl -sSf "${baseUrl}/api/setup" | bash`;
+                    const windowsCommand = `irm "${baseUrl}/api/setup" | iex`;
+                    
+                    return {
+                        ...step,
+                        setupCommands: {
+                            linux: linuxCommand,
+                            windows: windowsCommand,
+                        },
+                        apiKey: apiKey,
+                    };
+                }
+                return step;
+            });
+            
+            setGuideSteps(stepsWithCommands);
         }
-    }, [guideState]);
+    }, [guideState, apiKey]);
 
     // Setup local state for apiKey after mount to avoid hydration mismatch
     useEffect(() => {
@@ -444,7 +467,6 @@ export default function Dashboard() {
     }, []);
 
     useEffect(() => {
-        fetch('/api').catch(() => {});
         fetch('/api/config/status?check_org=true')
             .then(res => res.json())
             .then(data => setIsOrgMode(data.org_mode || false))

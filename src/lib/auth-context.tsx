@@ -22,7 +22,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    fetch('/api').catch(() => {});
     fetch('/api/config/status?check_org=true')
       .then(res => res.json())
       .then(data => setIsOrgMode(data.org_mode || false))
