@@ -50,7 +50,7 @@ uv run python scripts/diff_viewer.py --snapshots /path/to/skill-snapshots --titl
 
 **1.3 是否结合运行日志**：询问用户是否希望拉取历史运行日志一起分析。
 
-- 是 → 确认 Skill Insight 平台可用（`~/.witty/.env` 或环境变量中有配置 `SKILL_INSIGHT_HOST` 和 `SKILL_INSIGHT_API_KEY`），不可用则提前告知用户并降级。
+- 是 → 确认 Skill Insight 平台可用（`~/.skill-insight/.env` 或环境变量中有配置 `SKILL_INSIGHT_HOST` 和 `SKILL_INSIGHT_API_KEY`），不可用则提前告知用户并降级。
 
 **1.4 确定执行计划**：根据 1.2 和 1.3 的结果，确定需要执行的模式并告知用户。
 
