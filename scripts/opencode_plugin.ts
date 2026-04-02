@@ -18,9 +18,70 @@ function logDebug(msg) {
 
 // Global store
 let sessionStore = new Map();
-let uploadedSessions = new Set();
+let uploadedSessions = new Map(); // sessionId -> uploaded message count
 let sessionGraph = new Map(); // parent_id -> [child_ids]
 let pendingChildSessions = new Map(); // child_id -> {parent_id, data}
+
+const STORE_PATH = path.join(os.homedir(), '.opencode', 'witty_plugin_session_store.json');
+
+function cleanupOldSessions() {
+    const now = Date.now();
+    const threeDays = 3 * 24 * 3600 * 1000;
+    
+    let deletedCount = 0;
+    for (const [msgId, entry] of sessionStore.entries()) {
+        const time = entry.info?.created || entry.info?.time?.created;
+        if (time && (now - time > threeDays)) {
+            sessionStore.delete(msgId);
+            deletedCount++;
+        }
+    }
+    if (deletedCount > 0) logDebug(`Cleaned up ${deletedCount} old messages from sessionStore`);
+}
+
+function loadStore() {
+    try {
+        if (fs.existsSync(STORE_PATH)) {
+            const fileData = fs.readFileSync(STORE_PATH, 'utf8');
+            if (!fileData.trim()) return;
+            const data = JSON.parse(fileData);
+            if (data.sessionStore) sessionStore = new Map(data.sessionStore);
+            if (data.uploadedSessions) {
+                let map = new Map();
+                for (const x of data.uploadedSessions) {
+                    if (Array.isArray(x) && typeof x[1] === 'number') {
+                        map.set(x[0], x[1]); // our new format [sessionId, count]
+                    } else {
+                        const sid = Array.isArray(x) ? x[0] : x;
+                        map.set(sid, 0); // old backward compatiability safely resets count to 0
+                    }
+                }
+                uploadedSessions = map;
+            }
+            if (data.sessionGraph) sessionGraph = new Map(data.sessionGraph);
+            if (data.pendingChildSessions) pendingChildSessions = new Map(data.pendingChildSessions);
+            logDebug(`Loaded store: ${sessionStore.size} messages`);
+        }
+    } catch(e) {
+        logDebug("Store read err: " + e.message);
+    }
+}
+
+function saveStore() {
+    try {
+        cleanupOldSessions();
+        const data = {
+            sessionStore: Array.from(sessionStore.entries()),
+            uploadedSessions: Array.from(uploadedSessions.entries()),
+            sessionGraph: Array.from(sessionGraph.entries()),
+            pendingChildSessions: Array.from(pendingChildSessions.entries()),
+            timestamp: new Date().toISOString()
+        };
+        fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), 'utf8');
+    } catch(e) {
+        logDebug("Store sync err: " + e.message);
+    }
+}
 
 function toMsTimestamp(v) {
     if (v == null) return null;
@@ -196,6 +257,7 @@ function collectSessionWithChildren(sessionId) {
 }
 
 export default async function WittySkillInsightPlugin(input) {
+  loadStore();
   const { apiKey, host } = loadConfiguration();
   if (!apiKey || !host) {
       logDebug("Plugin disabled: Missing API Key or Host");
@@ -587,11 +649,12 @@ export default async function WittySkillInsightPlugin(input) {
                   timestamp: new Date().toISOString()
               };
 
-              if (uploadedSessions.has(sessionId)) {
-                  logDebug(`Session ${sessionId} already uploaded, skipping.`);
+              const prevUploadCount = uploadedSessions.get(sessionId) || 0;
+              if (messages.length <= prevUploadCount) {
+                  logDebug(`Session ${sessionId} already uploaded with ${prevUploadCount} msgs (cur: ${messages.length}), skipping.`);
                   return;
               }
-              uploadedSessions.add(sessionId);
+              uploadedSessions.set(sessionId, messages.length);
 
               const body = JSON.stringify(payload);
               logDebug(`Payload Body Size: ${Buffer.byteLength(body)} bytes`);
@@ -692,6 +755,7 @@ try {
       } catch (err) {
           logDebug(`Plugin Exception: ${err.message}`);
       }
+      saveStore();
     }
   };
 }

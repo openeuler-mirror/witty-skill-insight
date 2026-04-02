@@ -15,10 +15,8 @@ function loadConfiguration() {
     let config = {};
     try {
         const envPath = path.join(os.homedir(), '.skill-insight', '.env');
-        const legacyEnvPath = path.join(os.homedir(), '.witty', '.env');
-        const selectedEnvPath = fs.existsSync(envPath) ? envPath : legacyEnvPath;
-        if (fs.existsSync(selectedEnvPath)) {
-            const content = fs.readFileSync(selectedEnvPath, 'utf8');
+        if (fs.existsSync(envPath)) {
+            const content = fs.readFileSync(envPath, 'utf8');
             content.split('\n').forEach(line => {
                 const match = line.match(/^\s*([\w_]+)\s*=\s*(.*)?\s*$/);
                 if (match && match[1]) {
@@ -29,8 +27,8 @@ function loadConfiguration() {
     } catch (e) {}
     
     return {
-        apiKey: config['SKILL_INSIGHT_API_KEY'] || config['WITTY_INSIGHT_API_KEY'] || process.env.SKILL_INSIGHT_API_KEY || process.env.WITTY_INSIGHT_API_KEY,
-        host: config['SKILL_INSIGHT_HOST'] || config['WITTY_INSIGHT_HOST'] || process.env.SKILL_INSIGHT_HOST || process.env.WITTY_INSIGHT_HOST
+        apiKey: config['SKILL_INSIGHT_API_KEY'] || process.env.SKILL_INSIGHT_API_KEY,
+        host: config['SKILL_INSIGHT_HOST'] || process.env.SKILL_INSIGHT_HOST
     };
 }
 
@@ -105,7 +103,7 @@ async function main() {
 
     const { host, apiKey } = loadConfiguration();
     if (!host) {
-        console.error('⚠️  Error: Witty Insight Host is not configured.');
+        console.error('⚠️  Error: Witty Skill Insight Host is not configured.');
         console.error('Please configure SKILL_INSIGHT_HOST in ~/.skill-insight/.env');
         process.exit(1);
     }
