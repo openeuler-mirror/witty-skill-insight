@@ -109,58 +109,116 @@ class DiagnosticMutator:
             changelog=list(parent.changelog),
         )
 
-        # Define Tools as Closures to capture new_genome state
-        
-        skill_md_chunks: dict[int, str] = {}
-        skill_md_total_ref: list[int] = [0]
-        
-        def reset_skill_md_chunks():
-            skill_md_chunks.clear()
-            skill_md_total_ref[0] = 0
+        file_chunks: dict[str, dict[int, str]] = {}
+        file_totals: dict[str, int] = {}
+        file_summaries: dict[str, str] = {}
 
-        def get_missing_skill_md_chunks() -> list[int]:
-            total = skill_md_total_ref[0]
-            if total <= 0:
-                return []
-            return [i for i in range(1, total + 1) if i not in skill_md_chunks]
+        def normalize_path(path: str) -> str:
+            p = (path or "").strip()
+            if p.startswith("./"):
+                p = p[2:]
+            return p
 
-        def assemble_skill_md_from_chunks() -> str | None:
-            total = skill_md_total_ref[0]
-            if total <= 0:
+        def reset_round_files() -> None:
+            file_chunks.clear()
+            file_totals.clear()
+            file_summaries.clear()
+
+        def get_missing_chunks(path: str) -> list[int] | None:
+            p = normalize_path(path)
+            total = file_totals.get(p)
+            if total is None:
                 return None
-            missing = get_missing_skill_md_chunks()
-            if missing:
+            have = file_chunks.get(p, {})
+            return [i for i in range(1, total + 1) if i not in have]
+
+        def assemble_file(path: str) -> str | None:
+            p = normalize_path(path)
+            total = file_totals.get(p)
+            if not total:
                 return None
-            return "".join(skill_md_chunks[i] for i in range(1, total + 1))
+            missing = get_missing_chunks(p)
+            if missing is None or missing:
+                return None
+            return "".join(file_chunks[p][i] for i in range(1, total + 1))
+
+        def apply_assembled_files() -> None:
+            for p in list(file_totals.keys()):
+                content = assemble_file(p)
+                if content is None:
+                    continue
+                if p == "SKILL.md":
+                    new_genome.raw_text = content
+                    try:
+                        parsed = SkillGenome.from_markdown(content)
+                        new_genome.name = parsed.name
+                    except Exception:
+                        pass
+                    continue
+                new_genome.files[p] = content
+                summary = file_summaries.get(p)
+                if summary:
+                    new_genome.file_meta[p] = summary
+
+        def validate_writable_path(path: str) -> str | None:
+            p = normalize_path(path)
+            if p == "SKILL.md":
+                return None
+            if p.startswith("scripts/") or p.startswith("references/"):
+                return None
+            return "Only SKILL.md, scripts/*, and references/* are allowed."
 
         @tool
-        def write_skill_md_chunk(index: int, total: int, content: str):
+        def write_file_chunk(
+            path: str,
+            index: int,
+            total: int,
+            content: str,
+            summary: str = "",
+        ):
             """
-            Write a chunk of the updated SKILL.md.
-            MUST be used to output the SKILL.md instead of placing it in the final message.
-            
+            Write a chunk of a file. Supports large files via (index, total) chunks.
+            - path="SKILL.md" updates the main skill definition.
+            - path starts with scripts/ or references/ updates auxiliary files.
+
             Args:
-                index: 1-based index of this chunk (e.g. 1, 2, 3...)
-                total: Total number of chunks you plan to write. Must be consistent across calls.
-                content: The raw markdown content of this chunk (NO markdown fences around it).
+                path: Target relative path (SKILL.md, scripts/..., references/...).
+                index: 1-based chunk index.
+                total: Total number of chunks (must be consistent across calls for the same path).
+                content: Raw file content for this chunk (no markdown fences).
+                summary: Required for scripts/* and references/* (one-line purpose/usage or doc summary).
             """
+            p = normalize_path(path)
+            err = validate_writable_path(p)
+            if err:
+                return f"Error: {err}"
             if total < 1:
                 return "Error: total must be >= 1"
             if index < 1 or index > total:
                 return f"Error: index must be between 1 and {total}"
-                
-            if skill_md_total_ref[0] == 0:
-                skill_md_total_ref[0] = total
-            elif skill_md_total_ref[0] != total:
-                return f"Error: total changed from {skill_md_total_ref[0]} to {total}. Please use consistent total."
-                
-            if index in skill_md_chunks:
-                logger.warning(f"Chunk {index} already received. Model attempted to overwrite.")
-                return f"Warning: Chunk {index} already received. Skip it and write the missing chunks."
-                
-            skill_md_chunks[index] = content
-            received = sorted(list(skill_md_chunks.keys()))
-            return f"Successfully saved chunk {index}/{total}. Received so far: {received}"
+
+            if (p.startswith("scripts/") or p.startswith("references/")) and p not in file_summaries:
+                if not (summary or "").strip():
+                    return "Error: summary is required for scripts/* and references/*."
+                file_summaries[p] = summary.strip()
+            elif (summary or "").strip() and p not in file_summaries and p != "SKILL.md":
+                file_summaries[p] = summary.strip()
+
+            existing_total = file_totals.get(p)
+            if existing_total is None:
+                file_totals[p] = total
+            elif existing_total != total:
+                return f"Error: total changed for {p} (was {existing_total}, now {total})."
+
+            if p not in file_chunks:
+                file_chunks[p] = {}
+            if index in file_chunks[p]:
+                logger.warning(f"Chunk overwrite rejected for {p} index={index}.")
+                return f"Warning: chunk {index}/{total} for {p} already received. Skip it."
+
+            file_chunks[p][index] = content
+            received = sorted(file_chunks[p].keys())
+            return f"Saved {p} chunk {index}/{total}. Received: {received}"
 
         @tool
         def record_fix(diagnosis_index: int, description: str, changed_sections: str):
@@ -183,29 +241,21 @@ class DiagnosticMutator:
             return f"Recorded fix for Diagnosis #{diagnosis_index}."
 
         @tool
-        def write_auxiliary_file(
-            path: str,
-            content: str,
-            summary: str = "",
-        ):
-            """Create or update a script or reference file (e.g., scripts/monitor.sh)."""
-            new_genome.files[path] = content
-            if summary:
-                new_genome.file_meta[path] = summary
-            return f"Successfully wrote {path}."
-
-        @tool
-        def delete_auxiliary_file(path: str):
-            """Delete an auxiliary file."""
-            if path in new_genome.files:
-                del new_genome.files[path]
-                return f"Successfully deleted {path}."
-            return f"File {path} not found."
+        def delete_file(path: str):
+            """Delete an auxiliary file (scripts/* or references/*)."""
+            p = normalize_path(path)
+            if p == "SKILL.md":
+                return "Error: SKILL.md cannot be deleted."
+            if p in new_genome.files:
+                del new_genome.files[p]
+                if p in new_genome.file_meta:
+                    del new_genome.file_meta[p]
+                return f"Successfully deleted {p}."
+            return f"File {p} not found."
 
         tools = [
-            write_skill_md_chunk,
-            write_auxiliary_file,
-            delete_auxiliary_file,
+            write_file_chunk,
+            delete_file,
             record_fix,
         ]
 
@@ -321,57 +371,61 @@ class DiagnosticMutator:
                 round_prompt = prompt if round_index == 0 else (
                     "You MUST fix the missing auxiliary files referenced by SKILL.md.\n"
                     "Requirements:\n"
-                    "- For EACH missing file, call write_auxiliary_file(path, content, summary).\n"
+                    "- For EACH missing file, call write_file_chunk(path, index, total, content, summary).\n"
+                    "  - If the file is small, use index=1 and total=1.\n"
                     "- Keep SKILL.md content consistent; only adjust references if necessary.\n"
-                    "- Write the COMPLETE updated SKILL.md using write_skill_md_chunk(index, total, content).\n\n"
+                    "- Write the COMPLETE updated SKILL.md using write_file_chunk(path='SKILL.md', index, total, content).\n\n"
                     f"# Missing files:\n{os.linesep.join(f'- {p}' for p in missing)}\n\n"
                     f"# Current SKILL.md:\n```markdown\n{new_genome.raw_text}\n```\n"
                 )
 
-                reset_skill_md_chunks()
+                reset_round_files()
                 last_agent_text, last_agent_msg = run_agent_round(round_prompt)
-                
-                # Check for missing chunks and retry
+
                 chunk_retries = int(os.getenv("SKILL_OPT_MUTATOR_CHUNK_RETRY", "2") or "2")
                 for _ in range(chunk_retries):
-                    missing_chunks = get_missing_skill_md_chunks()
+                    if "SKILL.md" not in file_totals:
+                        followup_prompt = (
+                            "You did not write SKILL.md.\n"
+                            "Write the COMPLETE updated SKILL.md using write_file_chunk(path='SKILL.md', index, total, content).\n"
+                            "Do NOT output any part of SKILL.md in your message.\n"
+                            "Use the following as the source of truth:\n\n"
+                            f"{prompt}\n"
+                        )
+                        run_agent_round(followup_prompt)
+                        continue
+                    missing_chunks = get_missing_chunks("SKILL.md")
+                    if missing_chunks is None:
+                        break
                     if not missing_chunks:
                         break
-                    
                     missing_str = ", ".join(str(i) for i in missing_chunks[:100])
                     followup_prompt = (
-                        "The SKILL.md update is incomplete. Chunks " + missing_str + " were not received.\n"
-                        "Please write ONLY the missing chunks using write_skill_md_chunk.\n"
+                        "The SKILL.md update is incomplete.\n"
+                        f"Missing chunk indices: {missing_str}\n"
+                        f"Total chunks: {file_totals.get('SKILL.md')}\n"
+                        "Write ONLY the missing SKILL.md chunks using write_file_chunk(path='SKILL.md', index, total, content).\n"
                         "Do NOT rewrite chunks that were already received.\n"
-                        "Ensure the total number of chunks remains " + str(skill_md_total_ref[0]) + ".\n"
+                        "Do NOT output any part of SKILL.md in your message.\n"
+                        "Use the following as the source of truth:\n\n"
+                        f"{prompt}\n"
                     )
                     run_agent_round(followup_prompt)
 
-                assembled = assemble_skill_md_from_chunks()
-                if assembled:
-                    new_genome.raw_text = assembled
-                    try:
-                        parsed = SkillGenome.from_markdown(assembled)
-                        new_genome.name = parsed.name
-                    except Exception:
-                        pass
-                        
-                    referenced = extract_referenced_paths(new_genome.raw_text)
-                    missing = sorted(
-                        [p for p in referenced if p not in new_genome.files]
-                    )
-                    if not missing:
-                        break
-                    logger.warning(
-                        f"Mutator agent referenced missing auxiliary files: {missing}"
-                    )
-                else:
+                apply_assembled_files()
+                assembled_skill = new_genome.raw_text
+                if not assembled_skill or "SKILL.md" not in file_totals or assemble_file("SKILL.md") is None:
                     logger.error(
-                        f"Mutator agent failed to provide all SKILL.md chunks. Missing: {get_missing_skill_md_chunks()}"
+                        f"Mutator agent failed to provide all SKILL.md chunks. Missing: {get_missing_chunks('SKILL.md')}"
                     )
-                    # Log raw output for debugging
                     logger.info(f"Raw agent output for failed chunks: {last_agent_text}")
+                    return [parent]
+
+                referenced = extract_referenced_paths(new_genome.raw_text)
+                missing = sorted([p for p in referenced if p not in new_genome.files])
+                if not missing:
                     break
+                logger.warning(f"Mutator agent referenced missing auxiliary files: {missing}")
 
             if missing:
                 logger.warning(

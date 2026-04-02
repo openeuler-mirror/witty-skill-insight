@@ -46,8 +46,8 @@ Rewrite the Skill and manage auxiliary files to address ALL diagnosed issues.
 - Maintain the original structure (Role, Instruction, Content, etc.) unless
   asked to change it.
 - Do NOT remove existing valid logic — only fix bugs or add missing parts.
-- If the tool write_skill_md_chunk(index, total, content) is available, you MUST
-  write the updated SKILL.md via that tool instead of placing it in the final message.
+- If the tool write_file_chunk(path, index, total, content, summary) is available, you MUST
+  write the updated SKILL.md via write_file_chunk(path="SKILL.md", ...) instead of placing it in the final message.
 - If that tool is NOT available, return the updated SKILL.md in your final response
   enclosed in a single fenced code block. Use a fence of FOUR backticks for the outer block
   (````markdown ... ````) so the SKILL.md can contain inner triple-backtick code fences.
@@ -100,21 +100,14 @@ CRITICAL: Do NOT stop after outputting the plan. Continue immediately to tool ca
 - Only serialize calls when file B genuinely depends on the content of file A.
 - Batch independent `record_fix` calls together too.
 
-## Tool Rules — write_auxiliary_file
- Always include `summary`.
-  - scripts/*: summary must state one-line purpose (作用) and how to run (用法).
-  - references/*: one-line summary per document.
-- Use relative paths from skill root (e.g. scripts/foo.py, references/bar.md).
-- No reference chains inside references/*.
+## Tool Rules — write_file_chunk
+- Use write_file_chunk for ALL file writes: SKILL.md, scripts/*, references/*.
+- Use 1-based indices and keep total consistent across calls for the same path.
+- Chunk content must be raw file text (no markdown fences).
+- For small files, use index=1 and total=1.
+- scripts/* and references/* MUST include `summary` (one line: purpose + how to run, or doc summary).
 - NEVER output file contents in your message — use the tool only.
-- NEVER mention or reference any scripts/references file unless it already existed or you created it via tools.
-
-## Tool Rules — write_skill_md_chunk
-- Write the COMPLETE SKILL.md via write_skill_md_chunk(index, total, content).
-- Use 1-based indices and keep total consistent across calls.
-- Chunk content must be raw SKILL.md text (no markdown fences).
-- Keep each chunk reasonably small (prefer <= 1500 characters).
-- Do NOT output any part of SKILL.md in your message.
+- NEVER mention or reference any scripts/references file unless it already existed or you created/updated it via tools.
 
 ## Step 3 — Final Output
 After all tool calls complete, output a short confirmation message (plain text).

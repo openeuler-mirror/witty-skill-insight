@@ -176,16 +176,17 @@ def integrate_auxiliary_references(
         return skill_content
     
     auxiliary_meta = auxiliary_meta or {}
-    section_titles = ["## 辅助文件", "## 相关文件", "## auxiliary files", "## related files"]
-    content_lower = skill_content.lower()
-    has_section = any(title.lower() in content_lower for title in section_titles)
+    section_heading_re = re.compile(
+        r"(?im)^\s*##\s*(辅助文件|相关文件|auxiliary files|related files)\s*$"
+    )
+    has_section = bool(section_heading_re.search(skill_content))
     should_replace = has_section and ("由优化器自动创建" in skill_content)
 
     base_content = skill_content
     if should_replace:
-        idx = content_lower.rfind("## 辅助文件")
-        if idx != -1:
-            base_content = skill_content[:idx].rstrip()
+        matches = list(section_heading_re.finditer(skill_content))
+        if matches:
+            base_content = skill_content[: matches[-1].start()].rstrip()
 
     excluded_prefixes = ("snapshots/", ".opt/")
     excluded_exact = {
@@ -290,6 +291,7 @@ def integrate_auxiliary_references(
     entrypoints: list[str] = []
     references: list[str] = []
     others: list[str] = []
+    content_lower = skill_content.lower()
 
     def is_entrypoint_script(rel_path: str, summary: str) -> bool:
         if not rel_path.startswith("scripts/"):
@@ -310,6 +312,16 @@ def integrate_auxiliary_references(
             continue
         if not (rel_path.startswith("scripts/") or rel_path.startswith("references/")):
             continue
+        if not should_replace:
+            if rel_path.lower() in content_lower:
+                continue
+            base = Path(rel_path).name
+            if base and base != rel_path:
+                if re.search(
+                    rf"(?i)(?<![A-Za-z0-9._-]){re.escape(base)}(?![A-Za-z0-9._-])",
+                    skill_content,
+                ):
+                    continue
         summary = ensure_summary(rel_path)
         is_ref = rel_path.startswith("references/")
         is_entry = is_entrypoint_script(rel_path, summary)
@@ -371,28 +383,32 @@ def integrate_auxiliary_references(
 
         return block + "\n" + content.lstrip("\n")
 
-    section = "\n\n## 辅助文件\n\n"
-    if entrypoints:
-        section += "### 执行入口\n\n"
-        for p in entrypoints:
-            section += line_for(p)
-        section += "\n"
-    if references:
-        section += "### 参考资料\n\n"
-        for p in references:
-            section += line_for(p)
-        section += "\n"
-    if others:
-        section += "### 其他\n\n"
-        for p in others:
-            section += line_for(p)
-        section += "\n"
+    section = ""
+    if entrypoints or references or others:
+        section = "\n\n## 辅助文件\n\n"
+        if entrypoints:
+            section += "### 执行入口\n\n"
+            for p in entrypoints:
+                section += line_for(p)
+            section += "\n"
+        if references:
+            section += "### 参考资料\n\n"
+            for p in references:
+                section += line_for(p)
+            section += "\n"
+        if others:
+            section += "### 其他\n\n"
+            for p in others:
+                section += line_for(p)
+            section += "\n"
 
     if has_section and not should_replace:
         injected = inject_progressive_references(skill_content)
         return injected
 
     injected = inject_progressive_references(base_content)
+    if not section:
+        return injected.rstrip() + "\n"
     return injected.rstrip() + section.rstrip() + "\n"
 
 
@@ -593,25 +609,37 @@ def run_optimizer(
             elif mode == "dynamic":
                 logger.info("Mode: Dynamic (Experience Crystallization)")
                 logger.info("⏳ [进度] 正在获取历史执行记录...")
-                report_items = get_skill_logs(skill=initial_genome.name, limit=3)
-                logger.info("⏳ [进度] 正在执行动态优化（经验结晶）...")
-                logger.info("⏳ [进度] 预计需要 3-5 分钟，请耐心等待...")
-                logger.info("⏳ [进度] LLM 调用中...")
-                optimized_genome, diagnoses = optimizer.optimize_dynamic(
-                    genome=initial_genome, report_items=report_items
-                )
+                try:
+                    report_items = get_skill_logs(skill=initial_genome.name, limit=3)
+                except ValueError as e:
+                    logger.warning(str(e))
+                    logger.warning("Skill Insight 配置不可用，降级为 static 模式。")
+                    optimized_genome, diagnoses = optimizer.optimize_static(skill_file)
+                else:
+                    logger.info("⏳ [进度] 正在执行动态优化...")
+                    logger.info("⏳ [进度] 预计需要 3-5 分钟，请耐心等待...")
+                    logger.info("⏳ [进度] LLM 调用中...")
+                    optimized_genome, diagnoses = optimizer.optimize_dynamic(
+                        genome=initial_genome, report_items=report_items or []
+                    )
 
             elif mode == "hybrid":
                 logger.info("Mode: Hybrid (Static + Dynamic)")
                 logger.info("⏳ [进度] 正在获取历史执行记录...")
-                report_items = get_skill_logs(skill=initial_genome.name, limit=3)
-                logger.info("⏳ [进度] 正在执行混合优化（静态 + 动态）...")
-                logger.info("⏳ [进度] 预计需要 5-8 分钟，请耐心等待...")
-                logger.info("⏳ [进度] LLM 调用中...")
-                optimized_genome, diagnoses = optimizer.optimize_hybrid(
-                    skill_path=skill_file,
-                    report_items=report_items,
-                )
+                try:
+                    report_items = get_skill_logs(skill=initial_genome.name, limit=3)
+                except ValueError as e:
+                    logger.warning(str(e))
+                    logger.warning("Skill Insight 配置不可用，降级为 static 模式。")
+                    optimized_genome, diagnoses = optimizer.optimize_static(skill_file)
+                else:
+                    logger.info("⏳ [进度] 正在执行混合优化（静态 + 动态）...")
+                    logger.info("⏳ [进度] 预计需要 5-8 分钟，请耐心等待...")
+                    logger.info("⏳ [进度] LLM 调用中...")
+                    optimized_genome, diagnoses = optimizer.optimize_hybrid(
+                        skill_path=skill_file,
+                        report_items=report_items or [],
+                    )
 
             # 5. Save Result
             from snapshot_manager import SnapshotManager
