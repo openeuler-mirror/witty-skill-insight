@@ -2,6 +2,7 @@
 
 import { useAuth } from '@/lib/auth-context';
 import { useEffect, useRef, useState } from 'react';
+import { apiFetch } from '@/lib/api';
 
 // Types matching Backend Response
 interface Skill {
@@ -52,7 +53,7 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
 
     try {
       setLogs(prev => [...prev, `Uploading ${files.length} files...`]);
-      const res = await fetch('/api/skills/upload', {
+      const res = await apiFetch('/api/skills/upload', {
         method: 'POST',
         body: formData
       });
@@ -125,7 +126,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/skills/${skillId}/versions/${version}?user=${encodeURIComponent(user || '')}`)
+    apiFetch(`/api/skills/${skillId}/versions/${version}?user=${encodeURIComponent(user || '')}`)
       .then(res => res.json())
       .then(d => {
         setDetail(d);
@@ -136,7 +137,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
         setLoading(false);
       });
     
-    fetch(`/api/skills/${skillId}/versions/${version}/parse-flow?user=${encodeURIComponent(user || '')}`)
+    apiFetch(`/api/skills/${skillId}/versions/${version}/parse-flow?user=${encodeURIComponent(user || '')}`)
       .then(res => res.json())
       .then(d => {
         if (d.parsed) {
@@ -149,7 +150,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
   const handleParseFlow = async () => {
     setParsing(true);
     try {
-      const res = await fetch(`/api/skills/${skillId}/versions/${version}/parse-flow`, {
+      const res = await apiFetch(`/api/skills/${skillId}/versions/${version}/parse-flow`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user })
@@ -357,7 +358,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
   const [viewingVersion, setViewingVersion] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch(`/api/skills/${skill.id}/versions?user=${encodeURIComponent(user || '')}`)
+    apiFetch(`/api/skills/${skill.id}/versions?user=${encodeURIComponent(user || '')}`)
       .then(res => res.json())
       .then(data => {
         setVersions(data);
@@ -376,7 +377,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
 
   const handleActivate = async (version: number) => {
     try {
-      const res = await fetch(`/api/skills/${skill.id}/activate`, {
+      const res = await apiFetch(`/api/skills/${skill.id}/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ version, user })
@@ -398,13 +399,13 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
     if (!confirm(`Are you sure you want to delete version ${version}? This action cannot be undone.`)) return;
     
     try {
-      const res = await fetch(`/api/skills/${skill.id}/versions/${version}?user=${encodeURIComponent(user || '')}`, {
+      const res = await apiFetch(`/api/skills/${skill.id}/versions/${version}?user=${encodeURIComponent(user || '')}`, {
         method: 'DELETE'
       });
 
       if (res.ok) {
         alert(`Version ${version} deleted successfully!`);
-        const vRes = await fetch(`/api/skills/${skill.id}/versions?user=${encodeURIComponent(user || '')}`);
+        const vRes = await apiFetch(`/api/skills/${skill.id}/versions?user=${encodeURIComponent(user || '')}`);
         const newVersions = await vRes.json();
         setVersions(newVersions);
         setHasUpdated(true);
@@ -435,9 +436,9 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
       formData.append('files', files[i]);
       formData.append('paths', files[i].webkitRelativePath);
     }
-
+ 
     try {
-      const res = await fetch('/api/skills/upload', {
+      const res = await apiFetch('/api/skills/upload', {
         method: 'POST',
         body: formData
       });
@@ -446,7 +447,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
       if (res.ok) {
         alert(`Version v${result.version.version} uploaded successfully!`);
         // Refresh versions
-        const vRes = await fetch(`/api/skills/${skill.id}/versions?user=${encodeURIComponent(user || '')}`);
+        const vRes = await apiFetch(`/api/skills/${skill.id}/versions?user=${encodeURIComponent(user || '')}`);
         setVersions(await vRes.json());
         setHasUpdated(true);
       } else {
@@ -645,7 +646,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
   const fetchSkills = () => {
     if (!user) return;
     setLoading(true);
-    fetch(`/api/skills?user=${encodeURIComponent(user)}`)
+    apiFetch(`/api/skills?user=${encodeURIComponent(user)}`)
       .then(res => res.json())
       .then(d => {
         setSkills(Array.isArray(d) ? d : []);
@@ -669,7 +670,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
     if (!confirm('Are you sure you want to delete this skill? This action cannot be undone.')) return;
     
     try {
-      const res = await fetch(`/api/skills?id=${id}&user=${encodeURIComponent(user || '')}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/skills?id=${id}&user=${encodeURIComponent(user || '')}`, { method: 'DELETE' });
       const data = await res.json();
       
       if (res.ok) {
@@ -685,9 +686,9 @@ function SkillCatalog({ refresh }: { refresh: number }) {
   const handleToggleUpload = async (id: string, currentStatus: boolean, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const res = await fetch(`/api/skills/${id}/toggle`, {
+      const res = await apiFetch(`/api/skills/${id}/toggle`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type':'application/json' },
         body: JSON.stringify({ isUploaded: !currentStatus, user })
       });
       if (res.ok) {

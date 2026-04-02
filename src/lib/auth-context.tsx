@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
+import { apiFetch } from '@/lib/api';
 
 interface AuthContextType {
   user: string | null;
@@ -22,7 +23,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    fetch('/api/config/status?check_org=true')
+    apiFetch('/api/config/status?check_org=true')
       .then(res => res.json())
       .then(data => setIsOrgMode(data.org_mode || false))
       .catch(() => {})
@@ -40,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (storedApiKey) setApiKey(storedApiKey);
     } else if (isOrgMode && !isOrgLoading) {
       setIsOrgLoading(true);
-      fetch('/api/auth/organization')
+      apiFetch('/api/auth/organization')
         .then(async res => {
           const json = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(json?.error || `Organization auth failed: ${res.status}`);

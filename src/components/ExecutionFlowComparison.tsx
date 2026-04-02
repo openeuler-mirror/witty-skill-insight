@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { apiFetch } from '@/lib/api';
 
 interface ExecutionFlowComparisonProps {
   executionId: string;
@@ -58,7 +59,7 @@ export default function ExecutionFlowComparison({
   const actualSkillId = skillId && skillId.trim() ? skillId : null;
 
   useEffect(() => {
-    fetch(`/api/executions/${executionId}/analyze-match`)
+    apiFetch(`/api/executions/${executionId}/analyze-match`)
       .then(res => res.json())
       .then((data: MatchData) => {
         if (data.analyzed) {
@@ -74,7 +75,7 @@ export default function ExecutionFlowComparison({
     setAnalyzeMode('dynamic');
     
     try {
-      const res = await fetch(`/api/executions/${executionId}/analyze-match`, {
+      const res = await apiFetch(`/api/executions/${executionId}/analyze-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user, mode: 'dynamic' })
@@ -112,7 +113,7 @@ export default function ExecutionFlowComparison({
     setAnalyzeMode('compare');
     
     try {
-      const res = await fetch(`/api/executions/${executionId}/analyze-match`, {
+      const res = await apiFetch(`/api/executions/${executionId}/analyze-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user, mode: 'compare' })

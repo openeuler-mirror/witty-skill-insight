@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { SkillLinks } from './SkillLink';
 import { useTheme } from '@/lib/theme-context';
+import { apiFetch, getApiUrl } from '@/lib/api';
 
 
 // --- Types ---
@@ -235,9 +236,10 @@ export default function Dashboard() {
                     const host = window.location.host;
                     const protocol = window.location.protocol;
                     const baseUrl = `${protocol}//${host}`;
+                    const setupUrl = getApiUrl('/api/setup');
                     
-                    const linuxCommand = `curl -sSf "${baseUrl}/api/setup" | bash`;
-                    const windowsCommand = `irm "${baseUrl}/api/setup" | iex`;
+                    const linuxCommand = `curl -sSf "${baseUrl}${setupUrl}" | bash`;
+                    const windowsCommand = `irm "${baseUrl}${setupUrl}" | iex`;
                     
                     return {
                         ...step,
@@ -271,7 +273,7 @@ export default function Dashboard() {
     // Fetch fresh API Key from DB when user modal opens to ensure accuracy
     useEffect(() => {
         if (showUserModal && user) {
-            fetch('/api/auth/apikey', {
+            apiFetch('/api/auth/apikey', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: user })
@@ -382,7 +384,7 @@ export default function Dashboard() {
 
             setSettingsStatus({ type: 'success', msg: 'Testing connection...' }); // reuse success style for info
 
-            const testRes = await fetch('/api/settings/test', {
+            const testRes = await apiFetch('/api/settings/test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(testPayload)
@@ -411,7 +413,7 @@ export default function Dashboard() {
                 user: user
             };
 
-            const res = await fetch('/api/settings', {
+            const res = await apiFetch('/api/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(finalPayload)
@@ -437,7 +439,7 @@ export default function Dashboard() {
     const activateConfig = async (id: string) => {
         const payload = { activeConfigId: id, configs: allConfigs };
         const finalPayload = { settings: payload, user };
-        await fetch('/api/settings', {
+        await apiFetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(finalPayload)
@@ -453,7 +455,7 @@ export default function Dashboard() {
 
         const payload = { activeConfigId: newActive, configs: newConfigs };
         const finalPayload = { settings: payload, user };
-        await fetch('/api/settings', {
+        await apiFetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(finalPayload)
@@ -467,7 +469,7 @@ export default function Dashboard() {
     }, []);
 
     useEffect(() => {
-        fetch('/api/config/status?check_org=true')
+        apiFetch('/api/config/status?check_org=true')
             .then(res => res.json())
             .then(data => setIsOrgMode(data.org_mode || false))
             .catch(() => {});
@@ -525,7 +527,7 @@ export default function Dashboard() {
             const queryUser = user;
 
             const url = queryUser ? `/api/data?user=${encodeURIComponent(queryUser)}` : '/api/data';
-            const res = await fetch(url, { cache: 'no-store' });
+            const res = await apiFetch(url, { cache: 'no-store' });
             const d = await res.json();
             const cleanData = d
                 .filter((x: any) => x.query && x.query.trim() !== '') // 4. Filter empty queries
@@ -558,7 +560,7 @@ export default function Dashboard() {
 
     const fetchConfig = () => {
         if (!user) return;
-        fetch(`/api/config?user=${encodeURIComponent(user)}`)
+        apiFetch(`/api/config?user=${encodeURIComponent(user)}`)
             .then(res => res.json())
             .then(d => {
                 if (Array.isArray(d)) setConfigs(d);
@@ -569,7 +571,7 @@ export default function Dashboard() {
 
     const fetchSkills = () => {
         if (!user) return;
-        fetch(`/api/skills?user=${encodeURIComponent(user)}`)
+        apiFetch(`/api/skills?user=${encodeURIComponent(user)}`)
             .then(res => res.json())
             .then(d => {
                 if (Array.isArray(d)) setAvailableSkills(d);
@@ -581,7 +583,7 @@ export default function Dashboard() {
     const fetchServerSettings = useCallback(async () => {
         if (!user) return;
         try {
-            const res = await fetch(`/api/settings?user=${encodeURIComponent(user)}`);
+            const res = await apiFetch(`/api/settings?user=${encodeURIComponent(user)}`);
             if (res.ok) {
                 const data = await res.json();
                 if (data.configs) {
@@ -607,7 +609,7 @@ export default function Dashboard() {
     const handleDelete = async (record: Execution) => {
         if (!confirm('确定要删除这条记录吗?')) return;
         try {
-            const res = await fetch(`/api/data?user=${encodeURIComponent(user || '')}`, {
+            const res = await apiFetch(`/api/data?user=${encodeURIComponent(user || '')}`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(record)
@@ -631,7 +633,7 @@ export default function Dashboard() {
                 (d.task_id === selectedRecord.task_id || d.upload_id === selectedRecord.upload_id) ? updatedRecord : d
             ));
 
-            const res = await fetch('/api/data', {
+            const res = await apiFetch('/api/data', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -665,7 +667,7 @@ export default function Dashboard() {
         });
 
         try {
-            const res = await fetch('/api/rejudge', {
+            const res = await apiFetch('/api/rejudge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ...record, currentUser: user })
@@ -728,7 +730,7 @@ export default function Dashboard() {
                 label: newLabel
             };
 
-            const res = await fetch('/api/data', {
+            const res = await apiFetch('/api/data', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -763,7 +765,7 @@ export default function Dashboard() {
     const pollConfigStatus = useCallback((configId: string) => {
         const poll = async () => {
             try {
-                const res = await fetch(`/api/config/status?id=${configId}`);
+                const res = await apiFetch(`/api/config/status?id=${configId}`);
                 if (!res.ok) return;
                 const data = await res.json();
 
@@ -844,9 +846,9 @@ export default function Dashboard() {
                     if (editingConfig.expectedSkills) {
                         formData.append('expectedSkills', JSON.stringify(editingConfig.expectedSkills));
                     }
-                    res = await fetch('/api/config/create', { method: 'POST', body: formData });
+                    res = await apiFetch('/api/config/create', { method: 'POST', body: formData });
                 } else {
-                    res = await fetch('/api/config/create', {
+                    res = await apiFetch('/api/config/create', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -881,7 +883,7 @@ export default function Dashboard() {
                 let newConfigs = [...configs];
                 newConfigs = newConfigs.map(c => c.id === editingConfig.id ? { ...c, ...editingConfig } as ConfigItem : c);
 
-                const res = await fetch('/api/config', {
+                const res = await apiFetch('/api/config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ configs: newConfigs, user })
@@ -906,7 +908,7 @@ export default function Dashboard() {
     const deleteConfig = async (id: string) => {
         if (!confirm('确定删除此配置?')) return;
         const newConfigs = configs.filter(c => c.id !== id);
-        const res = await fetch('/api/config', {
+        const res = await apiFetch('/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ configs: newConfigs, user }) // Include user in the body
@@ -2269,6 +2271,17 @@ export default function Dashboard() {
                             </button>
                         </div>
                     )}
+                    
+                    <div style={{ marginTop: '2rem', marginBottom: '0.5rem', height: '1px', background: 'linear-gradient(to right, transparent, rgba(56, 189, 248, 0.5), transparent)' }}></div>
+                    
+                    {/* Promotion Section */}
+                    <div style={{ marginTop: '0.5rem', padding: '0.5rem', textAlign: 'center' }}>
+                        <p style={{ margin: 0, fontSize: '0.9rem', color: '#94a3b8', lineHeight: 1.6 }}>
+                            <a href="https://atomgit.com/openeuler/witty-skill-insight" target="_blank" rel="noopener noreferrer" style={{ color: '#94a3b8', textDecoration: 'underline', textUnderlineOffset: '3px' }}>
+                                你的 ⭐ Star 是前进动力，📢 Issue 使产品更稳，🚀 PR 让功能更强。
+                            </a>
+                        </p>
+                    </div>
                 </>
             )}
 
@@ -3170,18 +3183,13 @@ export default function Dashboard() {
                                             )}
                                         </button>
                                     </div>
-                                    <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(56, 189, 248, 0.1)', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
-                                        <p style={{ margin: 0, fontSize: '0.85rem', color: '#bae6fd', lineHeight: 1.5 }}>
-                                            <strong>Usage:</strong> Set this key in your environment to upload data seamlessly without login.<br />
-                                            <code style={{ display: 'block', marginTop: '6px', padding: '4px', background: 'rgba(0,0,0,0.3)', borderRadius: '4px' }}>export SKILL_INSIGHT_API_KEY={localApiKey}</code>
-                                        </p>
-                                    </div>
                                 </div>
                             ) : (
                                 <div style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
                                     No API Key found.
                                 </div>
                             )}
+
 
                         </div>
 
@@ -3198,7 +3206,7 @@ export default function Dashboard() {
                                     <button
                                         onClick={async () => {
                                             if (guideState?.guideDisabled) {
-                                                const res = await fetch('/api/guide', {
+                                                const res = await apiFetch('/api/guide', {
                                                     method: 'POST',
                                                     headers: {
                                                         'Content-Type': 'application/json',
@@ -3213,7 +3221,7 @@ export default function Dashboard() {
                                                     window.location.reload();
                                                 }
                                             } else {
-                                                const res = await fetch('/api/guide', {
+                                                const res = await apiFetch('/api/guide', {
                                                     method: 'POST',
                                                     headers: {
                                                         'Content-Type': 'application/json',

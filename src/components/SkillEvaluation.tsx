@@ -2,6 +2,7 @@
 
 import { SkillMetadata } from '@/lib/skill-types';
 import { useEffect, useMemo, useState } from 'react';
+import { apiFetch } from '@/lib/api';
 import {
     Bar,
     BarChart,
@@ -31,7 +32,7 @@ export function SkillEvaluation({ skillId }: { skillId?: string }) {
   const fetchSkills = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/skills');
+      const response = await apiFetch('/api/skills');
       if (response.ok) {
         const data = await response.json();
         setSkills(data);

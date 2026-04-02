@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from '@/lib/api';
 
 interface GuideState {
     id: string;
@@ -25,7 +26,7 @@ export function useUserGuide(user: string | null) {
         }
 
         try {
-            const res = await fetch('/api/guide', {
+            const res = await apiFetch('/api/guide', {
                 headers: {
                     'x-user-id': user,
                 },
@@ -61,7 +62,7 @@ export function useUserGuide(user: string | null) {
         if (!user) return;
 
         try {
-            const res = await fetch('/api/guide', {
+            const res = await apiFetch('/api/guide', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

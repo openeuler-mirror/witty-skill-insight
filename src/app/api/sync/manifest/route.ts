@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
     try {
         const userParam = request.nextUrl.searchParams.get('user');
         const { username } = await resolveUser(request, userParam);
+        const urlPrefix = process.env.NEXT_PUBLIC_URL_PREFIX || '';
 
         const where: any = { isUploaded: true };
 
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
                     name: s.name,
                     version: activeVerNum,
                     updatedAt: activeVersionInfo.createdAt?.toISOString?.() || activeVersionInfo.createdAt,
-                    downloadUrl: `/api/skills/${s.id}/versions/${activeVerNum}/download`
+                    downloadUrl: `${urlPrefix}/api/skills/${s.id}/versions/${activeVerNum}/download`
                 });
             }
         }
