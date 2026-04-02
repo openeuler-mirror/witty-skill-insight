@@ -7,6 +7,7 @@ import ExecutionFlowComparison from '@/components/ExecutionFlowComparison';
 import { SkillLinks } from '@/components/SkillLink';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme } from '@/lib/theme-context';
+import { apiFetch } from '@/lib/api';
 
 const Line = dynamic(() => import('recharts').then(mod => mod.Line), { ssr: false });
 const LineChart = dynamic(() => import('recharts').then(mod => mod.LineChart), { ssr: false });
@@ -747,7 +748,7 @@ function DetailPage() {
 
     useEffect(() => {
         if (expandTaskId && !sessionData[expandTaskId]) {
-            fetch(`/api/session?taskId=${expandTaskId}`)
+            apiFetch(`/api/session?taskId=${expandTaskId}`)
                 .then(res => res.ok ? res.json() : { error: 'Error' })
                 .then(json => setSessionData(prev => ({ ...prev, [expandTaskId]: json })))
                 .catch(() => setSessionData(prev => ({ ...prev, [expandTaskId]: { error: 'Fetch failed' } })));
@@ -761,7 +762,7 @@ function DetailPage() {
         if (query) params.append('query', query);
         if (framework) params.append('framework', framework);
         if (expandTaskId) params.append('taskId', expandTaskId);
-        fetch(url + params.toString(), { cache: 'no-store' })
+        apiFetch(url + params.toString(), { cache: 'no-store' })
             .then(res => res.json())
             .then((data: any[]) => {
                 let targetQuery = query;
@@ -1006,7 +1007,7 @@ function DetailPage() {
         if (!val) return;
         setQuerySaveStatus({ id: taskId, status: 'saving' });
         try {
-            const res = await fetch('/api/data', {
+            const res = await apiFetch('/api/data', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1036,7 +1037,7 @@ function DetailPage() {
                 router.push(`/details?${params.toString()}`);
             } else {
                 const refreshUrl = user ? `/api/data?user=${encodeURIComponent(user)}` : '/api/data';
-                const dataRes = await fetch(refreshUrl);
+                const dataRes = await apiFetch(refreshUrl);
                 const data: any[] = await dataRes.json();
                 const filtered = data.filter(d =>
                     d.query === query &&
@@ -1072,7 +1073,7 @@ function DetailPage() {
         if (!val) return;
         setResultSaveStatus({ id: taskId, status: 'saving' });
         try {
-            const res = await fetch('/api/data', {
+            const res = await apiFetch('/api/data', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1116,7 +1117,7 @@ function DetailPage() {
         const formData = new FormData();
         formData.append('document', file);
         try {
-            const res = await fetch('/api/parse-document', {
+            const res = await apiFetch('/api/parse-document', {
                 method: 'POST',
                 body: formData
             });

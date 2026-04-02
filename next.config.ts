@@ -9,7 +9,9 @@ const nextConfig: NextConfig = {
       }
   },
   async rewrites() {
-    return [
+    const urlPrefix = process.env.NEXT_PUBLIC_URL_PREFIX || '';
+    
+    const rewrites = [
       {
         source: '/v1/traces',
         destination: '/api/otel/v1/traces',
@@ -23,6 +25,16 @@ const nextConfig: NextConfig = {
         destination: '/api/otel/v1/metrics',
       },
     ];
+    
+    // 如果设置了 URL_PREFIX，添加重写规则
+    if (urlPrefix) {
+      rewrites.push({
+        source: `${urlPrefix}/api/:path*`,
+        destination: '/api/:path*',
+      });
+    }
+    
+    return rewrites;
   },
 };
 

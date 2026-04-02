@@ -3,6 +3,7 @@
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { apiFetch } from '@/lib/api';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -13,7 +14,7 @@ export default function LoginPage() {
   const router = useRouter();
 
   useEffect(() => {
-    fetch('/api/config/status?check_org=true')
+    apiFetch('/api/config/status?check_org=true')
       .then(res => res.json())
       .then(data => {
         setIsOrgMode(data.org_mode || false);
@@ -29,7 +30,7 @@ export default function LoginPage() {
 
     const tryOrgLogin = async () => {
       try {
-        const res = await fetch('/api/auth/organization', { cache: 'no-store' });
+        const res = await apiFetch('/api/auth/organization', { cache: 'no-store' });
 
         if (!res.ok) {
           // 如果企业侧还没有登录态，则跳转到企业登录页
@@ -69,7 +70,7 @@ export default function LoginPage() {
     }
     
     try {
-        const res = await fetch('/api/auth/apikey', {
+        const res = await apiFetch('/api/auth/apikey', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username: username.trim() })

@@ -3,6 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
+import { apiFetch } from '@/lib/api';
 
 interface SkillData {
   id: string;
@@ -40,14 +41,14 @@ function SkillContent() {
         let skillData: SkillData | null = null;
 
         if (skillId) {
-          const res = await fetch(`/api/skills/${skillId}`);
+          const res = await apiFetch(`/api/skills/${skillId}`);
           if (res.ok) {
             skillData = await res.json();
           }
         } else if (skillName) {
           const params = new URLSearchParams({ name: skillName });
           if (user) params.set('user', user);
-          const res = await fetch(`/api/skills/by-name?${params}`);
+          const res = await apiFetch(`/api/skills/by-name?${params}`);
           if (res.ok) {
             skillData = await res.json();
           }
@@ -62,7 +63,7 @@ function SkillContent() {
         setSkill(skillData);
 
         const versionNum = version ? parseInt(version, 10) : skillData.activeVersion;
-        const verRes = await fetch(`/api/skills/${skillData.id}/versions/${versionNum}`);
+        const verRes = await apiFetch(`/api/skills/${skillData.id}/versions/${versionNum}`);
         if (verRes.ok) {
           setSkillVersion(await verRes.json());
         }
