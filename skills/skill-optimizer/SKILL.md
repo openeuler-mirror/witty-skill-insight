@@ -48,7 +48,19 @@ uv run python scripts/diff_viewer.py --snapshots /path/to/skill-snapshots --titl
 
 **1.1 确认目标**：确认目标 Skill 路径（包含 `SKILL.md` 的目录）。
 
+<<<<<<< HEAD
 **1.2 确定优化方式**：询问用户想怎么优化，从回答中确定模式：
+=======
+**1.2 了解用户意图**：询问用户是否已有明确的优化方向或具体反馈。
+
+**1.3 是否结合运行日志**：询问用户是否希望拉取历史运行日志一起分析。
+
+- 是 → 确认 Skill Insight 平台可用（`~/.skill-insight/.env` 或环境变量中有配置 `SKILL_INSIGHT_HOST` 和 `SKILL_INSIGHT_API_KEY`），不可用则提前告知用户并降级。
+
+**1.4 确定执行计划**：根据 1.2 和 1.3 的结果，确定需要执行的模式并告知用户。
+
+**简单场景**（单模式）：
+>>>>>>> d96100e1cd0362060b7828ea5640e5b771962e8e
 
 ```
 Agent: 收到！在开始优化前想先确认，你想怎么优化这个 Skill？（可多选）

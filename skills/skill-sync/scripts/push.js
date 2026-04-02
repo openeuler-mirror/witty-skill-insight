@@ -82,7 +82,7 @@ async function main() {
 
     const { host, apiKey, user } = loadConfiguration();
     if (!host) {
-        console.error('⚠️  Error: Witty Insight Host is not configured.');
+        console.error('⚠️  Error: Skill Insight Host is not configured.');
         console.error('Please configure SKILL_INSIGHT_HOST in ~/.skill-insight/.env');
         process.exit(1);
     }

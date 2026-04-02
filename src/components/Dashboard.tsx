@@ -119,6 +119,92 @@ const calculateCPSR = (records: Execution[]): number | null => {
     return avgCost / successRate;
 };
 
+interface SkillLiftResult {
+    valuePct: number | null;
+    passSkill: number | null;
+    passNoSkill: number | null;
+    evaluatedSkillCount: number;
+    evaluatedBaselineCount: number;
+    reason: string | null;
+}
+
+const getEvaluatedRecords = (records: Execution[]) =>
+    records.filter(d => d.answer_score !== null && d.answer_score !== undefined);
+
+const calculateSuccessRate = (records: Execution[]) => {
+    const evaluatedRecords = getEvaluatedRecords(records);
+    if (evaluatedRecords.length === 0) {
+        return { successRate: null, evaluatedCount: 0 };
+    }
+
+    const successfulRuns = evaluatedRecords.filter(d => d.is_answer_correct === true).length;
+    return {
+        successRate: successfulRuns / evaluatedRecords.length,
+        evaluatedCount: evaluatedRecords.length
+    };
+};
+
+const calculateSkillLift = (records: Execution[], skillLabel: string): SkillLiftResult => {
+    const skillRecords = records.filter(d => (d.label || 'Other') === skillLabel);
+    const baselineRecords = records.filter(d => d.label === 'without-skill');
+
+    const { successRate: passSkill, evaluatedCount: evaluatedSkillCount } = calculateSuccessRate(skillRecords);
+    const { successRate: passNoSkill, evaluatedCount: evaluatedBaselineCount } = calculateSuccessRate(baselineRecords);
+
+    if (evaluatedBaselineCount === 0) {
+        return {
+            valuePct: null,
+            passSkill,
+            passNoSkill,
+            evaluatedSkillCount,
+            evaluatedBaselineCount,
+            reason: '缺少 without-skill 基线或基线数据尚未完成评测，暂无法计算。'
+        };
+    }
+
+    if (evaluatedSkillCount === 0) {
+        return {
+            valuePct: null,
+            passSkill,
+            passNoSkill,
+            evaluatedSkillCount,
+            evaluatedBaselineCount,
+            reason: '当前标签下暂无可用于计算的已评测数据。'
+        };
+    }
+
+    if (passSkill === null || passNoSkill === null) {
+        return {
+            valuePct: null,
+            passSkill,
+            passNoSkill,
+            evaluatedSkillCount,
+            evaluatedBaselineCount,
+            reason: '当前数据不足以完成 Skill Lift 计算。'
+        };
+    }
+
+    if (passNoSkill >= 1) {
+        return {
+            valuePct: null,
+            passSkill,
+            passNoSkill,
+            evaluatedSkillCount,
+            evaluatedBaselineCount,
+            reason: 'without-skill 基线成功率为 100%，公式分母为 0，暂无法计算。'
+        };
+    }
+
+    return {
+        valuePct: ((passSkill - passNoSkill) / (1 - passNoSkill)) * 100,
+        passSkill,
+        passNoSkill,
+        evaluatedSkillCount,
+        evaluatedBaselineCount,
+        reason: null
+    };
+};
+
 const formatDateTime = (ts: string | Date) => {
     if (!ts) return '-';
     const d = new Date(ts);
@@ -1852,26 +1938,13 @@ export default function Dashboard() {
                                     const groupCpsr = calculateCPSR(relevant);
 
                                     // Calculate Skill Lift for grouped view (only for current label)
-                                    let skillLift: number | null = null;
+                                    let skillLiftMetrics: SkillLiftResult | null = null;
                                     if (drillDownGroupByLabel && selectedQuery && val !== 'without-skill' && val !== 'Other') {
-                                        const queryData = filteredData.filter(d => d.query === selectedQuery);
-                                        const labels = Array.from(new Set(queryData.map(d => d.label || 'Other')));
-                                        const labelSuccessRates: Record<string, number> = {};
-                                        
-                                        labels.forEach(label => {
-                                            const labelData = queryData.filter(d => (d.label || 'Other') === label);
-                                            const successful = labelData.filter(d => d.is_answer_correct).length;
-                                            labelSuccessRates[label] = labelData.length > 0 ? (successful / labelData.length) : 0;
-                                        });
-
-                                        const passNoSkill = labelSuccessRates['without-skill'] || 0;
-                                        const passSkill = labelSuccessRates[val] || 0;
-                                        
-                                        if (passNoSkill < 1) {
-                                            skillLift = ((passSkill - passNoSkill) / (1 - passNoSkill)) * 100;
-                                        } else {
-                                            skillLift = 0;
+                                        let queryData = filteredData.filter(d => d.query === selectedQuery);
+                                        if (selectedFramework) {
+                                            queryData = queryData.filter(d => d.framework === selectedFramework);
                                         }
+                                        skillLiftMetrics = calculateSkillLift(queryData, val);
                                     }
 
                                     return (
@@ -1943,30 +2016,41 @@ export default function Dashboard() {
                                                     <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(worst.framework)}&query=${encodeURIComponent(worst.query)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>查看 &gt;</div>
                                                 </div>
                                                 {/*Skill Lift*/}
-                                                {drillDownGroupByLabel && skillLift !== null && (
+                                                {drillDownGroupByLabel && skillLiftMetrics !== null && (
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
-                                                        <div className="card-title text-purple-400" style={{ fontSize: '0.85rem' }}>技能提升 (Skill Lift)</div>
+                                                        <div className="card-title text-purple-400" style={{ fontSize: '0.85rem' }}>
+                                                            技能提升 (Skill Lift)
+                                                            <CustomTooltip content={"表示启用当前 Skill 标签后，相对 without-skill 基线带来的成功率提升。\n计算公式：(skill_success_rate - no_skill_success_rate) / (1 - no_skill_success_rate)\n其中：skill_success_rate 为当前标签下已评测记录的成功率；no_skill_success_rate 为 without-skill 基线下已评测记录的成功率。\n仅在同时存在已评测的当前标签数据和 without-skill 基线数据时才计算。"} />
+                                                        </div>
                                                         <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
                                                             <div style={{ marginBottom: '0.5rem' }}>
                                                                 <div style={{ 
                                                                     fontSize: '1.2rem', 
                                                                     fontWeight: 'bold',
-                                                                    color: skillLift > 0 ? '#4ade80' : skillLift < 0 ? '#f87171' : '#94a3b8'
+                                                                    color: skillLiftMetrics.valuePct == null
+                                                                        ? '#94a3b8'
+                                                                        : skillLiftMetrics.valuePct > 0
+                                                                            ? '#4ade80'
+                                                                            : skillLiftMetrics.valuePct < 0
+                                                                                ? '#f87171'
+                                                                                : '#94a3b8'
                                                                 }}>
-                                                                    {skillLift > 0 ? '+' : ''}{skillLift.toFixed(2)}%
+                                                                    {skillLiftMetrics.valuePct == null
+                                                                        ? 'N/A'
+                                                                        : `${skillLiftMetrics.valuePct > 0 ? '+' : ''}${skillLiftMetrics.valuePct.toFixed(2)}%`}
                                                                 </div>
                                                             </div>
                                                         </div>
                                                     </div>
-                                                        <div style={{fontSize: '0.75rem', color: '#64748b'}}>
-                                                        基于 without-skill 基线.
+                                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                                        当前标签成功率：{skillLiftMetrics.passSkill == null ? 'N/A' : `${(skillLiftMetrics.passSkill * 100).toFixed(1)}%`}
+                                                        <br />
+                                                        基线成功率：{skillLiftMetrics.passNoSkill == null ? 'N/A' : `${(skillLiftMetrics.passNoSkill * 100).toFixed(1)}%`}
                                                     </div>
-                                                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 'auto', textAlign: 'left', whiteSpace: 'pre-wrap', fontStyle: 'italic', opacity: 0, transition: 'opacity 0.2s ease-in-out' }} 
-                                                            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                                                            onMouseLeave={e => e.currentTarget.style.opacity = '0'}>
-                                                        公式: (skill_success_rate - no_skill_success_rate) / (1 - no_skill_success_rate)
-                                                    </div>
+                                                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.5rem', textAlign: 'left', whiteSpace: 'pre-wrap' }}>
+                                                        {skillLiftMetrics.reason || '基于 without-skill 基线计算。'}
+                                                        </div>
                                                 </div>
                                                 )}
                                             </div>
