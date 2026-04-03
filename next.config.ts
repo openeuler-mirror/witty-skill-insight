@@ -1,11 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  basePath: process.env.NEXT_PUBLIC_URL_PREFIX || '',
   output: 'standalone',
   serverExternalPackages: ["node-fetch", "pg"],
   experimental: {
       serverActions: {
-          allowedOrigins: ["*"] // Allow cross-origin requests in dev
+          allowedOrigins: ["*"] //
       }
   },
   async rewrites() {
@@ -25,8 +26,7 @@ const nextConfig: NextConfig = {
         destination: '/api/otel/v1/metrics',
       },
     ];
-    
-    // 如果设置了 URL_PREFIX，添加重写规则
+
     if (urlPrefix) {
       rewrites.push({
         source: `${urlPrefix}/api/:path*`,

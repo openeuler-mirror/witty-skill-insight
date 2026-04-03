@@ -732,9 +732,10 @@ export async function GET(request: Request) {
     // Detect base path from request URL (e.g., /skill-insight/api/setup -> /skill-insight)
     const requestUrl = new URL(request.url);
     const basePath = requestUrl.pathname.replace(/\/api\/setup\/?$/, '');
-
-    const baseUrl = `${protocol}://${host}${basePath}`;
-    const skillInsightHost = `${protocol}://${host}${basePath}`;
+    // --- 直接读取环境变量，不再通过 pathname 截取 ---
+    const urlPrefix = process.env.NEXT_PUBLIC_URL_PREFIX || ''; 
+    const baseUrl = `${protocol}://${host}${urlPrefix}`;
+    const skillInsightHost = baseUrl;
 
     const platform = detectPlatform(request);
 
