@@ -179,9 +179,6 @@ fi
 if [ "$INSTALL_OPENCODE" = "true" ]; then
     echo "⏬ Downloading OpenCode Plugin..."
     curl -sSf "$SKILL_INSIGHT_BASE_URL/api/setup/opencode" -o "$HOME/.opencode/plugins/Witty-Skill-Insight.ts"
-
-    echo "⏬ Downloading Skill Sync Tool..."
-    curl -sSf "$SKILL_INSIGHT_BASE_URL/sync_skills.ts" -o "$HOME/.skill-insight/sync_skills.ts"
 fi
 
 if [ "$INSTALL_CLAUDE" = "true" ]; then
@@ -209,17 +206,6 @@ echo "SKILL_INSIGHT_API_KEY=$SKILL_INSIGHT_API_KEY" >> "$SKILL_INSIGHT_CONFIG_FI
 echo "✅ Configuration updated at $SKILL_INSIGHT_CONFIG_FILE"
 echo "   SKILL_INSIGHT_HOST=$SKILL_INSIGHT_HOST"
 echo "   SKILL_INSIGHT_API_KEY=********"
-
-# 5. Sync Opencode Skills
-if [ "$INSTALL_OPENCODE" = "true" ]; then
-    echo ""
-    echo "🚀 Syncing Opencode Skills..."
-    if command -v npx &> /dev/null; then
-      npx -y tsx "$HOME/.skill-insight/sync_skills.ts" --agent opencode
-    else
-      echo "⚠️  Node.js (npx) not found. Skipping skill sync."
-    fi
-fi
 
 # 6. Install Watcher Dependencies (only if any watcher is selected)
 if [ "$INSTALL_CLAUDE" = "true" ] || [ "$INSTALL_OPENCLAW" = "true" ]; then
@@ -345,31 +331,6 @@ if [ "$NEEDS_WATCHER_SCRIPTS" = "true" ]; then
     else
         echo "⚠️  Node.js (npx) not found. Skipping watcher startup."
     fi
-fi
-
-# 9. Configure Claude Code Auto-Sync Wrapper
-if [ "$INSTALL_CLAUDE" = "true" ]; then
-    echo ""
-    echo "🔄 Configuring Claude Code Auto-Sync Wrapper..."
-    CLAUDE_WRAPPER='
-# Skill Insight Claude Alliance
-skill-insight-claude() {
-    if command -v npx &> /dev/null; then
-        npx -y tsx "$HOME/.skill-insight/sync_skills.ts" --agent claude >/dev/null 2>&1
-    fi
-    command claude "$@"
-}
-alias claude="skill-insight-claude"
-'
-
-    for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do
-        if [ -f "$rc_file" ]; then
-            if ! grep -q "skill-insight-claude()" "$rc_file" 2>/dev/null; then
-                echo "$CLAUDE_WRAPPER" >> "$rc_file"
-                echo "✅ Installed Claude wrapper to $rc_file"
-            fi
-        fi
-    done
 fi
 
 # 10. Final Summary
@@ -566,9 +527,6 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         'if ($INSTALL_OPENCODE) {',
         '    Write-Host "⏬ Downloading OpenCode Plugin..."',
         '    Invoke-WebRequest -Uri "$SKILL_INSIGHT_BASE_URL/api/setup/opencode" -OutFile (Join-Path $opencodePluginsDir "Witty-Skill-Insight.ts")',
-        '    ',
-        '    Write-Host "⏬ Downloading Skill Sync Tool..."',
-        '    Invoke-WebRequest -Uri "$SKILL_INSIGHT_BASE_URL/sync_skills.ts" -OutFile (Join-Path $skillInsightDir "sync_skills.ts")',
         '}',
         '',
         'if ($INSTALL_CLAUDE) {',
@@ -597,17 +555,6 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         'Write-Host "✅ Configuration updated at $SKILL_INSIGHT_CONFIG_FILE"',
         'Write-Host "   SKILL_INSIGHT_HOST=$SKILL_INSIGHT_HOST"',
         'Write-Host "   SKILL_INSIGHT_API_KEY=********"',
-        '',
-        '# 5. Sync Opencode Skills',
-        'if ($INSTALL_OPENCODE) {',
-        '    Write-Host ""',
-        '    Write-Host "🚀 Syncing Opencode Skills..."',
-        '    if (Get-Command npx -ErrorAction SilentlyContinue) {',
-        '        npx -y tsx (Join-Path $skillInsightDir "sync_skills.ts") --agent opencode',
-        '    } else {',
-        '        Write-Host "⚠️  Node.js (npx) not found. Skipping skill sync."',
-        '    }',
-        '}',
         '',
         '# 6. Install Watcher Dependencies (only if any watcher is selected)',
         'if ($INSTALL_CLAUDE -or $INSTALL_OPENCLAW) {',
@@ -725,40 +672,6 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         '        & (Join-Path $skillInsightDir "start_watchers.ps1")',
         '    } else {',
         '        Write-Host "⚠️  Node.js (npx) not found. Skipping watcher startup."',
-        '    }',
-        '}',
-        '',
-        '# 9. Configure Claude Code Auto-Sync Wrapper (PowerShell profile)',
-        'if ($INSTALL_CLAUDE) {',
-        '    Write-Host ""',
-        '    Write-Host "🔄 Configuring Claude Code Auto-Sync Wrapper..."',
-        '    ',
-        '    $claudeWrapper = @\'',
-        '',
-        '# Skill Insight Claude Alliance',
-        'function skill-insight-claude {',
-        '    if (Get-Command npx -ErrorAction SilentlyContinue) {',
-        '        npx -y tsx "$env:USERPROFILE\\.skill-insight\\sync_skills.ts" --agent claude 2>$null',
-        '    }',
-        '    claude $args',
-        '}',
-        'Set-Alias -Name claude -Value skill-insight-claude -Force',
-        '\'@',
-        '',
-        '    $profilePath = $PROFILE',
-        '    if (Test-Path $profilePath) {',
-        '        $profileContent = Get-Content $profilePath -Raw',
-        '        if ($profileContent -notmatch "skill-insight-claude") {',
-        '            Add-Content -Path $profilePath -Value $claudeWrapper',
-        '            Write-Host "✅ Installed Claude wrapper to $profilePath"',
-        '        }',
-        '    } else {',
-        '        $profileDir = Split-Path $profilePath -Parent',
-        '        if (-not (Test-Path $profileDir)) {',
-        '            New-Item -ItemType Directory -Path $profileDir -Force | Out-Null',
-        '        }',
-        '        Set-Content -Path $profilePath -Value $claudeWrapper -Encoding UTF8',
-        '        Write-Host "✅ Created PowerShell profile with Claude wrapper at $profilePath"',
         '    }',
         '}',
         '',

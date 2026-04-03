@@ -1,4 +1,5 @@
 import { db, prisma } from '@/lib/prisma';
+import { loadDefaultModelConfigs } from '@/lib/default-model-config';
 
 export interface ModelConfig {
     id: string;
@@ -20,25 +21,45 @@ export async function getActiveConfig(user?: string | null): Promise<ModelConfig
 }
 
 export async function getUserSettings(user?: string | null): Promise<UserSettings> {
-    const defaultSettings: UserSettings = { activeConfigId: null, configs: [] };
-    
     if (!user) {
-        return defaultSettings;
+        return { activeConfigId: null, configs: [] };
     }
 
+    const defaultConfigs = loadDefaultModelConfigs();
+    
+    let userConfigs: ModelConfig[] = [];
+    let activeConfigId: string | null = null;
+    
     try {
         const record = await db.findUserSettings(user);
         if (record?.settingsJson) {
-            return JSON.parse(record.settingsJson);
+            const settings = JSON.parse(record.settingsJson);
+            userConfigs = settings.configs.filter((c: ModelConfig) => !c.id.startsWith('default_'));
+            activeConfigId = settings.activeConfigId;
         }
     } catch (e) {
         console.error('Failed to load user settings:', e);
     }
     
-    return defaultSettings;
+    const mergedConfigs = [...defaultConfigs, ...userConfigs];
+    
+    if (!activeConfigId || !mergedConfigs.find(c => c.id === activeConfigId)) {
+        activeConfigId = defaultConfigs.length > 0 ? defaultConfigs[0].id : null;
+    }
+    
+    return {
+        activeConfigId,
+        configs: mergedConfigs
+    };
 }
 
 export async function saveUserSettings(user: string, settings: UserSettings): Promise<void> {
-    const settingsJson = JSON.stringify(settings);
+    const userOnlyConfigs = settings.configs.filter((c: ModelConfig) => !c.id.startsWith('default_'));
+    
+    const settingsJson = JSON.stringify({
+        activeConfigId: settings.activeConfigId,
+        configs: userOnlyConfigs
+    });
+    
     await db.upsertUserSettings(user, settingsJson);
 }

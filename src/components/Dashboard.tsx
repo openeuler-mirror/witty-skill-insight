@@ -436,6 +436,8 @@ export default function Dashboard() {
         }
     };
 
+    const isDefaultConfig = (configId: string) => configId.startsWith('default_');
+
     const activateConfig = async (id: string) => {
         const payload = { activeConfigId: id, configs: allConfigs };
         const finalPayload = { settings: payload, user };
@@ -1279,7 +1281,7 @@ export default function Dashboard() {
                                 <select
                                     value={activeConfigId || 'none'}
                                     onChange={(e) => activateConfig(e.target.value)}
-                                    style={{ background: 'transparent', color: 'var(--foreground)', border: 'none', maxWidth: '140px', outline: 'none', cursor: 'pointer' }}
+                                    style={{ background: 'transparent', color: 'var(--foreground-secondary)', border: 'none', maxWidth: '140px', outline: 'none', cursor: 'pointer' }}
                                 >
                                     <option value="none">未配置模型</option>
                                     {allConfigs.map(c => (
@@ -1337,56 +1339,64 @@ export default function Dashboard() {
                                 </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '1.5rem' }}>
-                                    {allConfigs.map(config => (
-                                        <div key={config.id} style={{
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                            padding: '10px',
-                                            background: activeConfigId === config.id ? 'rgba(37, 99, 235, 0.1)' : '#f8fafc',
-                                            border: activeConfigId === config.id ? '1px solid #2563eb' : '1px solid #e2e8f0',
-                                            borderRadius: '6px'
-                                        }}>
-                                            <div>
-                                                <div style={{ fontWeight: 'bold', color: activeConfigId === config.id ? '#2563eb' : '#1e293b' }}>
-                                                    {config.name} {activeConfigId === config.id && '(Active)'}
+                                    {allConfigs.map(config => {
+                                        const isDefault = isDefaultConfig(config.id);
+                                        return (
+                                            <div key={config.id} style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                padding: '10px',
+                                                background: activeConfigId === config.id ? 'rgba(37, 99, 235, 0.1)' : '#f8fafc',
+                                                border: activeConfigId === config.id ? '1px solid #2563eb' : '1px solid #e2e8f0',
+                                                borderRadius: '6px'
+                                            }}>
+                                                <div>
+                                                    <div style={{ fontWeight: 'bold', color: activeConfigId === config.id ? '#2563eb' : '#1e293b' }}>
+                                                        {config.name} {activeConfigId === config.id && '(Active)'}
+                                                        {isDefault && <span style={{ marginLeft: '8px', fontSize: '0.8rem', color: '#64748b' }}>📋 Default (Read-only)</span>}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                                        {config.provider} • {config.model}
+                                                    </div>
                                                 </div>
-                                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                                    {config.provider} • {config.model}
-                                                </div>
-                                            </div>
 
-                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                {activeConfigId !== config.id && (
-                                                    <button
-                                                        className="btn-secondary"
-                                                        style={{ padding: '4px 8px', fontSize: '0.8rem' }}
-                                                        onClick={() => activateConfig(config.id)}
-                                                    >
-                                                        Activate
-                                                    </button>
-                                                )}
-                                                <button
-                                                    className="btn-secondary"
-                                                    style={{ padding: '4px 8px', fontSize: '0.8rem' }}
-                                                    onClick={() => {
-                                                        setTempConfig({ ...config });
-                                                        setEditingConfigId(config.id);
-                                                        setSettingsStatus(null);
-                                                    }}
-                                                >
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    className="btn-secondary"
-                                                    style={{ padding: '4px 8px', fontSize: '0.8rem', color: '#dc2626', borderColor: '#f87171' }}
-                                                    onClick={() => deleteEvalConfig(config.id)}
-                                                >
-                                                    Del
-                                                </button>
+                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                    {activeConfigId !== config.id && (
+                                                        <button
+                                                            className="btn-secondary"
+                                                            style={{ padding: '4px 8px', fontSize: '0.8rem' }}
+                                                            onClick={() => activateConfig(config.id)}
+                                                        >
+                                                            Activate
+                                                        </button>
+                                                    )}
+                                                    {!isDefault && (
+                                                        <>
+                                                            <button
+                                                                className="btn-secondary"
+                                                                style={{ padding: '4px 8px', fontSize: '0.8rem' }}
+                                                                onClick={() => {
+                                                                    setTempConfig({ ...config });
+                                                                    setEditingConfigId(config.id);
+                                                                    setSettingsStatus(null);
+                                                                }}
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                className="btn-secondary"
+                                                                style={{ padding: '4px 8px', fontSize: '0.8rem', color: '#dc2626', borderColor: '#f87171' }}
+                                                                onClick={() => deleteEvalConfig(config.id)}
+                                                            >
+                                                                Del
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
 
                                 <button
@@ -1444,6 +1454,7 @@ export default function Dashboard() {
                                         placeholder="e.g. My DeepSeek, Company OpenAI Proxy"
                                         value={tempConfig.name || ''}
                                         onChange={e => setTempConfig({ ...tempConfig, name: e.target.value })}
+                                        disabled={isDefaultConfig(editingConfigId)}
                                         style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
                                     />
                                 </div>
@@ -1470,6 +1481,7 @@ export default function Dashboard() {
                                             }
                                             setTempConfig({ ...tempConfig, ...updates });
                                         }}
+                                        disabled={isDefaultConfig(editingConfigId)}
                                         style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
                                     >
                                         <option value="deepseek">DeepSeek (Official)</option>
@@ -1487,11 +1499,10 @@ export default function Dashboard() {
                                         value={tempConfig.baseUrl || ''}
                                         onChange={e => {
                                             let val = e.target.value;
-                                            // Normalize: strip /chat/completions if user pasted full endpoint
-                                            // Keep /v1 suffix as it's required by many OpenAI-compatible APIs
                                             val = val.replace(/\/chat\/completions\/?$/, '');
                                             setTempConfig({ ...tempConfig, baseUrl: val });
                                         }}
+                                        disabled={isDefaultConfig(editingConfigId)}
                                         style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
                                     />
                                 </div>
@@ -1503,6 +1514,7 @@ export default function Dashboard() {
                                         placeholder="sk-..."
                                         value={tempConfig.apiKey || ''}
                                         onChange={e => setTempConfig({ ...tempConfig, apiKey: e.target.value })}
+                                        disabled={isDefaultConfig(editingConfigId)}
                                         style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
                                     />
                                 </div>
@@ -1513,23 +1525,26 @@ export default function Dashboard() {
                                         placeholder="e.g. deepseek-chat, gpt-4o"
                                         value={tempConfig.model || ''}
                                         onChange={e => setTempConfig({ ...tempConfig, model: e.target.value })}
+                                        disabled={isDefaultConfig(editingConfigId)}
                                         style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
                                     />
                                 </div>
 
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '2rem' }}>
                                     <button className="btn-secondary" onClick={() => setEditingConfigId(null)}>Cancel</button>
-                                    <button
-                                        className="btn-primary"
-                                        onClick={saveCurrentConfig}
-                                        disabled={isSavingSettings}
-                                        style={{ opacity: isSavingSettings ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '6px' }}
-                                    >
-                                        {isSavingSettings && <span style={{
-                                            width: '12px', height: '12px', border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite'
-                                        }}></span>}
-                                        {isSavingSettings ? 'Testing & Saving...' : 'Test Connection & Save'}
-                                    </button>
+                                    {!isDefaultConfig(editingConfigId) && (
+                                        <button
+                                            className="btn-primary"
+                                            onClick={saveCurrentConfig}
+                                            disabled={isSavingSettings}
+                                            style={{ opacity: isSavingSettings ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '6px' }}
+                                        >
+                                            {isSavingSettings && <span style={{
+                                                width: '12px', height: '12px', border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite'
+                                            }}></span>}
+                                            {isSavingSettings ? 'Testing & Saving...' : 'Test Connection & Save'}
+                                        </button>
+                                    )}
                                 </div>
                             </>
                         )}
