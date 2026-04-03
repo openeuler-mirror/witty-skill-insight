@@ -81,6 +81,7 @@ interface AvgComparison {
 }
 
 const COLORS = ['#2563eb', '#db2777', '#16a34a', '#d97706', '#7c3aed', '#dc2626'];
+const basePath = process.env.NEXT_PUBLIC_URL_PREFIX || '';
 
 // --- Helpers ---
 const formatLatency = (ms: number) => {
@@ -1986,7 +1987,7 @@ export default function Dashboard() {
                                                         </div>
                                                     </div>
                                                     <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
-                                                        const url = `/details?framework=${encodeURIComponent(best.framework)}&expandTaskId=${best.task_id || best.upload_id}`;
+                                                        const url = `${basePath}/details?framework=${encodeURIComponent(best.framework)}&expandTaskId=${best.task_id || best.upload_id}`;
                                                         window.open(url, '_blank');
                                                     }}>查看 &gt;</div>
                                                 </div>
@@ -1999,7 +2000,7 @@ export default function Dashboard() {
                                                             Cost: {formatCost(worst.cost) || '-'}
                                                         </div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(worst.framework)}&query=${encodeURIComponent(worst.query)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>查看 &gt;</div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(worst.framework)}&query=${encodeURIComponent(worst.query)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>查看 &gt;</div>
                                                 </div>
                                                 {/*Skill Lift*/}
                                                 {drillDownGroupByLabel && skillLift !== null && (
@@ -2082,7 +2083,7 @@ export default function Dashboard() {
                                             Time: {formatDateTime(singleQueryStats.best.timestamp)}
                                         </div>
                                     </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`/details?framework=${encodeURIComponent(singleQueryStats.best.framework)}&query=${encodeURIComponent(singleQueryStats.best.query)}&expandTaskId=${singleQueryStats.best.task_id || singleQueryStats.best.upload_id}`, '_blank')}>查看 &gt;</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(singleQueryStats.best.framework)}&query=${encodeURIComponent(singleQueryStats.best.query)}&expandTaskId=${singleQueryStats.best.task_id || singleQueryStats.best.upload_id}`, '_blank')}>查看 &gt;</div>
                                 </div>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
@@ -2094,7 +2095,7 @@ export default function Dashboard() {
                                         </div>
                                     </div>
                                     <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
-                                        const url = `/details?framework=${encodeURIComponent(singleQueryStats.worst.framework)}&expandTaskId=${singleQueryStats.worst.task_id || singleQueryStats.worst.upload_id}`;
+                                        const url = `${basePath}/details?framework=${encodeURIComponent(singleQueryStats.worst.framework)}&expandTaskId=${singleQueryStats.worst.task_id || singleQueryStats.worst.upload_id}`;
                                         window.open(url, '_blank');
                                     }}>查看 &gt;</div>
                                 </div>
@@ -2215,7 +2216,7 @@ export default function Dashboard() {
                                             <td className="p-2">
                                                 <div style={{ display: 'flex', gap: '8px', whiteSpace: 'nowrap' }}>
                                                     <button onClick={() => {
-                                                        const url = `/details?framework=${encodeURIComponent(row.framework)}&expandTaskId=${recordId}`;
+                                                        const url = `${basePath}/details?framework=${encodeURIComponent(row.framework)}&expandTaskId=${recordId}`;
                                                         window.open(url, '_blank');
                                                     }} className="btn-sm" style={{ background: 'var(--primary)' }}>
                                                         详情

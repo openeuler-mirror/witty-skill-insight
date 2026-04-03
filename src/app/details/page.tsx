@@ -21,6 +21,8 @@ const ResponsiveContainer = dynamic(() => import('recharts').then(mod => mod.Res
 
 const ReactJson = dynamic(() => import('react-json-view'), { ssr: false });
 
+const basePath = process.env.NEXT_PUBLIC_URL_PREFIX || '';
+
 interface SkillIssue {
     id: string;
     type: 'root_cause' | 'key_action';
@@ -2663,7 +2665,7 @@ function DetailPage() {
                                     params.set('query', item.query);
                                     if (item.framework) params.set('framework', item.framework);
                                     params.set('expandTaskId', itemTaskId);
-                                    window.open(`/details?${params.toString()}`, '_blank');
+                                    window.open(`${basePath}/details?${params.toString()}`, '_blank');
                                 }
                             }}
                             onMouseOver={(e) => {
