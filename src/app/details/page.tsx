@@ -1885,6 +1885,7 @@ function DetailPage() {
                                                         key={`json-${focusedStep !== null ? focusedStep : 'default'}`}
                                                         src={formatSessionForDisplay(session)}
                                                         theme={isDark ? 'monokai' : 'rjv-default'}
+                                                        groupArraysAfterLength={0}
                                                         shouldCollapse={(field) => {
                                                             const path = [...(field.namespace || []), field.name]
                                                                 .filter(key => key != null && String(key).trim() !== '')
