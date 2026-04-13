@@ -2308,7 +2308,11 @@ export default function Dashboard() {
                                             Time: {formatDateTime(singleQueryStats.best.timestamp)}
                                         </div>
                                     </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(singleQueryStats.best.framework)}&expandTaskId=${singleQueryStats.best.task_id || singleQueryStats.best.upload_id}`, '_blank')}>查看 &gt;</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
+                                        const best = singleQueryStats.best;
+                                        if (!best) return;
+                                        window.open(`${basePath}/details?framework=${encodeURIComponent(best.framework)}&expandTaskId=${best.task_id || best.upload_id}`, '_blank');
+                                    }}>查看 &gt;</div>
                                 </div>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
@@ -2320,7 +2324,9 @@ export default function Dashboard() {
                                         </div>
                                     </div>
                                     <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
-                                        const url = `${basePath}/details?framework=${encodeURIComponent(singleQueryStats.worst.framework)}&expandTaskId=${singleQueryStats.worst.task_id || singleQueryStats.worst.upload_id}`;
+                                        const worst = singleQueryStats.worst;
+                                        if (!worst) return;
+                                        const url = `${basePath}/details?framework=${encodeURIComponent(worst.framework)}&expandTaskId=${worst.task_id || worst.upload_id}`;
                                         window.open(url, '_blank');
                                     }}>查看 &gt;</div>
                                 </div>

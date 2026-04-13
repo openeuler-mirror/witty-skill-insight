@@ -177,11 +177,42 @@ fi
 
 # 3. Download Components
 if [ "$INSTALL_OPENCODE" = "true" ]; then
+    OPENCODE_CONFIG_DIR="\${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+    mkdir -p "$OPENCODE_CONFIG_DIR/plugins"
     echo "⏬ Downloading OpenCode Plugin..."
-    curl -sSf "$SKILL_INSIGHT_BASE_URL/api/setup/opencode" -o "$HOME/.opencode/plugins/Witty-Skill-Insight.ts"
+    curl -sSf "$SKILL_INSIGHT_BASE_URL/api/setup/opencode" -o "$OPENCODE_CONFIG_DIR/plugins/Witty-Skill-Insight.ts"
+    cp "$OPENCODE_CONFIG_DIR/plugins/Witty-Skill-Insight.ts" "$HOME/.opencode/plugins/Witty-Skill-Insight.ts" 2>/dev/null || true
     echo "⏬ Installing OpenCode commands..."
-    mkdir -p "$HOME/.config/opencode/commands"
-    curl -sSf "$SKILL_INSIGHT_BASE_URL/api/setup/opencode-commands/si-optimizer" -o "$HOME/.config/opencode/commands/si-optimizer.md"
+    mkdir -p "$OPENCODE_CONFIG_DIR/commands"
+    curl -sSf "$SKILL_INSIGHT_BASE_URL/api/setup/opencode-commands/si-optimizer" -o "$OPENCODE_CONFIG_DIR/commands/si-optimizer.md"
+    echo "⏬ Downloading OpenCode TUI Plugin..."
+    curl -sSf "$SKILL_INSIGHT_BASE_URL/api/setup/opencode-tui" -o "$OPENCODE_CONFIG_DIR/plugins/Witty-Skill-Insight.tui.tsx"
+    cp "$OPENCODE_CONFIG_DIR/plugins/Witty-Skill-Insight.tui.tsx" "$HOME/.opencode/plugins/Witty-Skill-Insight.tui.tsx" 2>/dev/null || true
+    export TUI_PLUGIN_PATH="$OPENCODE_CONFIG_DIR/plugins/Witty-Skill-Insight.tui.tsx"
+    export TUI_CONFIG_FILE="$OPENCODE_CONFIG_DIR/tui.json"
+    if command -v node &> /dev/null; then
+      node - <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const file = process.env.TUI_CONFIG_FILE;
+const pluginPath = process.env.TUI_PLUGIN_PATH;
+let data = {};
+try {
+  if (fs.existsSync(file)) {
+    const text = fs.readFileSync(file, "utf8");
+    data = text && text.trim() ? JSON.parse(text) : {};
+  }
+} catch {}
+if (!data || typeof data !== "object") data = {};
+const list = Array.isArray(data.plugin) ? data.plugin.slice() : [];
+if (pluginPath && !list.includes(pluginPath)) list.push(pluginPath);
+data.plugin = list;
+fs.mkdirSync(path.dirname(file), { recursive: true });
+fs.writeFileSync(file, JSON.stringify(data, null, 2));
+NODE
+    else
+      echo "⚠️  node not found; skip TUI plugin config patch."
+    fi
 fi
 
 if [ "$INSTALL_CLAUDE" = "true" ]; then
@@ -196,16 +227,24 @@ fi
 
 # 4. Configure ~/.skill-insight/.env (Auto mode - no interaction)
 SKILL_INSIGHT_CONFIG_FILE="$HOME/.skill-insight/.env"
+FINAL_SHOW_TASK_STATS="true"
+if [ -f "$SKILL_INSIGHT_CONFIG_FILE" ]; then
+  EXISTING_SHOW_TASK_STATS=$(grep '^SKILL_INSIGHT_SHOW_TASK_STATS=' "$SKILL_INSIGHT_CONFIG_FILE" | head -n 1 | cut -d'=' -f2-)
+  if [ -n "$EXISTING_SHOW_TASK_STATS" ]; then
+    FINAL_SHOW_TASK_STATS="$EXISTING_SHOW_TASK_STATS"
+  fi
+fi
 
 echo "⚙️  Updating configuration..."
 touch "$SKILL_INSIGHT_CONFIG_FILE"
 if [ -f "$SKILL_INSIGHT_CONFIG_FILE" ]; then
     cp "$SKILL_INSIGHT_CONFIG_FILE" "\${SKILL_INSIGHT_CONFIG_FILE}.bak"
-    grep -v "^SKILL_INSIGHT_HOST=" "\${SKILL_INSIGHT_CONFIG_FILE}.bak" | grep -v "^SKILL_INSIGHT_API_KEY=" > "$SKILL_INSIGHT_CONFIG_FILE"
+    grep -v "^SKILL_INSIGHT_HOST=" "\${SKILL_INSIGHT_CONFIG_FILE}.bak" | grep -v "^SKILL_INSIGHT_API_KEY=" | grep -v "^SKILL_INSIGHT_SHOW_TASK_STATS=" > "$SKILL_INSIGHT_CONFIG_FILE"
     rm "\${SKILL_INSIGHT_CONFIG_FILE}.bak"
 fi
 echo "SKILL_INSIGHT_HOST=$SKILL_INSIGHT_HOST" >> "$SKILL_INSIGHT_CONFIG_FILE"
 echo "SKILL_INSIGHT_API_KEY=$SKILL_INSIGHT_API_KEY" >> "$SKILL_INSIGHT_CONFIG_FILE"
+echo "SKILL_INSIGHT_SHOW_TASK_STATS=$FINAL_SHOW_TASK_STATS" >> "$SKILL_INSIGHT_CONFIG_FILE"
 echo "✅ Configuration updated at $SKILL_INSIGHT_CONFIG_FILE"
 echo "   SKILL_INSIGHT_HOST=$SKILL_INSIGHT_HOST"
 echo "   SKILL_INSIGHT_API_KEY=********"
@@ -530,7 +569,27 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         '# 3. Download Components',
         'if ($INSTALL_OPENCODE) {',
         '    Write-Host "⏬ Downloading OpenCode Plugin..."',
-        '    Invoke-WebRequest -Uri "$SKILL_INSIGHT_BASE_URL/api/setup/opencode" -OutFile (Join-Path $opencodePluginsDir "Witty-Skill-Insight.ts")',
+        '    $opencodeConfigDir = if ($env:XDG_CONFIG_HOME) { Join-Path $env:XDG_CONFIG_HOME "opencode" } elseif ($env:APPDATA) { Join-Path $env:APPDATA "opencode" } else { Join-Path $homeDir ".config\\opencode" }',
+        '    New-Item -ItemType Directory -Path (Join-Path $opencodeConfigDir "plugins") -Force | Out-Null',
+        '    Invoke-WebRequest -Uri "$SKILL_INSIGHT_BASE_URL/api/setup/opencode" -OutFile (Join-Path $opencodeConfigDir "plugins\\Witty-Skill-Insight.ts")',
+        '    Copy-Item (Join-Path $opencodeConfigDir "plugins\\Witty-Skill-Insight.ts") (Join-Path $opencodePluginsDir "Witty-Skill-Insight.ts") -Force -ErrorAction SilentlyContinue',
+        '    Write-Host "⏬ Downloading OpenCode TUI Plugin..."',
+        '    $tuiPluginPath = Join-Path $opencodeConfigDir "plugins\\Witty-Skill-Insight.tui.tsx"',
+        '    Invoke-WebRequest -Uri "$SKILL_INSIGHT_BASE_URL/api/setup/opencode-tui" -OutFile $tuiPluginPath',
+        '    Copy-Item $tuiPluginPath (Join-Path $opencodePluginsDir "Witty-Skill-Insight.tui.tsx") -Force -ErrorAction SilentlyContinue',
+        '    $tuiConfigFile = Join-Path $opencodeConfigDir "tui.json"',
+        '    try {',
+        '        $data = @{}',
+        '        if (Test-Path $tuiConfigFile) {',
+        '            $raw = Get-Content $tuiConfigFile -Raw',
+        '            if ($raw -and $raw.Trim()) { $data = $raw | ConvertFrom-Json }',
+        '        }',
+        '        if (-not $data.plugin) { $data | Add-Member -MemberType NoteProperty -Name plugin -Value @() -Force }',
+        '        if ($data.plugin -notcontains $tuiPluginPath) { $data.plugin += $tuiPluginPath }',
+        '        $data | ConvertTo-Json -Depth 10 | Set-Content -Path $tuiConfigFile -Encoding UTF8',
+        '    } catch {',
+        '        Write-Host "⚠️  Failed to patch tui.json for TUI plugin."',
+        '    }',
         '}',
         '',
         'if ($INSTALL_CLAUDE) {',
@@ -549,13 +608,18 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         'Write-Host "⚙️  Updating configuration..."',
         'if (Test-Path $SKILL_INSIGHT_CONFIG_FILE) {',
         '    $existingContent = Get-Content $SKILL_INSIGHT_CONFIG_FILE',
-        '    $filteredContent = $existingContent | Where-Object { $_ -notmatch "^SKILL_INSIGHT_HOST=" -and $_ -notmatch "^SKILL_INSIGHT_API_KEY=" }',
+        '    $existingShow = ($existingContent | Where-Object { $_ -match "^SKILL_INSIGHT_SHOW_TASK_STATS=" } | Select-Object -First 1)',
+        '    $showValue = "true"',
+        '    if ($existingShow) { $showValue = ($existingShow -split "=", 2)[1] }',
+        '    $filteredContent = $existingContent | Where-Object { $_ -notmatch "^SKILL_INSIGHT_HOST=" -and $_ -notmatch "^SKILL_INSIGHT_API_KEY=" -and $_ -notmatch "^SKILL_INSIGHT_SHOW_TASK_STATS=" }',
         '    Set-Content -Path $SKILL_INSIGHT_CONFIG_FILE -Value $filteredContent',
         '} else {',
         '    New-Item -ItemType File -Path $SKILL_INSIGHT_CONFIG_FILE -Force | Out-Null',
+        '    $showValue = "true"',
         '}',
         'Add-Content -Path $SKILL_INSIGHT_CONFIG_FILE -Value "SKILL_INSIGHT_HOST=$SKILL_INSIGHT_HOST"',
         'Add-Content -Path $SKILL_INSIGHT_CONFIG_FILE -Value "SKILL_INSIGHT_API_KEY=$SKILL_INSIGHT_API_KEY"',
+        'Add-Content -Path $SKILL_INSIGHT_CONFIG_FILE -Value "SKILL_INSIGHT_SHOW_TASK_STATS=$showValue"',
         'Write-Host "✅ Configuration updated at $SKILL_INSIGHT_CONFIG_FILE"',
         'Write-Host "   SKILL_INSIGHT_HOST=$SKILL_INSIGHT_HOST"',
         'Write-Host "   SKILL_INSIGHT_API_KEY=********"',
