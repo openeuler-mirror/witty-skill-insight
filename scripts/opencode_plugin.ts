@@ -399,9 +399,10 @@ export default async function WittySkillInsightPlugin(input) {
 
       // logDebug(`Event: ${event.type}`);
 
-       try {
+      try {
            // Attempt to find session ID in various places
-           const sessionId = event.session_id || event.properties?.sessionID || event.payload?.session_id;
+           let sessionId = event.session_id || event.properties?.sessionID || event.payload?.session_id;
+           let eagerFlush = false;
 
            // 1. Accumulate Message Metadata
            if (event.type === 'message.created' || event.type === 'message.updated') {
@@ -416,11 +417,16 @@ export default async function WittySkillInsightPlugin(input) {
                      });
                  }
                  const entry = sessionStore.get(msgId);
+                 if (!sessionId) sessionId = info.sessionID || info.sessionId || entry.info?.sessionID;
                  if (sessionId) entry.info.sessionID = sessionId;
                   // Merge info
                   Object.assign(entry.info, info);
                   if (info.tool_calls || info.toolCalls) entry.info.tool_calls = info.tool_calls || info.toolCalls;
                   if (info.function_call || info.functionCall) entry.info.function_call = info.function_call || info.functionCall;
+
+                  if (entry.info?.role === 'assistant' && (entry.info.finish || entry.info.time?.completed != null)) {
+                      eagerFlush = true;
+                  }
              }
           }
 
@@ -441,6 +447,7 @@ export default async function WittySkillInsightPlugin(input) {
                         });
                   }
                   const entry = sessionStore.get(msgId);
+                  if (!sessionId) sessionId = entry.info?.sessionID || part.sessionID || part.session_id;
                   if (!(entry.parts instanceof Map)) entry.parts = new Map(Array.isArray(entry.parts) ? entry.parts : []);
                   if (entry.toolParts && !(entry.toolParts instanceof Map)) entry.toolParts = new Map(Array.isArray(entry.toolParts) ? entry.toolParts : []);
                   
@@ -566,6 +573,7 @@ export default async function WittySkillInsightPlugin(input) {
                   }
 
                   const entry = sessionStore.get(msgId);
+                  if (!sessionId) sessionId = entry.info?.sessionID;
                   if (!(entry.parts instanceof Map)) entry.parts = new Map(Array.isArray(entry.parts) ? entry.parts : []);
 
                   const dedupeKey = `${msgId}:${partId}:${field}`;
@@ -606,7 +614,7 @@ export default async function WittySkillInsightPlugin(input) {
           }
 
            // 3. Upload on Session Idle
-           if (event.type === "session.idle") {
+           if (event.type === "session.idle" || eagerFlush) {
                if (!sessionId || !sessionId.startsWith("ses")) return;
 
                // Reload store from disk to pick up any data written by
@@ -911,8 +919,9 @@ try {
           }
       } catch (err) {
           logDebug(`Plugin Exception: ${err.message}`);
+      } finally {
+        saveStore();
       }
-      saveStore();
     }
   };
 }
