@@ -6,7 +6,7 @@
 
 ```
 {skill_name}/
-  SKILL.md                    # 排查骨架（<200行）
+  SKILL.md                    # 排查骨架（<500行）
   scripts/
     _lib.sh                   # 从 templates/_lib.sh 复制，不修改
     collect.sh                # 信息采集（通用+域特定）

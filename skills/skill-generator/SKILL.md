@@ -1,12 +1,12 @@
 ---
 name: skill-generator
 description: >
-  从文档或结构化知识（自然语言、PDF、Markdown、URL等）自动生成 Agent Skills。
-  当用户说"生成一个skill"、"帮我把这些故障场景做成skill"、"从文档生成技能"、"把故障模式转成排查手册"时使用。
-  支持故障诊断场景（从故障模式/案例文档生成排查型Skill，含决策树和诊断脚本）和通用场景（从任意文档生成Skill）。
-  也适用于：合并多个文档为一个Skill、从URL抓取内容生成Skill、批量生成Skill。
-metadata:
-  keywords: ["skill生成", "故障诊断", "排查手册", "失效模型", "故障模式", "skill-generator", "文档转skill", "PDF", "Markdown"]
+  从文档或结构化知识自动生成符合规范的 Agent Skills / 技能。
+  当用户表达以下意图时使用：
+  - 说"生成一个 [主题] 的 skill"
+  - 提供故障模式列表/失效模型，想生成 skill
+  - 提供单个或多个文档（PDF/MarkDown/TXT）或 URL，想生成可用的 skill
+  - 说"把这些故障场景做成 skill"、"从文档创建技能"、"合并这些案例为一个技能"
 ---
 
 # Skill Generator
@@ -33,13 +33,6 @@ skill-name/
 ```
 
 > 完整的输出规范见 `references/skill-template.md`。
-
-## 何时使用此 Skill (When to Use)
-
-- 用户说"生成一个 [主题] 的 skill"
-- 用户提供故障模式列表/失效模型，想生成排查手册
-- 用户提供文档（PDF/MD/TXT）或 URL，想生成可用的 Skill
-- 用户说"把这些故障场景做成 skill"、"从文档创建技能"、"合并这些案例为一个技能"
 
 ## 核心指令 (Core Instructions)
 

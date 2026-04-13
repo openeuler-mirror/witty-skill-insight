@@ -123,10 +123,6 @@ Q: "total内存不足"缺少检测方法，建议：
 ## 概述 (Overview)
 {故障域简介，2-3行}
 
-## 何时使用此 Skill (When to Use)
-- {触发场景1}
-- {触发场景2}
-
 ## 核心指令 (Core Instructions)
 
 ### 信息收集
