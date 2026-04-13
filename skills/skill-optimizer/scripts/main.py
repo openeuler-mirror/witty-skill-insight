@@ -883,8 +883,14 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["static", "dynamic", "feedback", "hybrid"],
-        help="Optimization mode: static (cold) or dynamic (trace-based) or feedback (human revision) or hybrid (static+dynamic). Required for 'optimize' action.",
+        choices=["static", "dynamic", "feedback", "hybrid", "trace"],
+        help="Optimization mode: static (cold), dynamic (trace-based), feedback (human revision), hybrid (static+dynamic), or trace (Trace2Skill). Required for 'optimize' action.",
+    )
+    parser.add_argument(
+        "--trajectories",
+        "-t",
+        type=str,
+        help="Path to trajectories directory. Required for --mode trace.",
     )
     parser.add_argument(
         "--input",
@@ -954,6 +960,31 @@ def main():
         parser.error("--mode is required for 'optimize' action")
 
     output_path = Path(args.output) if args.output else None
+
+    if args.mode == "trace":
+        from trace2skill.orchestrator import run_trace2skill, Trace2SkillConfig
+
+        trajectory_path = Path(args.trajectories)
+        if not trajectory_path.exists():
+            parser.error(f"Trajectories directory not found: {trajectory_path}")
+
+        logger.info(f"Running Trace2Skill optimization with trajectories from {trajectory_path}")
+
+        llm_client = RealLLMClient()
+
+        config = Trace2SkillConfig(
+            trajectory_dir=trajectory_path,
+            skill_path=input_path,
+            output_dir=output_path,
+        )
+        result = run_trace2skill(llm_client=llm_client, config=config)
+
+        logger.info(f"Trace2Skill completed: {result.metadata}")
+        logger.info(
+            f"Evolution summary: {result.error_patches_count} error patches, "
+            f"{result.success_patches_count} success patches"
+        )
+        return
 
     try:
         human_feedback_content = resolve_human_feedback_content(args.mode, args.feedback)
