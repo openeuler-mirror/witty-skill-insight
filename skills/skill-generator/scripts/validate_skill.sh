@@ -71,56 +71,46 @@ else
     pass "S-04: description 长度合法（${DESC_LEN}字符）"
 fi
 
-# S-05: 必需章节存在
 BODY=$(awk '/^---/{c++} c>=2{print}' "$SKILL_MD")
-SECTIONS_OK=true
-for section in "概述" "核心指令"; do
-    if echo "$BODY" | grep -q "$section"; then
-        pass "S-05: 章节'$section'存在"
-    else
-        fail "S-05: 缺少章节'$section'"
-        SECTIONS_OK=false
-    fi
-done
 
-# S-06: 行数 ≤ 500
+# S-05: 行数 ≤ 500
 LINE_COUNT=$(wc -l < "$SKILL_MD")
 if [[ $LINE_COUNT -le 500 ]]; then
-    pass "S-06: SKILL.md 行数合规（${LINE_COUNT}行）"
+    pass "S-05: SKILL.md 行数合规（${LINE_COUNT}行）"
 else
-    fail "S-06: SKILL.md 超过 500 行（${LINE_COUNT}行）"
+    fail "S-05: SKILL.md 超过 500 行（${LINE_COUNT}行）"
 fi
 
 # ── L2: 内容质量 ─────────────────────────
 echo ""
 echo "【L2】内容质量"
 
-# S-07: scripts/*.sh 语法检查
+# S-06: scripts/*.sh 语法检查
 SCRIPTS_DIR="$SKILL_DIR/scripts"
 if [[ -d "$SCRIPTS_DIR" ]]; then
     SCRIPT_FILES=$(find "$SCRIPTS_DIR" -name "*.sh" 2>/dev/null)
     if [[ -z "$SCRIPT_FILES" ]]; then
-        warn "S-07: scripts/ 目录存在但无 .sh 文件"
+        warn "S-06: scripts/ 目录存在但无 .sh 文件"
     else
         ALL_PASS=true
         while IFS= read -r script; do
             if bash -n "$script" 2>/dev/null; then
-                pass "S-07: 脚本语法正常（$(basename "$script")）"
+                pass "S-06: 脚本语法正常（$(basename "$script")）"
             else
-                fail "S-07: 脚本语法错误（$(basename "$script")）"
+                fail "S-06: 脚本语法错误（$(basename "$script")）"
                 ALL_PASS=false
             fi
         done <<< "$SCRIPT_FILES"
     fi
 else
-    warn "S-07: 无 scripts/ 目录（故障诊断 Skill 通常应有排查脚本）"
+    warn "S-06: 无 scripts/ 目录（故障诊断 Skill 通常应有排查脚本）"
 fi
 
-# S-08: 参考文件说明章节存在
+# S-07: 参考文件说明章节存在
 if echo "$BODY" | grep -qE '参考文件|Reference'; then
-    pass "S-08: 参考文件说明章节存在"
+    pass "S-07: 参考文件说明章节存在"
 else
-    warn "S-08: 未找到参考文件说明章节"
+    warn "S-07: 未找到参考文件说明章节"
 fi
 
 # ── 汇总 ─────────────────────────────────

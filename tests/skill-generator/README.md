@@ -93,7 +93,6 @@ graph TB
     subgraph "L1: 结构合规"
         A["目录结构正确？"]
         B["YAML frontmatter 合法？"]
-        C["必需章节存在？"]
     end
     
     subgraph "L2: 内容质量"
@@ -108,12 +107,12 @@ graph TB
         I["执行后产出合理？"]
     end
     
-    A & B & C --> D & E & F --> G & H & I
+    A & B --> D & E & F --> G & H & I
 ```
 
 | 层级 | 验证什么 | 怎么验证 | 可自动化？ |
 |---|---|---|---|
-| **L1 结构合规** | 目录结构、frontmatter 格式、章节存在存在性 | 脚本检查（正则/YAML 解析） | ✅ 完全自动化 |
+| **L1 结构合规** | 目录结构、frontmatter 格式 | 脚本检查（正则/YAML 解析） | ✅ 完全自动化 |
 | **L2 内容质量** | 字段约束、脚本语法、路径合法性 | 脚本检查 + bash -n | ✅ 大部分自动化 |
 | **L3 功能有效性** | Agent 能否正确使用 | Agent 实际加载 + 烟雾测试 | ⚠️ 半自动（需要 Agent 环境） |
 
@@ -124,7 +123,6 @@ graph TB
   ✓ YAML frontmatter 可解析
   ✓ name 字段: kebab-case, ≤64 字符
   ✓ description 字段: 100~1024 字符
-  ✓ 必需章节存在: Overview, Core Instructions
   ✓ SKILL.md ≤ 500 行
 
 **L2 检查项:**
