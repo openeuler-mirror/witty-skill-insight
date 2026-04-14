@@ -224,7 +224,7 @@ class HierarchicalMerge:
             MERGE_OPERATOR_SYSTEM_PROMPT,
             "",
             "## Skill Content",
-            skill_content[:5000],
+            skill_content,
             "",
             f"## Patches to Merge ({len(patches)} patches)",
             "\n\n".join(patch_summaries),
@@ -254,7 +254,6 @@ class HierarchicalMerge:
         edits = []
         reasoning_parts = []
         in_patch_section = False
-        current_file = "SKILL.md"
         current_content_lines = []
 
         for line in response.split("\n"):

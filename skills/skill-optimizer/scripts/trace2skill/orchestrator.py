@@ -206,6 +206,7 @@ class Trace2SkillOrchestrator:
         6. If target is provided, find and operate on that exact text
         7. Make sure to preserve the overall structure and formatting of the skill file
         8. Return ONLY the modified skill file content, with no additional explanations or formatting
+        9. Change skill version if any
 
         Modified skill file content:"""
 
