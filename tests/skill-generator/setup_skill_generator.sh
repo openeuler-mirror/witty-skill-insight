@@ -6,7 +6,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../" && pwd)"
 SKILL_SOURCE="$PROJECT_ROOT/skills/skill-generator"
 SKILL_TARGET="$PROJECT_ROOT/.opencode/skills/skill-generator"
 OVERWRITE_LOCAL=false

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# run_test.sh — FA-01 测试运行脚本
+# run.sh — fault-pdf-docker-hang 测试运行脚本
 #
 # 用法:
-#   ./run_test.sh                    # 使用默认输出目录
-#   ./run_test.sh --output /tmp/out  # 指定输出目录
-#   ./run_test.sh --validate-only /path/to/skill  # 只跑验证，不调用 opencode
+#   ./run.sh                    # 使用默认输出目录
+#   ./run.sh --output /tmp/out  # 指定输出目录
+#   ./run.sh --validate-only /path/to/skill  # 只跑验证，不调用 opencode
 #
 # 依赖: opencode 已安装并在 PATH 中，skill-generator 已加载
 
@@ -13,11 +13,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../../" && pwd)"
 CASE_DIR="$SCRIPT_DIR"
-INPUT_FILE="$CASE_DIR/input.md"
+INPUT_FILE="$CASE_DIR/Docker应用卡顿故障案例_修改版.pdf"
 VALIDATE_SCRIPT="$PROJECT_ROOT/tests/skill-generator/validate_skill.sh"
 
 # 默认输出目录
-OUTPUT_DIR="$PROJECT_ROOT/tests/skill-generator/output/FA-01"
+OUTPUT_DIR="$PROJECT_ROOT/tests/skill-generator/output/fault-pdf-docker-hang"
 VALIDATE_ONLY=false
 VALIDATE_ONLY_PATH=""
 
@@ -39,8 +39,8 @@ done
 
 echo ""
 echo "╔══════════════════════════════════════╗"
-echo "║  Skill Generator 测试: FA-01         ║"
-echo "║  完整故障模式列表 → 排查 Skill       ║"
+echo "║  Skill Generator 测试: fault-pdf-docker-hang ║"
+echo "║  PDF故障文档 → 排查 Skill            ║"
 echo "╚══════════════════════════════════════╝"
 
 # ── 仅验证模式 ───────────────────────────
@@ -94,17 +94,10 @@ echo "【Step 3】调用 opencode 生成 Skill"
 echo "  （这可能需要 1-3 分钟）"
 echo ""
 
-INPUT_CONTENT=$(cat "$INPUT_FILE")
-
-PROMPT="使用 skill-generator，基于以下故障模式列表生成排查 Skill（--auto 模式，全部采纳推荐选项，无需交互确认），输出目录为 ${OUTPUT_DIR}。
-
-${INPUT_CONTENT}
-
-请直接开始生成，完成后告知输出路径。"
+PROMPT="使用 skill-generator，基于文档 ${INPUT_FILE} 生成排查 Skill（--auto 模式，全部采纳推荐选项，无需交互确认），输出目录为 ${OUTPUT_DIR}。完成生成后运行验证脚本并告知输出路径。"
 
 echo "──── Prompt 预览 ────"
-echo "$PROMPT" | head -5
-echo "..."
+echo "$PROMPT"
 echo "─────────────────────"
 echo ""
 
@@ -133,10 +126,10 @@ done <<< "$GENERATED_DIRS"
 # ── 最终结果 ─────────────────────────────
 echo ""
 if [[ $EXIT_CODE -eq 0 ]]; then
-    echo "🎉 FA-01 测试通过！"
+    echo "🎉 fault-pdf-docker-hang 测试通过！"
     echo "   生成位置: $OUTPUT_DIR"
 else
-    echo "💥 FA-01 测试失败，请检查上方的验证报告。"
+    echo "💥 fault-pdf-docker-hang 测试失败，请检查上方的验证报告。"
 fi
 echo ""
 exit $EXIT_CODE
