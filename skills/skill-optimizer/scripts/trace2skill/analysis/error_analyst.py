@@ -10,13 +10,11 @@ Each analyst takes a frozen copy of skill S0 and one trajectory, outputs a skill
 import logging
 import uuid
 import json
-import pydantic
-from pydantic import BaseModel
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
-from trace2skill.patch import PatchEdit, PatchOperation, SkillPatch
+from trace2skill.patch import PatchEdit, SkillPatch
 from trace2skill.trajectory import Trajectory, TrajectoryStatus
 
 logger = logging.getLogger(__name__)
@@ -38,23 +36,57 @@ Follow Anthropic's recommendation for skill writing style: conciseness, actionab
 OUTPUT_FORMAT_PROMPT = """Output Format:
 You MUST output your analysis in the following JSON format. Do not include any additional text outside of this JSON object:
 {
-  "patch": {
     "edits": [
-      {
+        {
         "operation": "insert|replace|delete",
         "target": "optional string to search for in the file",
         "target_start_line": optional integer start line (1-indexed),
         "target_end_line": optional integer end line (1-indexed, inclusive),
         "content": "optional string content to insert or replace with",
         "reasoning": "string explaining why this patch addresses the failure",
-      }
+        }
     ], 
-  },
-  "root_cause_identified": "true if a root cause was identified, false otherwise",
-  "root_cause": "trace failure root cause" 
+    "root_cause_identified": "true if a root cause was identified, false otherwise",
+    "root_cause": "trace failure root cause" 
 }
 If no patch is needed, set "patch": null.
 """
+
+
+@dataclass
+class ResponseModel:
+    edits: list[PatchEdit]
+    root_cause: str
+    root_cause_identified: bool
+
+    @staticmethod
+    def from_json(json_str: str) -> "ResponseModel":
+        data = json.loads(json_str)
+
+        # Convert edits to PatchEdit objects
+        edits = []
+        for edit_data in data.get("edits", []):
+            edit = PatchEdit(
+                file = "SKILL.md",
+                operation=edit_data.get("operation", ""),
+                target=edit_data.get("target", ""),
+                target_start_line=edit_data.get("target_start_line"),
+                target_end_line=edit_data.get("target_end_line"),
+                content=edit_data.get("content", ""),
+                reasoning=edit_data.get("reasoning", ""),
+            )
+            edits.append(edit)
+
+        # Convert root_cause_identified from string to boolean
+        root_cause_identified_str = data.get("root_cause_identified", "false").lower()
+        root_cause_identified = root_cause_identified_str == "true"
+
+        return ResponseModel(
+            edits=edits,
+            root_cause=data.get("root_cause", ""),
+            root_cause_identified=root_cause_identified,
+        )
+
 
 @dataclass
 class AnalystTurn:
@@ -67,8 +99,7 @@ class AnalystTurn:
 class AnalysisResult:
     patch: Optional[SkillPatch] = None
     reasoning: str = ""
-    turn_count: int = 0
-    validated: bool = False
+    turns: list[AnalystTurn] = None
 
 
 class ErrorAnalyst:
@@ -89,10 +120,11 @@ class ErrorAnalyst:
         ground_truth_dir: Optional[Path] = None,
     ) -> AnalysisResult:
         if trajectory.status != TrajectoryStatus.FAILURE:
-            logger.warning(f"Trajectory {trajectory.task_id} is not a failure, skipping error analysis")
+            logger.warning(
+                f"Trajectory {trajectory.task_id} is not a failure, skipping error analysis"
+            )
             return AnalysisResult()
 
-        system_prompt = ERROR_ANALYST_SYSTEM_PROMPT
         trajectory_context = trajectory.format_for_analyst()
 
         turns: list[AnalystTurn] = []
@@ -101,322 +133,109 @@ class ErrorAnalyst:
 
         logger.info(f"Starting error analysis for trajectory {trajectory.task_id}")
 
-        while turn_count < self.max_turns:  
+        while turn_count < self.max_turns:
             turn_count += 1
 
             logger.info(f"Trajectory: {trajectory.task_id}, Turn # {turn_count}")
 
             prompt_parts = [
-                f"## System\n {system_prompt}\n",
+                f"## System\n {ERROR_ANALYST_SYSTEM_PROMPT}\n",
                 f"## Current Skill\n{skill_content}",
                 f"## Task Query\n{trajectory.query}\n",
                 f"## Agent Execution Trace\n{trajectory_context}",
-                f"{OUTPUT_FORMAT_PROMPT}"
+                f"{OUTPUT_FORMAT_PROMPT}",
             ]
 
             if ground_truth_dir and trajectory.ground_truth:
                 gt_file = ground_truth_dir / f"{trajectory.task_id}.txt"
                 if gt_file.exists():
-                    prompt_parts.extend([
-                        f"## Ground Truth\n{gt_file.read_text(encoding='utf-8')}\n"
-                    ])
+                    prompt_parts.extend(
+                        [f"## Ground Truth\n{gt_file.read_text(encoding='utf-8')}\n"]
+                    )
 
             if current_observation:
-                prompt_parts.extend([
-                    f"## Previous Analysis Attempt {turn_count - 1}",
-                    current_observation,
-                ])
+                prompt_parts.extend(
+                    [
+                        f"## Previous Analysis Attempt {turn_count - 1}\n",
+                        current_observation,
+                    ]
+                )
 
-            prompt_parts.extend([
-                "## Instructions",
-                "Continue your analysis. If you have identified the root cause and can propose a valid fix, output your final patch. Otherwise, describe your next analysis steps.",
-            ])
+            prompt_parts.extend(
+                [
+                    "## Instructions",
+                    "Continue your analysis. If you have identified the root cause and can propose a valid fix, output your final patch. Otherwise, describe your next analysis steps.",
+                ]
+            )
 
             prompt = "\n\n".join(prompt_parts)
             response_str = self.llm_client(prompt)
 
-            response_dict = self._parse_one_turn_response(response_str=response_str)
+            is_final = self._is_final_response(response_str)
 
-            turns.append(AnalystTurn(
-                turn_number=turn_count,
-                observation=response_str,
-            ))
+            turns.append(
+                AnalystTurn(
+                    turn_number=turn_count, observation=response_str, is_final=is_final
+                )
+            )
+
             current_observation = response_str
 
-            if self._is_final_response(response_str):
+            if is_final:
                 logger.info(f"Error analysis completed in {turn_count} turns")
-                return self._parse_final_response(
-                    response_str, trajectory, turns, validated=True
-                )
+                return self._create_analysis_result(response_str, turns, trajectory)
 
-        logger.warning(f"Error analysis exhausted {turn_count} turns without resolution")
-        return self._parse_final_response(
-            current_observation, trajectory, turns, validated=False
+        logger.warning(
+            f"Error analysis exhausted {turn_count} turns without resolution"
         )
+        return self._create_analysis_result(current_observation, turns, trajectory)
 
     def _is_final_response(self, response: str) -> bool:
-        response_lower = response.lower().strip()
-        final_indicators = [
-            "final patch:",
-            "proposed patch:",
-            "patch:",
-            "root cause identified:",
-        ]
-        return any(response_lower.startswith(indicator) for indicator in final_indicators)
+        try:
+            # Strip markdown code fences if present
+            cleaned_response = response.strip()
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response[7:]  # Remove ```json
+            if cleaned_response.endswith("```"):
+                cleaned_response = cleaned_response[:-3]  # Remove ```
+            cleaned_response = cleaned_response.strip()
+            
+            response_dict = json.loads(cleaned_response)
+            root_cause_identified_str = response_dict.get("root_cause_identified", "false").lower()
+            return root_cause_identified_str == "true"
+        except (json.JSONDecodeError, Exception):
+            return False
 
-    def _parse_final_response(
-        self,
-        response: str,
-        trajectory: Trajectory,
-        turns: list[AnalystTurn],
-        validated: bool,
+    def _create_analysis_result(
+        self, 
+        response_str: str, 
+        turns: list[AnalystTurn], 
+        trajectory: Trajectory
     ) -> AnalysisResult:
         patch = None
-        failure_cause_items = []
-        failure_memory_items = []
 
-        failure_reasoning, patch_content = self._extract_reasoning_and_patch(response)
+        # Strip markdown code fences if present
+        cleaned_response = response_str.strip()
+        if cleaned_response.startswith("```json"):
+            cleaned_response = cleaned_response[7:]  # Remove ```json
+        if cleaned_response.endswith("```"):
+            cleaned_response = cleaned_response[:-3]  # Remove ```
+        cleaned_response = cleaned_response.strip()
+        
+        response = ResponseModel.from_json(cleaned_response)
 
-        if patch_content:
+        if response.edits:
             patch = SkillPatch(
                 patch_id=str(uuid.uuid4())[:8],
                 source_trajectory_id=trajectory.task_id,
                 is_from_error=True,
-                reasoning=failure_reasoning,
-                edits=self._parse_patch_content(patch_content),
-                metadata={
-                    "turn_count": len(turns),
-                    "validated": validated,
-                },
+                reasoning=response.root_cause,
+                edits=response.edits,
             )
 
         return AnalysisResult(
-            patch=patch,
-            failure_cause_items=failure_cause_items,
-            failure_memory_items=failure_memory_items,
-            reasoning=failure_reasoning,
-            turn_count=len(turns),
-            validated=validated,
+            patch=patch, reasoning=response.root_cause, turns=turns
         )
-
-    def _extract_reasoning_and_patch(self, response: str) -> tuple[str, str]:
-        # Extract JSON from the response
-        import json
-        import re
-        
-        # Try to find JSON in the response
-        json_match = re.search(r'\{[\s\S]*\}', response)
-        if not json_match:
-            # Fallback to old method if no JSON found
-            lines = response.split("\n")
-            reasoning_parts = []
-            patch_parts = []
-            in_patch_section = False
-
-            for line in lines:
-                line_lower = line.lower().strip()
-                if any(line_lower.startswith(indicator) for indicator in ["patch:", "final patch:", "proposed patch:"]):
-                    in_patch_section = True
-                    continue
-                if in_patch_section:
-                    patch_parts.append(line)
-                else:
-                    reasoning_parts.append(line)
-
-            return (
-                "\n".join(reasoning_parts).strip(),
-                "\n".join(patch_parts).strip(),
-            )
-        
-        try:
-            json_str = json_match.group(0)
-            data = json.loads(json_str)
-            
-            reasoning = data.get("reasoning", "")
-            patch_data = data.get("patch")
-            
-            if patch_data is None:
-                return reasoning, ""
-            
-            # Convert patch data to the expected format for _parse_patch_content
-            patch_lines = []
-            if isinstance(patch_data, dict):
-                # Handle single patch
-                patch_lines.append("---")
-                patch_lines.append("+++")
-                for key, value in patch_data.items():
-                    if key == "edits" and isinstance(value, list):
-                        for edit in value:
-                            if isinstance(edit, dict):
-                                patch_lines.append(f"file: {edit.get('file', 'SKILL.md')}")
-                                patch_lines.append(f"op: {edit.get('operation', 'insert')}")
-                                if edit.get('target'):
-                                    patch_lines.append(f"target: {edit['target']}")
-                                if edit.get('target_start_line') is not None:
-                                    patch_lines.append(f"target_start_line: {edit['target_start_line']}")
-                                if edit.get('target_end_line') is not None:
-                                    patch_lines.append(f"target_end_line: {edit['target_end_line']}")
-                                if edit.get('content'):
-                                    patch_lines.append(f"content: {edit['content']}")
-                    elif key not in ["patch_id", "source_trajectory_id", "is_from_error", "reasoning", "metadata"]:
-                        patch_lines.append(f"{key}: {value}")
-            else:
-                patch_lines.append(str(patch_data))
-                
-            return reasoning, "\n".join(patch_lines)
-        except (json.JSONDecodeError, Exception) as e:
-            logger.warning(f"Failed to parse JSON from response: {e}. Falling back to old method.")
-            # Fallback to old method
-            lines = response.split("\n")
-            reasoning_parts = []
-            patch_parts = []
-            in_patch_section = False
-
-            for line in lines:
-                line_lower = line.lower().strip()
-                if any(line_lower.startswith(indicator) for indicator in ["patch:", "final patch:", "proposed patch:"]):
-                    in_patch_section = True
-                    continue
-                if in_patch_section:
-                    patch_parts.append(line)
-                else:
-                    reasoning_parts.append(line)
-
-            return (
-                "\n".join(reasoning_parts).strip(),
-                "\n".join(patch_parts).strip(),
-            )
-        
-    import json
-
-    def _parse_one_turn_response(self, response_str: str):
-        """
-        Parses a string into the specified patch schema.
-        
-        Args:
-            patch_str (str): A string representing the patch data.
-            
-        Returns:
-            dict: A dictionary representing the patch schema.
-        """
-        # Parse the input string into a dictionary
-        patch_dict = json.loads(response_str)
-        
-        # Validate and structure the output according to the schema
-        result = {
-            "patch": {
-                "edits": [],
-            },
-            "root_cause_identified": False,
-            "root_cause": ""
-        }
-        
-        # Process each edit in the input
-        for edit in patch_dict['patch'].get("edits", []):
-            edit_dict = {
-                "operation": edit.get("operation", ""),
-                "target": edit.get("target", ""),
-                "target_start_line": edit.get("target_start_line", None),
-                "target_end_line": edit.get("target_end_line", None),
-                "content": edit.get("content", ""),
-                "reasoning": edit.get("reasoning", "")
-            }
-            result["patch"]["edits"].append(edit_dict)
-        
-        # Set the root_cause_identified flag
-        result["root_cause_identified"] = patch_dict.get("root_cause_identified", False)
-        
-        # Set the root_cause
-        result["root_cause"] = patch_dict.get("root_cause", "")
-        
-        return result
-
-    def _parse_patch_content(self, content: str) -> list[PatchEdit]:
-        # Handle empty content
-        if not content.strip():
-            return []
-
-        # Try to parse as JSON first
-        import json
-        import re
-        
-        # Look for JSON array or object in the content
-        json_match = re.search(r'\[[\s\S]*\]|\{[\s\S]*\}', content)
-        if json_match:
-            try:
-                json_str = json_match.group(0)
-                data = json.loads(json_str)
-                
-                edits = []
-                # Handle both array of edits and single edit object
-                if isinstance(data, list):
-                    edit_list = data
-                elif isinstance(data, dict) and "edits" in data:
-                    edit_list = data["edits"]
-                else:
-                    edit_list = [data] if isinstance(data, dict) else []
-                
-                for edit_data in edit_list:
-                    if not isinstance(edit_data, dict):
-                        continue
-                        
-                    # Map operation string to PatchOperation enum
-                    op_str = edit_data.get("operation", "insert").lower()
-                    try:
-                        operation = PatchOperation(op_str)
-                    except ValueError:
-                        # Default to INSERT if invalid operation
-                        operation = PatchOperation.INSERT
-                    
-                    edit = PatchEdit(
-                        file=edit_data.get("file", "SKILL.md"),
-                        operation=operation,
-                        target=edit_data.get("target"),
-                        target_start_line=edit_data.get("target_start_line"),
-                        target_end_line=edit_data.get("target_end_line"),
-                        content=edit_data.get("content")
-                    )
-                    edits.append(edit)
-                
-                return edits
-            except (json.JSONDecodeError, Exception) as e:
-                logger.warning(f"Failed to parse JSON patch content: {e}. Falling back to old method.")
-                # Fall through to old method below
-        
-        # Fallback to original parsing method
-        edits = []
-        lines = content.split("\n")
-        current_file = "SKILL.md"
-        current_op = PatchOperation.INSERT
-        current_target = None
-        current_content_lines = []
-
-        for line in lines:
-            if line.startswith("===") or line.startswith("---") or line.startswith("+++"):
-                if current_content_lines:
-                    edits.append(PatchEdit(
-                        file=current_file,
-                        operation=current_op,
-                        target=current_target,
-                        content="\n".join(current_content_lines),
-                    ))
-                    current_content_lines = []
-                if line.startswith("---"):
-                    current_file = line[3:].strip().lstrip("abc/")
-                elif line.startswith("+++"):
-                    current_file = line[3:].strip().lstrip("abc/")
-                continue
-            current_content_lines.append(line)
-
-        if current_content_lines:
-            edits.append(PatchEdit(
-                file=current_file,
-                operation=current_op,
-                target=current_target,
-                content="\n".join(current_content_lines),
-            ))
-
-        return edits
 
 
 class BatchErrorAnalyst:
@@ -446,7 +265,9 @@ class BatchErrorAnalyst:
         logger.info(f"Analyzing {len(failure_trajectories)} failure trajectories")
 
         results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_concurrent) as executor:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=self.max_concurrent
+        ) as executor:
             futures = {
                 executor.submit(
                     self.analyst.analyze,

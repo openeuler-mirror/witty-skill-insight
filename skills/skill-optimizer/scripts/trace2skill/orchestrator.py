@@ -173,7 +173,45 @@ class Trace2SkillOrchestrator:
 
         logger.info("Applying final patch to skill")
 
-        return skill_content
+        # Create prompt for LLM to apply the patch
+        edits_description = []
+        for i, edit in enumerate(final_patch.edits):
+            edit_desc = f"{i+1}. Operation: {edit.operation}"
+            if edit.target:
+                edit_desc += f", Target: '{edit.target}'"
+            if edit.target_start_line is not None:
+                edit_desc += f", Start line: {edit.target_start_line}"
+            if edit.target_end_line is not None:
+                edit_desc += f", End line: {edit.target_end_line}"
+            if edit.content:
+                edit_desc += f", Content: {repr(edit.content)}"
+            if edit.reasoning:
+                edit_desc += f", Reasoning: {edit.reasoning}"
+            edits_description.append(edit_desc)
+
+        prompt = f"""You are a precise code editor. Your task is to apply a series of edits to a skill file based on the instructions below.
+
+        SKILL FILE CONTENT:
+        {skill_content}
+
+        EDITS TO APPLY:
+        {chr(10).join(edits_description)}
+
+        INSTRUCTIONS:
+        1. Apply each edit in the order listed
+        2. For 'insert' operations: Insert the content at the specified location
+        3. For 'replace' operations: Replace the target text with the new content
+        4. For 'delete' operations: Remove the target text
+        5. If target_start_line and target_end_line are provided, use those line numbers (1-indexed) to locate the text
+        6. If target is provided, find and operate on that exact text
+        7. Make sure to preserve the overall structure and formatting of the skill file
+        8. Return ONLY the modified skill file content, with no additional explanations or formatting
+
+        Modified skill file content:"""
+
+        # Apply the patch using LLM
+        modified_content = self.llm_client(prompt)
+        return modified_content
 
     def _save_output(
         self,

@@ -4,6 +4,8 @@ Skill patch data structures for Trace2Skill.
 
 from dataclasses import dataclass, field
 from enum import Enum
+import json
+import uuid
 from typing import Any, Optional
 
 
@@ -26,7 +28,7 @@ class PatchEdit:
     def to_dict(self) -> dict:
         result = {
             "file": self.file,
-            "op": self.operation.value,
+            "operation": self.operation,
         }
         if self.target:
             result["target"] = self.target
@@ -69,26 +71,6 @@ class PatchEdit:
             lines.append(f"+++ {new_prefix}{self.file}")
             lines.append(f"@@ -{self.target_start_line or 1},{self.target_end_line or 1} +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
             lines.append(self.content or "")
-        elif self.operation == PatchOperation.REPLACE_RANGE:
-            lines.append(f"--- {old_prefix}{self.file}")
-            lines.append(f"+++ {new_prefix}{self.file}")
-            lines.append(f"@@ -{self.target_start_line or 1},{self.target_end_line or 1} +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
-            lines.append(self.content or "")
-        elif self.operation == PatchOperation.INSERT_AFTER:
-            lines.append(f"--- {old_prefix}{self.file}")
-            lines.append(f"+++ {new_prefix}{self.file}")
-            lines.append(f"@@ +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
-            lines.append(self.content or "")
-        elif self.operation == PatchOperation.INSERT_BEFORE:
-            lines.append(f"--- {old_prefix}{self.file}")
-            lines.append(f"+++ {new_prefix}{self.file}")
-            lines.append(f"@@ +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
-            lines.append(self.content or "")
-        elif self.operation == PatchOperation.CREATE:
-            lines.append(f"--- {old_prefix}{self.file}")
-            lines.append(f"+++ {new_prefix}{self.file}")
-            lines.append(f"@@ +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
-            lines.append(self.content or "")
         return "\n".join(lines)
 
 
@@ -99,7 +81,6 @@ class SkillPatch:
     is_from_error: bool = False
     edits: list[PatchEdit] = field(default_factory=list)
     reasoning: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -107,8 +88,7 @@ class SkillPatch:
             "source_trajectory_id": self.source_trajectory_id,
             "is_from_error": self.is_from_error,
             "edits": [e.to_dict() for e in self.edits],
-            "reasoning": self.reasoning,
-            "metadata": self.metadata,
+            "reasoning": self.reasoning
         }
 
     @classmethod
@@ -118,9 +98,44 @@ class SkillPatch:
             source_trajectory_id=data.get("source_trajectory_id"),
             is_from_error=data.get("is_from_error", False),
             edits=[PatchEdit.from_dict(e) for e in data.get("edits", [])],
-            reasoning=data.get("reasoning", ""),
-            metadata=data.get("metadata", {}),
+            reasoning=data.get("reasoning", "")
         )
+    
+    @classmethod
+    def from_json(cls, json_str: str)->"SkillPatch":
+        # Strip markdown code fences if present
+        cleaned_str = json_str.strip()
+        if cleaned_str.startswith("```json"):
+            cleaned_str = cleaned_str[7:]  # Remove ```json
+        if cleaned_str.endswith("```"):
+            cleaned_str = cleaned_str[:-3]  # Remove ```
+        cleaned_str = cleaned_str.strip()
+        
+        data = json.loads(cleaned_str)
+
+        # Convert edits to PatchEdit objects
+        edits = []
+        for edit_data in data.get("edits", []):
+            edit = PatchEdit(
+                file = "SKILL.md",
+                operation=edit_data.get("operation", ""),
+                target=edit_data.get("target", ""),
+                target_start_line=edit_data.get("target_start_line"),
+                target_end_line=edit_data.get("target_end_line"),
+                content=edit_data.get("content", ""),
+                reasoning=edit_data.get("reasoning", ""),
+            )
+            edits.append(edit)
+
+        return SkillPatch(
+            patch_id=str(uuid.uuid4())[:8],
+            source_trajectory_id=None,
+            is_from_error=False, 
+            edits=edits,
+            reasoning=""
+        )
+
+        patch_id=str(uuid.uuid4())[:8]
 
     def add_edit(self, edit: PatchEdit) -> None:
         self.edits.append(edit)

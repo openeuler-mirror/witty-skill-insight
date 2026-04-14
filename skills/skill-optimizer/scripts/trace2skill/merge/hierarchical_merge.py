@@ -34,6 +34,21 @@ Guidelines:
 Prevalent pattern bias: When multiple patches independently propose similar edits addressing the same class of failure or success pattern, treat this recurrence as evidence of a systematic property of the task. Preserve such prevalent edits with higher priority and express them as general principles rather than instance-specific fixes.
 """
 
+OUTPUT_FORMAT_PROMPT = """Output Format:
+You MUST output your merge result in the following JSON format. Do not include any additional text outside of this JSON object:
+{
+    "edits": [
+        {
+        "operation": "insert|replace|delete",
+        "target": "optional string to search for in the file",
+        "target_start_line": optional integer start line (1-indexed),
+        "target_end_line": optional integer end line (1-indexed, inclusive),
+        "content": "optional string content to insert or replace with",
+        "reasoning": "string explaining why this patch addresses the failure",
+        }
+    ]
+}
+"""
 
 @dataclass
 class MergeConfig:
@@ -198,7 +213,7 @@ class HierarchicalMerge:
             if patch.edits:
                 summary += "\nEdits:\n"
                 for edit in patch.edits:
-                    summary += f"- {edit.operation.value} {edit.file}"
+                    summary += f"- {edit.operation} {edit.file}"
                     if edit.target:
                         summary += f" @ {edit.target}"
                     summary += "\n"
@@ -215,13 +230,21 @@ class HierarchicalMerge:
             "\n\n".join(patch_summaries),
             "",
             "## Instructions",
-            "Merge these patches into a single coherent patch following the guidelines. "
-            "Output the merged patch in diff format.",
+            "Merge these patches into a single coherent patch following the guidelines. ",
+            OUTPUT_FORMAT_PROMPT
         ])
 
         response = self.llm_client(prompt)
 
-        return self._parse_merged_patch(response, len(patches))
+        # Strip markdown code fences if present
+        cleaned_response = response.strip()
+        if cleaned_response.startswith("```json"):
+            cleaned_response = cleaned_response[7:]  # Remove ```json
+        if cleaned_response.endswith("```"):
+            cleaned_response = cleaned_response[:-3]  # Remove ```
+        cleaned_response = cleaned_response.strip()
+        
+        return SkillPatch.from_json(cleaned_response)
 
     def _parse_merged_patch(
         self,
@@ -259,8 +282,7 @@ class HierarchicalMerge:
             patch_id=str(uuid.uuid4())[:8],
             is_from_error=False,
             reasoning="\n".join(reasoning_parts).strip(),
-            edits=edits,
-            metadata={"source_count": source_count},
+            edits=edits
         )
 
     def _parse_edits_from_diff(self, diff_content: str) -> list[PatchEdit]:
@@ -297,33 +319,3 @@ class HierarchicalMerge:
             ))
 
         return edits
-
-
-class PrevalenceAnalyzer:
-    def __init__(self):
-        self.pattern_threshold = 2
-
-    def analyze(self, patches: list[SkillPatch]) -> dict[str, Any]:
-        pattern_counts: dict[str, int] = {}
-        file_edits: dict[str, list[str]] = {}
-
-        for patch in patches:
-            for edit in patch.edits:
-                key = f"{edit.file}:{edit.operation.value}"
-                pattern_counts[key] = pattern_counts.get(key, 0) + 1
-
-                if edit.file not in file_edits:
-                    file_edits[edit.file] = []
-                file_edits[edit.file].append(edit.operation.value)
-
-        prevalent_patterns = [
-            pattern for pattern, count in pattern_counts.items()
-            if count >= self.pattern_threshold
-        ]
-
-        return {
-            "pattern_counts": pattern_counts,
-            "file_edits": file_edits,
-            "prevalent_patterns": prevalent_patterns,
-            "total_patterns": len(pattern_counts),
-        }
