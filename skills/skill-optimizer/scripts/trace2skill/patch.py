@@ -9,18 +9,15 @@ from typing import Any, Optional
 
 class PatchOperation(Enum):
     INSERT = "insert"
-    INSERT_AFTER = "insert_after"
-    INSERT_BEFORE = "insert_before"
     REPLACE = "replace"
-    REPLACE_RANGE = "replace_range"
     DELETE = "delete"
-    CREATE = "create"
 
 
 @dataclass
 class PatchEdit:
     file: str
     operation: PatchOperation
+    reasoning: Optional[str] = None
     target: Optional[str] = None
     target_start_line: Optional[int] = None
     target_end_line: Optional[int] = None
@@ -39,6 +36,8 @@ class PatchEdit:
             result["target_end_line"] = self.target_end_line
         if self.content:
             result["content"] = self.content
+        if self.reasoning:
+            result["reasoning"] = self.reasoning
         return result
 
     @classmethod
@@ -50,6 +49,7 @@ class PatchEdit:
             target_start_line=data.get("target_start_line"),
             target_end_line=data.get("target_end_line"),
             content=data.get("content"),
+            reasoning=data.get("reasoning")
         )
 
     def to_unified_diff(self, old_prefix: str = "a/", new_prefix: str = "b/") -> str:
@@ -57,18 +57,37 @@ class PatchEdit:
         if self.operation == PatchOperation.INSERT:
             lines.append(f"--- {old_prefix}{self.file}")
             lines.append(f"+++ {new_prefix}{self.file}")
-            if self.target:
-                lines.append(f"@@ -0,0 +1,{len(self.content.splitlines())} @@")
+            lines.append(f"@@ +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
+            lines.append(self.content or "")
+        elif self.operation == PatchOperation.DELETE:
+            lines.append(f"--- {old_prefix}{self.file}")
+            lines.append(f"+++ {new_prefix}{self.file}")
+            lines.append(f"@@ -{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
+            lines.append(self.content or "")
+        elif self.operation == PatchOperation.REPLACE:
+            lines.append(f"--- {old_prefix}{self.file}")
+            lines.append(f"+++ {new_prefix}{self.file}")
+            lines.append(f"@@ -{self.target_start_line or 1},{self.target_end_line or 1} +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
+            lines.append(self.content or "")
+        elif self.operation == PatchOperation.REPLACE_RANGE:
+            lines.append(f"--- {old_prefix}{self.file}")
+            lines.append(f"+++ {new_prefix}{self.file}")
+            lines.append(f"@@ -{self.target_start_line or 1},{self.target_end_line or 1} +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
             lines.append(self.content or "")
         elif self.operation == PatchOperation.INSERT_AFTER:
             lines.append(f"--- {old_prefix}{self.file}")
             lines.append(f"+++ {new_prefix}{self.file}")
             lines.append(f"@@ +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
             lines.append(self.content or "")
-        elif self.operation == PatchOperation.REPLACE:
+        elif self.operation == PatchOperation.INSERT_BEFORE:
             lines.append(f"--- {old_prefix}{self.file}")
             lines.append(f"+++ {new_prefix}{self.file}")
-            lines.append(f"@@ -{self.target_start_line or 1},{self.target_end_line or 1} +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
+            lines.append(f"@@ +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
+            lines.append(self.content or "")
+        elif self.operation == PatchOperation.CREATE:
+            lines.append(f"--- {old_prefix}{self.file}")
+            lines.append(f"+++ {new_prefix}{self.file}")
+            lines.append(f"@@ +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
             lines.append(self.content or "")
         return "\n".join(lines)
 
