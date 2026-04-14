@@ -696,6 +696,7 @@ export default async function WittySkillInsightPlugin(input) {
               let totalOutputTokens = 0;
               let totalCacheReadInputTokens = 0;
               let totalCacheCreationInputTokens = 0;
+              let totalReasoningTokens = 0;
               let llmCallCount = 0;
               let toolCallCount = 0;
               let toolCallErrorCount = 0;
@@ -725,11 +726,18 @@ export default async function WittySkillInsightPlugin(input) {
                           const cacheReadToks = Number(u.cache?.read || u.cache_read_input_tokens || 0);
                           const cacheCreateToks = Number(u.cache?.write || u.cache_creation_input_tokens || 0);
                           const inputToks = Number(u.input_tokens || u.input || 0);  // base input only (excludes cache)
-                          const outputToks = Number(u.output_tokens || u.output || 0);
+                          const rawOutputToks = Number(u.output_tokens || u.output || 0);
+                          const reasoningToks = Number(u.reasoning || u.reasoning_tokens || u.completion_tokens_details?.reasoning_tokens || 0);
+                          // OpenCode reports reasoning separately from output; DeepSeek API includes it in output.
+                          // Normalize: output_tokens should always include reasoning tokens.
+                          const outputToks = (u.reasoning !== undefined && reasoningToks > 0 && rawOutputToks < reasoningToks)
+                              ? rawOutputToks + reasoningToks
+                              : rawOutputToks;
                           totalInputTokens += inputToks;
                           totalOutputTokens += outputToks;
                           totalCacheReadInputTokens += cacheReadToks;
                           totalCacheCreationInputTokens += cacheCreateToks;
+                          totalReasoningTokens += reasoningToks;
                           const callTotal = inputToks + cacheReadToks + cacheCreateToks + outputToks;
                           if (callTotal > maxSingleCallTokens) maxSingleCallTokens = callTotal;
                       }
@@ -775,6 +783,7 @@ export default async function WittySkillInsightPlugin(input) {
                   cache_read_input_tokens: totalCacheReadInputTokens,
                   cache_creation_input_tokens: totalCacheCreationInputTokens,
                   max_single_call_tokens: maxSingleCallTokens,
+                  reasoning_tokens: totalReasoningTokens,
                   final_result: lastAssistantContent,
                   interactions: messages.map(m => ({
                       role: m.role,

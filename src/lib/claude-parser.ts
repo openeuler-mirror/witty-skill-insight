@@ -24,6 +24,7 @@ export interface ClaudeExecutionRecord {
   cache_read_input_tokens: number;
   cache_creation_input_tokens: number;
   max_single_call_tokens: number;
+  reasoning_tokens: number;
 }
 
 export class ClaudeParser {
@@ -82,6 +83,7 @@ export class ClaudeParser {
     let toolCallErrorCount = 0;
     let totalActiveLatencyMs = 0;
     let maxSingleCallTokens = 0;
+    let totalReasoningTokens = 0;
     const skills = new Set<string>();
     const interactions: any[] = [];
 
@@ -139,8 +141,10 @@ export class ClaudeParser {
                     const cacheReadToks = entry.message.usage.cache_read_input_tokens || 0;
                     const cacheCreateToks = entry.message.usage.cache_creation_input_tokens || 0;
                     const outToks = entry.message.usage.output_tokens || 0;
+                    const reasoningToks = entry.message.usage.reasoning_tokens || 0;
                     totalInputTokens += baseToks;  // base input only (excludes cache)
                     totalOutputTokens += outToks;
+                    totalReasoningTokens += reasoningToks;
                     const callTotal = baseToks + cacheReadToks + cacheCreateToks + outToks;
                     totalTokens += callTotal;
                     totalCacheReadInputTokens += cacheReadToks;
@@ -237,7 +241,8 @@ export class ClaudeParser {
       tool_call_error_count: toolCallErrorCount,
       cache_read_input_tokens: totalCacheReadInputTokens,
       cache_creation_input_tokens: totalCacheCreationInputTokens,
-      max_single_call_tokens: maxSingleCallTokens
+      max_single_call_tokens: maxSingleCallTokens,
+      reasoning_tokens: totalReasoningTokens
     };
   }
 }

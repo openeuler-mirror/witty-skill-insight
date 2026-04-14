@@ -53,6 +53,7 @@ interface Execution {
     cache_creation_input_tokens?: number;
     input_tokens?: number;
     output_tokens?: number;
+    reasoning_tokens?: number;
 }
 
 interface ConfigItem {
@@ -2404,7 +2405,11 @@ export default function Dashboard() {
                                             <td className="p-2" style={{ whiteSpace: 'nowrap' }}>{row.framework}</td>
                                             <td className="p-2" title={row.query}>{row.query.length > 30 ? row.query.substring(0, 30) + '...' : row.query}</td>
                                             <td className="p-2" style={{ whiteSpace: 'nowrap' }}>{formatLatency(row.latency)}{vDiff && formatDiff(vDiff.latencyDiff, true)}</td>
-                                            <td className="p-2" style={{ whiteSpace: 'nowrap' }}>{formatTokens(row.tokens)}{vDiff && formatDiff(vDiff.tokenDiff, true)}</td>
+                                            <td className="p-2" style={{ whiteSpace: 'nowrap' }} title={
+                                                row.reasoning_tokens
+                                                    ? `Output: ${formatTokens(row.output_tokens || 0)} (Reasoning: ${formatTokens(row.reasoning_tokens)}, Response: ${formatTokens((row.output_tokens || 0) - row.reasoning_tokens)})` + (row.input_tokens ? `\nInput: ${formatTokens(row.input_tokens)}` : '')
+                                                    : (row.input_tokens || row.output_tokens) ? `Input: ${formatTokens(row.input_tokens || 0)}, Output: ${formatTokens(row.output_tokens || 0)}` : undefined
+                                            }>{formatTokens(row.tokens)}{vDiff && formatDiff(vDiff.tokenDiff, true)}</td>
                                             <td className="p-2" style={{ whiteSpace: 'nowrap' }}>
                                                 <span style={{ color: row.answer_score === null ? 'var(--foreground-muted)' : ((row.answer_score || 0) > 0.8 ? 'var(--success)' : 'var(--error)'), fontWeight: 'bold' }}>
                                                     {row.answer_score === null ? '--' : (row.answer_score || 0).toFixed(2)}

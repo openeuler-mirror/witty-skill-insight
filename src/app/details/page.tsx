@@ -73,6 +73,7 @@ interface Execution {
     tool_call_error_count?: number;
     input_tokens?: number;
     output_tokens?: number;
+    reasoning_tokens?: number;
     cost?: number;
     cost_pricing?: { inputTokenPrice: number; outputTokenPrice: number; cacheReadInputTokenPrice?: number; cacheCreationInputTokenPrice?: number; source?: 'default' | 'custom' } | null;
     cache_read_input_tokens?: number;
@@ -324,7 +325,8 @@ const normalizeInteractions = (interactions: any[]) => {
                     total: totalTokens,
                     total_tokens: totalTokens,
                     input: msg.usage.input || msg.usage.input_tokens || 0,
-                    output: msg.usage.output || msg.usage.output_tokens || 0
+                    output: msg.usage.output || msg.usage.output_tokens || 0,
+                    reasoning: msg.usage.reasoning_tokens || 0
                 };
             }
 
@@ -390,6 +392,8 @@ const RenderInteractionList = ({
                 tok = (usage.input || 0) + (usage.output || 0);
             }
 
+            const reasoning = usage?.reasoning || 0;
+            const outputTokens = usage?.output || usage?.output_tokens || 0;
             rows.push({
                 kind: 'llm',
                 id: `llm-${index}`,
@@ -398,7 +402,9 @@ const RenderInteractionList = ({
                 parentIndex: index,
                 toolIndex: null,
                 latency: lat,
-                tokens: tok
+                tokens: tok,
+                reasoningTokens: reasoning,
+                outputTokens: outputTokens
             });
 
             const toolCalls = item.tool_calls || item.toolCalls || [];
@@ -531,7 +537,7 @@ const RenderInteractionList = ({
                 <div style={{ maxHeight: '600px', overflowY: 'auto', paddingRight: '8px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {paginatedInteractions.map((wrapper) => {
-                            const { original, kind, parentIndex, toolIndex, latency: latencyVal, tokens } = wrapper;
+                            const { original, kind, parentIndex, toolIndex, latency: latencyVal, tokens, reasoningTokens, outputTokens } = wrapper;
                             const isTopLatency = topLatencyIndices.has(wrapper.id);
                             const isTopToken = topTokenIndices.has(wrapper.id);
                             const isFocused = focusedStep === parentIndex;
@@ -641,12 +647,12 @@ const RenderInteractionList = ({
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                 <span style={{ color: 'var(--foreground-muted)' }}>Tokens:</span>
-                                                <span style={{
+                                                <span title={reasoningTokens ? `Reasoning: ${reasoningTokens}, Response: ${outputTokens - reasoningTokens}` : undefined} style={{
                                                     color: isTopToken ? 'var(--accent)' : 'var(--foreground)',
                                                     fontWeight: isTopToken ? 'bold' : 'normal',
                                                     borderBottom: isTopToken ? '1px dashed var(--accent)' : 'none'
                                                 }}>
-                                                    {tokens}
+                                                    {tokens}{reasoningTokens ? ` (reasoning: ${reasoningTokens})` : ''}
                                                 </span>
                                                 {isTopToken && <span style={{ fontSize: '0.7rem', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '4px', padding: '0 4px' }}>TOP 5</span>}
                                             </div>
@@ -1678,7 +1684,11 @@ function DetailPage() {
                                                     { label: '工具调用次数', value: currentRecord.tool_call_count, color: 'var(--primary)' },
                                                     { label: '工具报错次数', value: currentRecord.tool_call_error_count ?? 0, color: currentRecord.tool_call_error_count ? 'var(--error)' : 'var(--success)' },
                                                     { label: '输入 Tokens', value: currentRecord.input_tokens, color: 'var(--primary)' },
-                                                    { label: '输出 Tokens', value: currentRecord.output_tokens, color: 'var(--primary)' },
+                                                    { label: '输出 Tokens', value: currentRecord.output_tokens, color: 'var(--primary)',
+                                                        tooltip: currentRecord.reasoning_tokens
+                                                            ? `Reasoning: ${currentRecord.reasoning_tokens.toLocaleString()}, Response: ${((currentRecord.output_tokens || 0) - currentRecord.reasoning_tokens).toLocaleString()}`
+                                                            : undefined
+                                                    },
                                                     {
                                                         label: '上下文窗口 %',
                                                         value: currentRecord.context_window_pct,

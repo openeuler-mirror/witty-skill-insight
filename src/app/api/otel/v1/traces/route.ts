@@ -102,6 +102,7 @@ export async function POST(req: Request) {
             const model = attrs['gen_ai.request.model'] || attrs['llm.request.model'];
             const inputTokens = attrs['gen_ai.usage.input_tokens'] || attrs['llm.usage.prompt_tokens'] || 0;
             const outputTokens = attrs['gen_ai.usage.output_tokens'] || attrs['llm.usage.completion_tokens'] || 0;
+            const reasoningTokens = attrs['gen_ai.usage.reasoning_tokens'] || 0;
             const totalTokens = (inputTokens || 0) + (outputTokens || 0);
 
             const startTimeNano = BigInt(span.startTimeUnixNano || 0);
@@ -121,6 +122,7 @@ export async function POST(req: Request) {
                 usage: {
                     input_tokens: inputTokens,
                     output_tokens: outputTokens,
+                    reasoning_tokens: reasoningTokens || undefined,
                     total_tokens: totalTokens
                 },
                 latency: latencyMs,

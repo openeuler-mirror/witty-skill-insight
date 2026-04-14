@@ -70,6 +70,7 @@ model Execution {
   cacheReadInputTokens    Int?
   cacheCreationInputTokens Int?
   maxSingleCallTokens     Int?
+  reasoningTokens          Int?
   timestamp       DateTime @default(now())
   model           String?
   finalResult     String?

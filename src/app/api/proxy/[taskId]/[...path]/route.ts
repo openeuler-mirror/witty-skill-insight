@@ -184,7 +184,10 @@ export async function POST(
                                         if (newUsage.output_tokens !== undefined) interactionData.usage.output_tokens = newUsage.output_tokens;
                                         if (newUsage.cache_read_input_tokens !== undefined) interactionData.usage.cache_read_input_tokens = newUsage.cache_read_input_tokens;
                                         if (newUsage.cache_creation_input_tokens !== undefined) interactionData.usage.cache_creation_input_tokens = newUsage.cache_creation_input_tokens;
-                                        
+                                        // Extract reasoning tokens (OpenAI-compatible: completion_tokens_details.reasoning_tokens, or direct reasoning_tokens)
+                                        const reasoningToks = newUsage.reasoning_tokens ?? newUsage.completion_tokens_details?.reasoning_tokens;
+                                        if (reasoningToks !== undefined) interactionData.usage.reasoning_tokens = reasoningToks;
+
                                         const input = interactionData.usage.input_tokens || 0;
                                         const output = interactionData.usage.output_tokens || 0;
                                         const cacheRead = interactionData.usage.cache_read_input_tokens || 0;
