@@ -265,7 +265,7 @@ class DiagnosticMutator:
             if not skill_md:
                 return set()
             matches = re.findall(
-                r"\b(?:scripts|references)/[A-Za-z0-9._/\-]+\b", skill_md
+                r"\b(?:scripts|references)/[A-Za-z0-9._/\-]+\.[A-Za-z0-9]+\b", skill_md
             )
             return set(matches)
 

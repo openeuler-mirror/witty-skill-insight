@@ -13,6 +13,7 @@ class SkillGenome:
     files: Dict[str, str] = field(default_factory=dict)
     file_meta: Dict[str, str] = field(default_factory=dict)
     changelog: List[Dict[str, str]] = field(default_factory=list)
+    referenced_files: set = field(default_factory=set)
 
     def to_markdown(self) -> str:
         return self.raw_text or ""
@@ -33,6 +34,8 @@ class SkillGenome:
 
         content = skill_file.read_text(encoding="utf-8")
         genome = cls.from_markdown(content)
+
+        genome.referenced_files = cls._extract_referenced_paths(content)
 
         meta = cls._load_meta_file(path)
         if meta:
@@ -109,3 +112,10 @@ class SkillGenome:
             except Exception:
                 continue
         return {}
+
+    @staticmethod
+    def _extract_referenced_paths(skill_content: str) -> set:
+        if not skill_content:
+            return set()
+        matches = re.findall(r"\b(?:scripts|references)/[A-Za-z0-9._/\-]+\.[A-Za-z0-9]+\b", skill_content)
+        return set(matches)
