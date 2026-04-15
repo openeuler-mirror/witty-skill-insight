@@ -8,11 +8,12 @@ Identifies generalizable behavior patterns that contributed to the correct answe
 """
 
 import logging
+import json
 import uuid
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, List
 
-from trace2skill.patch import PatchEdit, PatchOperation, SkillPatch
+from trace2skill.patch import PatchEdit, SkillPatch
 from trace2skill.trajectory import Trajectory, TrajectoryStatus
 
 logger = logging.getLogger(__name__)
@@ -27,44 +28,79 @@ Requirements:
 - Frequency Awareness — patterns covering more instances should be listed first; rare behaviors should be absorbed into the nearest broader pattern.
 - Generalization — each pattern must describe a general mechanism, not a single task-specific detail.
 
-Output Format:
+Follow Anthropic's recommendation for skill writing style: conciseness, actionability, and hierarchical disclosure."""
+
+
+OUTPUT_FORMAT_PROMPT = """Output Format:
 You MUST output your analysis in the following JSON format. Do not include any additional text outside of this JSON object:
 {
-  "reasoning": "string explaining your success pattern analysis",
-  "patch": {
-    "patch_id": "unique identifier for this patch (e.g., 'success_patch_001')",
-    "source_trajectory_id": "ID of the trajectory this patch is derived from",
-    "is_from_error": false,
+    "reasoning": "string explaining your success pattern analysis",
     "edits": [
-      {
+        {
         "file": "path/to/file.md",
-        "operation": "insert|insert_after|insert_before|replace|replace_range|delete|create",
+        "operation": "insert|replace|delete",
         "target": "optional string to search for in the file",
         "target_start_line": optional integer start line (1-indexed),
         "target_end_line": optional integer end line (1-indexed, inclusive),
         "content": "optional string content to insert or replace with"
-      }
+        }
     ],
-    "reasoning": "string explaining why this patch captures the success pattern",
-    "metadata": {}
-  }
+    "success_memory_items": [
+        {
+            "title": "pattern title",
+            "description": "pattern description"
+        }
+    ]
 }
-
-If no patch is needed, set "patch": null.
-
-Follow Anthropic's recommendation for skill writing style: conciseness, actionability, and hierarchical disclosure.
-"""
+If no patch is needed, set "edits": [] and "success_memory_items": []."""
 
 
 @dataclass
-class SuccessAnalysisResult:
-    patch: Optional[SkillPatch] = None
-    success_memory_items: list[dict[str, str]] = None
-    reasoning: str = ""
+class SuccessResponseModel:
+    reasoning: str
+    edits: List[PatchEdit]
+    success_memory_items: List[dict]
 
-    def __post_init__(self):
-        if self.success_memory_items is None:
-            self.success_memory_items = []
+    @staticmethod
+    def from_json(json_str: str) -> "SuccessResponseModel":
+        # Strip markdown code fences if present
+        cleaned_str = json_str.strip()
+        if cleaned_str.startswith("```json"):
+            cleaned_str = cleaned_str[7:]  # Remove ```json
+        if cleaned_str.endswith("```"):
+            cleaned_str = cleaned_str[:-3]  # Remove ```
+        cleaned_str = cleaned_str.strip()
+        
+        data = json.loads(cleaned_str)
+        
+        # Convert edits to PatchEdit objects
+        edits = []
+        for edit_data in data.get("edits", []):
+            edit = PatchEdit(
+                file=edit_data.get("file", "SKILL.md"),
+                operation=edit_data.get("operation", "insert"),
+                target=edit_data.get("target"),
+                target_start_line=edit_data.get("target_start_line"),
+                target_end_line=edit_data.get("target_end_line"),
+                content=edit_data.get("content"),
+                reasoning=edit_data.get("reasoning", "")
+            )
+            edits.append(edit)
+        
+        # Convert success_memory_items
+        success_memory_items = []
+        for item_data in data.get("success_memory_items", []):
+            item = {
+                "title": item_data.get("title", ""),
+                "description": item_data.get("description", "")
+            }
+            success_memory_items.append(item)
+        
+        return SuccessResponseModel(
+            reasoning=data.get("reasoning", ""),
+            edits=edits,
+            success_memory_items=success_memory_items
+        )
 
 
 class SuccessAnalyst:
@@ -75,7 +111,7 @@ class SuccessAnalyst:
         self,
         trajectory: Trajectory,
         skill_content: str,
-    ) -> SuccessAnalysisResult:
+    ) -> "SuccessAnalysisResult":
         if trajectory.status != TrajectoryStatus.SUCCESS:
             logger.warning(
                 f"Trajectory {trajectory.task_id} is not a success, skipping success analysis"
@@ -89,284 +125,58 @@ class SuccessAnalyst:
 
         skill_context = f"## Current Skill\n{skill_content}"
 
-        prompt = "\n\n".join(
-            [
-                "## System",
-                system_prompt,
-                "",
-                "## Task Query",
-                trajectory.query,
-                "",
-                "## Successful Execution Trace",
-                trajectory_context,
-                "",
-                "## Current Skill (reference)",
-                skill_context,
-                "",
-                "## Instructions",
-                "Identify the generalizable behavior patterns that led to success. Output a skill patch if patterns can be extracted.",
-            ]
-        )
+        prompt = "\n\n".join([
+            "## System",
+            system_prompt,
+            "",
+            "## Task Query",
+            trajectory.query,
+            "",
+            "## Successful Execution Trace",
+            trajectory_context,
+            "",
+            "## Current Skill (reference)",
+            skill_context,
+            "",
+            OUTPUT_FORMAT_PROMPT
+        ])
 
         response = self.llm_client(prompt)
+        return self._create_analysis_result(response, trajectory)
 
-        return self._parse_response(response, trajectory)
-
-    def _parse_response(
-        self,
-        response: str,
-        trajectory: Trajectory,
-    ) -> SuccessAnalysisResult:
-        # Extract JSON from the response
-        import json
-        import re
-
-        # Try to find JSON in the response
-        json_match = re.search(r"\{[\s\S]*\}", response)
-        if not json_match:
-            # Fallback to old method if no JSON found
-            reasoning_parts = []
-            success_items = []
-            patch_content = ""
-            in_patch_section = False
-
-            for line in response.split("\n"):
-                line_lower = line.lower().strip()
-                if any(
-                    line_lower.startswith(indicator)
-                    for indicator in ["patch:", "success patch:", "proposed patch:"]
-                ):
-                    in_patch_section = True
-                    continue
-                if in_patch_section:
-                    patch_content += line + "\n"
-                elif line.startswith("### ") or line.startswith("## "):
-                    continue
-                else:
-                    reasoning_parts.append(line)
-
-            for line in response.split("\n"):
-                if line.startswith("**Pattern") or line.startswith("### "):
-                    parts = line.split(":", 1)
-                    if len(parts) == 2:
-                        success_items.append(
-                            {
-                                "title": parts[1].strip(),
-                                "description": "",
-                            }
-                        )
-
-            reasoning = "\n".join(reasoning_parts).strip()
-
-            edits = (
-                self._parse_patch_content(patch_content)
-                if patch_content.strip()
-                else []
+    def _create_analysis_result(
+        self, 
+        response_str: str, 
+        trajectory: Trajectory
+    ) -> "SuccessAnalysisResult":
+        response_model = SuccessResponseModel.from_json(response_str)
+        
+        patch = None
+        if response_model.edits:
+            patch = SkillPatch(
+                patch_id=str(uuid.uuid4())[:8],
+                source_trajectory_id=trajectory.task_id,
+                is_from_error=False,
+                reasoning=response_model.reasoning,
+                edits=response_model.edits,
             )
 
-            patch = None
-            if edits or success_items:
-                patch = SkillPatch(
-                    patch_id=str(uuid.uuid4())[:8],
-                    source_trajectory_id=trajectory.task_id,
-                    is_from_error=False,
-                    reasoning=reasoning,
-                    edits=edits,
-                )
+        return SuccessAnalysisResult(
+            patch=patch,
+            success_memory_items=response_model.success_memory_items,
+            reasoning=response_model.reasoning
+        )
 
-            return SuccessAnalysisResult(
-                patch=patch,
-                success_memory_items=success_items,
-                reasoning=reasoning,
-            )
 
-        try:
-            json_str = json_match.group(0)
-            data = json.loads(json_str)
+@dataclass
+class SuccessAnalysisResult:
+    patch: Optional[SkillPatch] = None
+    success_memory_items: List[dict] = None
+    reasoning: str = ""
 
-            reasoning = data.get("reasoning", "")
-            patch_data = data.get("patch")
-
-            # Process success items from reasoning (keeping old method for compatibility)
-            success_items = []
-            for line in reasoning.split("\n"):
-                if line.startswith("**Pattern") or line.startswith("### "):
-                    parts = line.split(":", 1)
-                    if len(parts) == 2:
-                        success_items.append(
-                            {
-                                "title": parts[1].strip(),
-                                "description": "",
-                            }
-                        )
-
-            edits = []
-            if patch_data is not None:
-                # Convert patch data to the expected format for _parse_patch_content
-                patch_lines = []
-                if isinstance(patch_data, dict):
-                    # Handle single patch
-                    patch_lines.append("---")
-                    patch_lines.append("+++")
-                    for key, value in patch_data.items():
-                        if key == "edits" and isinstance(value, list):
-                            for edit in value:
-                                if isinstance(edit, dict):
-                                    patch_lines.append(
-                                        f"file: {edit.get('file', 'SKILL.md')}"
-                                    )
-                                    patch_lines.append(
-                                        f"op: {edit.get('operation', 'insert')}"
-                                    )
-                                    if edit.get("target"):
-                                        patch_lines.append(f"target: {edit['target']}")
-                                    if edit.get("target_start_line") is not None:
-                                        patch_lines.append(
-                                            f"target_start_line: {edit['target_start_line']}"
-                                        )
-                                    if edit.get("target_end_line") is not None:
-                                        patch_lines.append(
-                                            f"target_end_line: {edit['target_end_line']}"
-                                        )
-                                    if edit.get("content"):
-                                        patch_lines.append(
-                                            f"content: {edit['content']}"
-                                        )
-                        elif key not in [
-                            "patch_id",
-                            "source_trajectory_id",
-                            "is_from_error",
-                            "reasoning",
-                            "metadata",
-                        ]:
-                            patch_lines.append(f"{key}: {value}")
-                else:
-                    patch_lines.append(str(patch_data))
-
-                edits = self._parse_patch_content("\n".join(patch_lines))
-            else:
-                edits = []
-
-            patch = None
-            if edits or success_items:
-                patch = SkillPatch(
-                    patch_id=str(uuid.uuid4())[:8],
-                    source_trajectory_id=trajectory.task_id,
-                    is_from_error=False,
-                    reasoning=reasoning,
-                    edits=edits,
-                )
-
-            return SuccessAnalysisResult(
-                patch=patch,
-                success_memory_items=success_items,
-                reasoning=reasoning,
-            )
-        except (json.JSONDecodeError, Exception) as e:
-            logger.warning(
-                f"Failed to parse JSON from response: {e}. Falling back to old method."
-            )
-            # Fallback to old method
-            reasoning_parts = []
-            success_items = []
-            patch_content = ""
-            in_patch_section = False
-
-            for line in response.split("\n"):
-                line_lower = line.lower().strip()
-                if any(
-                    line_lower.startswith(indicator)
-                    for indicator in ["patch:", "success patch:", "proposed patch:"]
-                ):
-                    in_patch_section = True
-                    continue
-                if in_patch_section:
-                    patch_content += line + "\n"
-                elif line.startswith("### ") or line.startswith("## "):
-                    continue
-                else:
-                    reasoning_parts.append(line)
-
-            for line in response.split("\n"):
-                if line.startswith("**Pattern") or line.startswith("### "):
-                    parts = line.split(":", 1)
-                    if len(parts) == 2:
-                        success_items.append(
-                            {
-                                "title": parts[1].strip(),
-                                "description": "",
-                            }
-                        )
-
-            reasoning = "\n".join(reasoning_parts).strip()
-
-            edits = (
-                self._parse_patch_content(patch_content)
-                if patch_content.strip()
-                else []
-            )
-
-            patch = None
-            if edits or success_items:
-                patch = SkillPatch(
-                    patch_id=str(uuid.uuid4())[:8],
-                    source_trajectory_id=trajectory.task_id,
-                    is_from_error=False,
-                    reasoning=reasoning,
-                    edits=edits,
-                )
-
-            return SuccessAnalysisResult(
-                patch=patch,
-                success_memory_items=success_items,
-                reasoning=reasoning,
-            )
-
-    def _parse_patch_content(self, content: str) -> list[PatchEdit]:
-        if not content.strip():
-            return []
-
-        edits = []
-        lines = content.split("\n")
-        current_file = "SKILL.md"
-        current_op = PatchOperation.INSERT
-        current_target = None
-        current_content_lines = []
-
-        for line in lines:
-            if (
-                line.startswith("===")
-                or line.startswith("---")
-                or line.startswith("+++")
-            ):
-                if current_content_lines:
-                    edits.append(
-                        PatchEdit(
-                            file=current_file,
-                            operation=current_op,
-                            target=current_target,
-                            content="\n".join(current_content_lines),
-                        )
-                    )
-                    current_content_lines = []
-                if line.startswith("---"):
-                    current_file = line[3:].strip().lstrip("abc/")
-                elif line.startswith("+++"):
-                    current_file = line[3:].strip().lstrip("abc/")
-                continue
-            current_content_lines.append(line)
-
-        if current_content_lines:
-            edits.append(
-                PatchEdit(
-                    file=current_file,
-                    operation=current_op,
-                    target=current_target,
-                    content="\n".join(current_content_lines),
-                )
-            )
-
-        return edits
+    def __post_init__(self):
+        if self.success_memory_items is None:
+            self.success_memory_items = []
 
 
 class BatchSuccessAnalyst:
