@@ -20,34 +20,6 @@ interface SkillVersionData {
   createdAt: string;
 }
 
-interface GeneratedConfigItem {
-  id: string;
-  query?: string | null;
-  routing_intent?: string;
-  standard_answer: string;
-}
-
-interface BenchmarkGenerationResult {
-  generator_skills: string[];
-  skill: {
-    id: string;
-    name: string;
-    version: number;
-  };
-  created: {
-    routing: GeneratedConfigItem[];
-    outcome: GeneratedConfigItem[];
-  };
-  skipped: {
-    routingDuplicates: string[];
-    outcomeAlreadyExists: boolean;
-  };
-  inventory: {
-    routingCount: number;
-    outcomeCount: number;
-  };
-}
-
 interface InvokedSkill {
   name: string;
   version: number | null;
@@ -206,9 +178,6 @@ function SkillContent() {
   const [loading, setLoading] = useState(true);
   const [logsLoading, setLogsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isGeneratingBenchmarks, setIsGeneratingBenchmarks] = useState(false);
-  const [benchmarkGenerationResult, setBenchmarkGenerationResult] = useState<BenchmarkGenerationResult | null>(null);
-  const [benchmarkGenerationError, setBenchmarkGenerationError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchSkill() {
@@ -337,46 +306,6 @@ function SkillContent() {
     );
   }
 
-  const selectedVersion = (() => {
-    const parsed = version ? parseInt(version, 10) : skill.activeVersion;
-    return Number.isInteger(parsed) ? parsed : skill.activeVersion;
-  })();
-
-  const handleGenerateBenchmarks = async () => {
-    if (!skill?.id || !user) {
-      setBenchmarkGenerationError('A scoped user is required to generate benchmarks.');
-      return;
-    }
-
-    setIsGeneratingBenchmarks(true);
-    setBenchmarkGenerationError(null);
-
-    try {
-      const res = await apiFetch(`/api/skills/${skill.id}/benchmark-generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user,
-          version: selectedVersion,
-          includeRouting: true,
-          includeOutcome: true,
-          routingCount: 4,
-        }),
-      });
-
-      const payload = await res.json();
-      if (!res.ok) {
-        throw new Error(payload?.error || 'Failed to generate benchmarks');
-      }
-
-      setBenchmarkGenerationResult(payload);
-    } catch (e: any) {
-      setBenchmarkGenerationError(e.message || 'Failed to generate benchmarks');
-    } finally {
-      setIsGeneratingBenchmarks(false);
-    }
-  };
-
   return (
     <div style={{ padding: '2rem', color: '#e2e8f0', maxWidth: '1280px', margin: '0 auto' }}>
       <Link href="/" style={{ color: '#60a5fa', marginBottom: '1rem', display: 'inline-block' }}>
@@ -420,109 +349,6 @@ function SkillContent() {
           value={`${summary.primaryRuns}/${summary.invokedRuns}`}
           hint="Primary runs / total runs where this skill was actually invoked."
         />
-      </div>
-
-      <div style={{ ...cardStyle, marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
-          <div style={{ maxWidth: '760px' }}>
-            <h3 style={{ marginTop: 0, marginBottom: '0.45rem', color: '#f8fafc' }}>Benchmark Generation</h3>
-            <p style={{ color: '#94a3b8', margin: 0, lineHeight: 1.7, fontSize: '0.9rem' }}>
-              Generate routing datasets and a skill-bound outcome dataset directly from the current skill definition. This capability is now formalized as <code>skill-benchmark-generator</code>, composed of <code>routing-benchmark-generator</code> and <code>outcome-benchmark-generator</code>. For each target skill, the default contract is to generate both datasets together: routing focuses on which queries should hit this skill, while outcome focuses on what successful execution should produce.
-            </p>
-          </div>
-          <button
-            onClick={handleGenerateBenchmarks}
-            disabled={isGeneratingBenchmarks || !user}
-            style={{
-              padding: '0.75rem 1rem',
-              borderRadius: '10px',
-              border: '1px solid #2563eb',
-              background: isGeneratingBenchmarks || !user ? '#1e293b' : '#2563eb',
-              color: isGeneratingBenchmarks || !user ? '#94a3b8' : '#eff6ff',
-              cursor: isGeneratingBenchmarks || !user ? 'not-allowed' : 'pointer',
-              fontWeight: 700,
-              minWidth: '190px',
-            }}
-          >
-            {isGeneratingBenchmarks ? 'Generating...' : 'Generate Benchmarks'}
-          </button>
-        </div>
-
-        {!user && (
-          <div style={{ marginTop: '0.85rem', color: '#fbbf24', fontSize: '0.88rem' }}>
-            A scoped user with an active evaluation model is required to generate benchmarks.
-          </div>
-        )}
-
-        {benchmarkGenerationError && (
-          <div style={{ marginTop: '0.85rem', color: '#fca5a5', fontSize: '0.88rem' }}>
-            {benchmarkGenerationError}
-          </div>
-        )}
-
-        {benchmarkGenerationResult && (
-          <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.85rem' }}>
-            <div style={{ ...cardStyle, background: '#0f172a', padding: '0.9rem' }}>
-              <div style={{ color: '#f8fafc', fontWeight: 700, marginBottom: '0.55rem' }}>Inventory</div>
-              <div style={{ color: '#cbd5e1', fontSize: '0.88rem', lineHeight: 1.8 }}>
-                <div><strong style={{ color: '#94a3b8' }}>Routing Benchmarks:</strong> {benchmarkGenerationResult.inventory.routingCount}</div>
-                <div><strong style={{ color: '#94a3b8' }}>Outcome Benchmarks:</strong> {benchmarkGenerationResult.inventory.outcomeCount}</div>
-                <div><strong style={{ color: '#94a3b8' }}>Skill Version:</strong> v{benchmarkGenerationResult.skill.version}</div>
-                <div><strong style={{ color: '#94a3b8' }}>Generator Skills:</strong> {benchmarkGenerationResult.generator_skills.join(', ')}</div>
-              </div>
-            </div>
-
-            <div style={{ ...cardStyle, background: '#0f172a', padding: '0.9rem' }}>
-              <div style={{ color: '#f8fafc', fontWeight: 700, marginBottom: '0.55rem' }}>This Run</div>
-              <div style={{ color: '#cbd5e1', fontSize: '0.88rem', lineHeight: 1.8 }}>
-                <div><strong style={{ color: '#94a3b8' }}>Created Routing:</strong> {benchmarkGenerationResult.created.routing.length}</div>
-                <div><strong style={{ color: '#94a3b8' }}>Created Outcome:</strong> {benchmarkGenerationResult.created.outcome.length}</div>
-                <div><strong style={{ color: '#94a3b8' }}>Skipped Duplicates:</strong> {benchmarkGenerationResult.skipped.routingDuplicates.length}</div>
-                <div><strong style={{ color: '#94a3b8' }}>Outcome Already Existed:</strong> {benchmarkGenerationResult.skipped.outcomeAlreadyExists ? 'Yes' : 'No'}</div>
-              </div>
-            </div>
-
-            <div style={{ ...cardStyle, background: '#0f172a', padding: '0.9rem' }}>
-              <div style={{ color: '#f8fafc', fontWeight: 700, marginBottom: '0.55rem' }}>Generated Routing Queries</div>
-              <div style={{ color: '#cbd5e1', fontSize: '0.88rem', lineHeight: 1.7 }}>
-                {benchmarkGenerationResult.created.routing.length > 0 ? (
-                  benchmarkGenerationResult.created.routing.map(item => (
-                    <div key={item.id} style={{ marginBottom: '0.45rem' }}>
-                      <strong style={{ color: '#94a3b8' }}>Query:</strong> {item.query || '--'}
-                      {item.routing_intent ? (
-                        <div style={{ color: '#64748b', marginTop: '0.2rem' }}>
-                          Intent: {item.routing_intent}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))
-                ) : (
-                  <div style={{ color: '#64748b' }}>No new routing benchmarks were created in this run.</div>
-                )}
-              </div>
-            </div>
-
-            <div style={{ ...cardStyle, background: '#0f172a', padding: '0.9rem' }}>
-              <div style={{ color: '#f8fafc', fontWeight: 700, marginBottom: '0.55rem' }}>Outcome Benchmark</div>
-              <div style={{ color: '#cbd5e1', fontSize: '0.88rem', lineHeight: 1.7 }}>
-                {benchmarkGenerationResult.created.outcome.length > 0 ? (
-                  benchmarkGenerationResult.created.outcome.map(item => (
-                    <div key={item.id}>
-                      <div><strong style={{ color: '#94a3b8' }}>Source Scenario:</strong> {item.query || '--'}</div>
-                      <div style={{ color: '#64748b', marginTop: '0.35rem' }}>
-                        Standard answer created and stored for this skill version.
-                      </div>
-                    </div>
-                  ))
-                ) : benchmarkGenerationResult.skipped.outcomeAlreadyExists ? (
-                  <div style={{ color: '#64748b' }}>An outcome benchmark already exists for this skill version, so no new one was created.</div>
-                ) : (
-                  <div style={{ color: '#64748b' }}>No outcome benchmark was created in this run.</div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>

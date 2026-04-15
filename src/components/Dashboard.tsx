@@ -127,6 +127,7 @@ interface Execution {
     cache_creation_input_tokens?: number;
     input_tokens?: number;
     output_tokens?: number;
+    reasoning_tokens?: number;
     routing_evaluation?: RoutingEvaluation;
     outcome_evaluation?: OutcomeEvaluation;
 }
@@ -185,6 +186,64 @@ const formatCost = (cost?: number) => {
     if (cost < 0.01) return `$${cost.toFixed(4)}`;
     if (cost < 1) return `$${cost.toFixed(3)}`;
     return `$${cost.toFixed(2)}`;
+};
+
+type BestWorstMetric = 'latency' | 'accuracy' | 'tokens' | 'cost' | 'recall';
+
+const getMetricValue = (d: Execution, metric: BestWorstMetric): number => {
+    switch (metric) {
+        case 'latency': return d.latency;
+        case 'accuracy': return d.answer_score ?? 0;
+        case 'tokens': return d.tokens;
+        case 'cost': return d.cost ?? 0;
+        case 'recall': return (d.skill_recall_rate ?? 0) * 100;
+    }
+};
+
+const hasMetricValue = (d: Execution, metric: BestWorstMetric): boolean => {
+    switch (metric) {
+        case 'latency': return d.latency != null;
+        case 'accuracy': return d.answer_score != null;
+        case 'tokens': return d.tokens != null;
+        case 'cost': return d.cost != null;
+        case 'recall': return d.skill_recall_rate != null;
+    }
+};
+
+const getMetricLabel = (metric: BestWorstMetric): string => {
+    switch (metric) {
+        case 'latency': return '时延';
+        case 'accuracy': return '准确率';
+        case 'tokens': return 'Token';
+        case 'cost': return '成本';
+        case 'recall': return '召回率';
+    }
+};
+
+const getMetricFormattedValue = (d: Execution, metric: BestWorstMetric): string => {
+    switch (metric) {
+        case 'latency': return formatLatency(d.latency);
+        case 'accuracy': return d.answer_score === null ? '--' : (d.answer_score || 0).toFixed(2);
+        case 'tokens': return formatTokens(d.tokens);
+        case 'cost': return formatCost(d.cost) || '-';
+        case 'recall': return d.skill_recall_rate == null ? '--' : `${((d.skill_recall_rate ?? 0) * 100).toFixed(1)}%`;
+    }
+};
+
+const isMetricLowerBetter = (metric: BestWorstMetric): boolean => {
+    return metric === 'latency' || metric === 'tokens' || metric === 'cost';
+};
+
+const formatDiff = (diff: number | null, lowerBetter: boolean): React.ReactNode => {
+    if (diff === null) return null;
+    if (Math.abs(diff) < 0.05) {
+        return <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '4px' }}>—</span>;
+    }
+    const isPositive = diff > 0;
+    const isGood = lowerBetter ? !isPositive : isPositive;
+    const color = isGood ? '#4ade80' : '#f87171';
+    const arrow = isPositive ? '↑' : '↓';
+    return <span style={{ fontSize: '0.75rem', color, marginLeft: '4px' }}>{arrow}{Math.abs(diff).toFixed(1)}%</span>;
 };
 
 const formatExpectedSkillList = (skills: { skill: string; version: number | null }[] = []) => {
@@ -623,6 +682,7 @@ export default function Dashboard() {
     const [drillDownGroupByModel, setDrillDownGroupByModel] = useState(false);
     const [selectedDrillDownLabels, setSelectedDrillDownLabels] = useState<string[]>([]);
     const [selectedDrillDownModels, setSelectedDrillDownModels] = useState<string[]>([]);
+    const [bestWorstMetric, setBestWorstMetric] = useState<BestWorstMetric>('latency');
 
     // User Feedback State
     const [feedbackComment, setFeedbackComment] = useState('');
@@ -1766,7 +1826,13 @@ export default function Dashboard() {
         if (relevant.length === 0) return null;
 
         const totalLat = relevant.reduce((sum, d) => sum + d.latency, 0);
-        const sorted = [...relevant].sort((a, b) => a.latency - b.latency);
+        const lowerBetter = isMetricLowerBetter(bestWorstMetric);
+        const withMetric = relevant.filter(d => hasMetricValue(d, bestWorstMetric));
+        const sorted = withMetric.length > 0 ? [...withMetric].sort((a, b) => {
+            const va = getMetricValue(a, bestWorstMetric);
+            const vb = getMetricValue(b, bestWorstMetric);
+            return lowerBetter ? va - vb : vb - va;
+        }) : [];
 
         // Calculate global skill recall rate (only for queries with expected skill info)
         // First, identify queries that have expected skill info (check both legacy skill and new expectedSkills)
@@ -1814,11 +1880,11 @@ export default function Dashboard() {
             querySkillRecallRate: querySkillRecallRate,
             cpsr,
             avgAnsScore: relevant.filter(d => d.answer_score !== null).length ? (relevant.filter(d => d.answer_score !== null).reduce((sum, d) => sum + (d.answer_score || 0), 0) / relevant.filter(d => d.answer_score !== null).length) : 0,
-            best: sorted[0],
-            worst: sorted[sorted.length - 1],
+            best: sorted.length > 0 ? sorted[0] : null,
+            worst: sorted.length > 0 ? sorted[sorted.length - 1] : null,
             avgSkillScore: (relevant.reduce((sum, d) => sum + (d.skill_score || 0), 0) / relevant.filter(d => d.skill_score !== undefined).length) || 0
         };
-    }, [filteredData, selectedFramework, selectedQuery, configs]);
+    }, [filteredData, selectedFramework, selectedQuery, configs, bestWorstMetric]);
 
     // Derived Table Data
     const tableFilteredData = useMemo(() => {
@@ -1833,6 +1899,55 @@ export default function Dashboard() {
 
     const totalTablePages = Math.ceil(tableFilteredData.length / TABLE_PAGE_SIZE);
     const currentTableData = tableFilteredData.slice((tablePage - 1) * TABLE_PAGE_SIZE, tablePage * TABLE_PAGE_SIZE);
+
+    const versionDiffMap = useMemo(() => {
+        const map = new Map<string, { latencyDiff: number | null; tokenDiff: number | null; accuracyDiff: number | null; costDiff: number | null }>();
+        const skillVersionRecords = filteredData.filter(d => d.skill && d.skill_version != null);
+        const groupByKey = new Map<string, Execution[]>();
+        for (const d of skillVersionRecords) {
+            const key = `${d.query}|||${d.skill}`;
+            if (!groupByKey.has(key)) groupByKey.set(key, []);
+            groupByKey.get(key)!.push(d);
+        }
+        for (const [, records] of Array.from(groupByKey.entries())) {
+            records.sort((a, b) => {
+                const va = parseInt(a.skill_version || '0');
+                const vb = parseInt(b.skill_version || '0');
+                return va - vb;
+            });
+            const avgByVersion = new Map<number, { latency: number; tokens: number; accuracy: number; cost: number; count: number }>();
+            for (const r of records) {
+                const v = parseInt(r.skill_version || '0');
+                if (!avgByVersion.has(v)) {
+                    avgByVersion.set(v, { latency: 0, tokens: 0, accuracy: 0, cost: 0, count: 0 });
+                }
+                const entry = avgByVersion.get(v)!;
+                entry.latency += r.latency;
+                entry.tokens += r.tokens;
+                entry.accuracy += r.answer_score ?? 0;
+                entry.cost += r.cost ?? 0;
+                entry.count += 1;
+            }
+            for (const r of records) {
+                const v = parseInt(r.skill_version || '0');
+                const prev = avgByVersion.get(v - 1);
+                if (!prev || prev.count === 0) continue;
+                const prevLat = prev.latency / prev.count;
+                const prevTok = prev.tokens / prev.count;
+                const prevAcc = prev.accuracy / prev.count;
+                const prevCost = prev.cost / prev.count;
+                const rid = r.upload_id || r.task_id || '';
+                if (!rid) continue;
+                map.set(rid, {
+                    latencyDiff: prevLat !== 0 ? ((r.latency - prevLat) / prevLat) * 100 : null,
+                    tokenDiff: prevTok !== 0 ? ((r.tokens - prevTok) / prevTok) * 100 : null,
+                    accuracyDiff: prevAcc !== 0 ? (((r.answer_score ?? 0) - prevAcc) / prevAcc) * 100 : null,
+                    costDiff: prevCost !== 0 ? (((r.cost ?? 0) - prevCost) / prevCost) * 100 : null,
+                });
+            }
+        }
+        return map;
+    }, [filteredData]);
 
     const ChartLayout = ({ title, dataKey, unit = '', data, frameworks, yFormatter }: { title: React.ReactNode, dataKey: string, unit?: string, data: any[], frameworks: string[], yFormatter?: (val: number) => string }) => (
         <div className="card" style={{ height: '350px', display: 'flex', flexDirection: 'column' }}>
@@ -2409,6 +2524,13 @@ export default function Dashboard() {
                             <option value="">选择问题</option>
                             {filteredQueries.map(q => <option key={q} value={q}>{q.substring(0, 80)}</option>)}
                         </select>
+                        <select value={bestWorstMetric} onChange={e => setBestWorstMetric(e.target.value as BestWorstMetric)} style={{ fontSize: '0.9rem' }}>
+                            <option value="latency">最好/最差指标: 时延</option>
+                            <option value="accuracy">最好/最差指标: 准确率</option>
+                            <option value="tokens">最好/最差指标: Token</option>
+                            <option value="cost">最好/最差指标: 成本</option>
+                            <option value="recall">最好/最差指标: 召回率</option>
+                        </select>
                         <div style={{ marginLeft: '10px', display: 'flex', alignItems: 'center', gap: '20px' }}>
                             <label style={{ cursor: 'pointer', color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                 <input type="checkbox" checked={drillDownGroupByLabel} onChange={(e) => {
@@ -2536,8 +2658,17 @@ export default function Dashboard() {
                                     const recall = relevant.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / counts * 100;
                                     const evaluatedRelevant = relevant.filter(d => d.answer_score !== null);
                                     const avgSc = evaluatedRelevant.length ? (evaluatedRelevant.reduce((sum, d) => sum + (d.answer_score || 0), 0) / evaluatedRelevant.length) : 0;
-                                    const best = [...relevant].sort((a, b) => a.latency - b.latency)[0];
-                                    const worst = [...relevant].sort((a, b) => b.latency - a.latency)[0];
+                                    const withMetric = relevant.filter(d => hasMetricValue(d, bestWorstMetric));
+                                    const best = withMetric.length > 0 ? [...withMetric].sort((a, b) => {
+                                        const va = getMetricValue(a, bestWorstMetric);
+                                        const vb = getMetricValue(b, bestWorstMetric);
+                                        return isMetricLowerBetter(bestWorstMetric) ? va - vb : vb - va;
+                                    })[0] : null;
+                                    const worst = withMetric.length > 0 ? [...withMetric].sort((a, b) => {
+                                        const va = getMetricValue(a, bestWorstMetric);
+                                        const vb = getMetricValue(b, bestWorstMetric);
+                                        return isMetricLowerBetter(bestWorstMetric) ? vb - va : va - vb;
+                                    })[0] : null;
                                     const groupWithCost = relevant.filter(d => d.cost != null);
                                     const groupAvgCost = groupWithCost.length ? groupWithCost.reduce((sum, d) => sum + (d.cost || 0), 0) / groupWithCost.length : null;
                                     
@@ -2597,13 +2728,15 @@ export default function Dashboard() {
                                                     </div>
                                                 </div>
                                                 {/* Best/Worst */}
+                                                {best && worst ? (
+                                                <>
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
-                                                        <div className="card-title text-green-400" style={{ fontSize: '0.85rem' }}>最好表现 (Min Lat)</div>
-                                                        <div className="text-xl font-bold">{formatLatency(best.latency)}</div>
+                                                        <div className="card-title text-green-400" style={{ fontSize: '0.85rem' }}>最好表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Min' : 'Max'} {getMetricLabel(bestWorstMetric)})</div>
+                                                        <div className="text-xl font-bold">{getMetricFormattedValue(best, bestWorstMetric)}</div>
                                                         <div className="text-sm text-slate-400 mt-2" style={{ fontSize: '0.75rem' }}>
                                                             Token: {formatTokens(best.tokens)} | Score: {best.answer_score?.toFixed(2) || '-'} <br />
-                                                            Cost: {formatCost(best.cost) || '-'}
+                                                            Cost: {formatCost(best.cost) || '-'} | Latency: {formatLatency(best.latency)}
                                                         </div>
                                                     </div>
                                                     <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
@@ -2613,15 +2746,17 @@ export default function Dashboard() {
                                                 </div>
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
-                                                        <div className="card-title text-red-400" style={{ fontSize: '0.85rem' }}>最差表现 (Max Lat)</div>
-                                                        <div className="text-xl font-bold">{formatLatency(worst.latency)}</div>
+                                                        <div className="card-title text-red-400" style={{ fontSize: '0.85rem' }}>最差表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Max' : 'Min'} {getMetricLabel(bestWorstMetric)})</div>
+                                                        <div className="text-xl font-bold">{getMetricFormattedValue(worst, bestWorstMetric)}</div>
                                                         <div className="text-sm text-slate-400 mt-2" style={{ fontSize: '0.75rem' }}>
                                                             Token: {formatTokens(worst.tokens)} | Score: {worst.answer_score?.toFixed(2) || '-'} <br />
-                                                            Cost: {formatCost(worst.cost) || '-'}
+                                                            Cost: {formatCost(worst.cost) || '-'} | Latency: {formatLatency(worst.latency)}
                                                         </div>
                                                     </div>
                                                     <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(worst.framework)}&query=${encodeURIComponent(worst.query)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>查看 &gt;</div>
                                                 </div>
+                                                </>
+                                                ) : null}
                                                 {/*Skill Lift*/}
                                                 {drillDownGroupByLabel && skillLiftMetrics !== null && (
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
@@ -2705,31 +2840,41 @@ export default function Dashboard() {
 
                                 </div>
                                 {/* Best/Worst */}
+                                {singleQueryStats.best && singleQueryStats.worst ? (
+                                (() => {
+                                    const bestRecord = singleQueryStats.best;
+                                    const worstRecord = singleQueryStats.worst;
+                                    return (
+                                <>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
-                                        <div className="card-title text-green-400">最好表现 (Min Latency)</div>
-                                        <div className="text-2xl font-bold">{formatLatency(singleQueryStats.best.latency)}</div>
+                                        <div className="card-title text-green-400">最好表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Min' : 'Max'} {getMetricLabel(bestWorstMetric)})</div>
+                                        <div className="text-2xl font-bold">{getMetricFormattedValue(bestRecord, bestWorstMetric)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
-                                            Token: {formatTokens(singleQueryStats.best.tokens)} | Cost: {formatCost(singleQueryStats.best.cost) || '-'} <br />
-                                            Time: {formatDateTime(singleQueryStats.best.timestamp)}
+                                            Token: {formatTokens(bestRecord.tokens)} | Cost: {formatCost(bestRecord.cost) || '-'} | Latency: {formatLatency(bestRecord.latency)} <br />
+                                            Time: {formatDateTime(bestRecord.timestamp)}
                                         </div>
                                     </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(singleQueryStats.best.framework)}&query=${encodeURIComponent(singleQueryStats.best.query)}&expandTaskId=${singleQueryStats.best.task_id || singleQueryStats.best.upload_id}`, '_blank')}>查看 &gt;</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(bestRecord.framework)}&query=${encodeURIComponent(bestRecord.query)}&expandTaskId=${bestRecord.task_id || bestRecord.upload_id}`, '_blank')}>查看 &gt;</div>
                                 </div>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
-                                        <div className="card-title text-red-400">最差表现 (Max Latency)</div>
-                                        <div className="text-2xl font-bold">{formatLatency(singleQueryStats.worst.latency)}</div>
+                                        <div className="card-title text-red-400">最差表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Max' : 'Min'} {getMetricLabel(bestWorstMetric)})</div>
+                                        <div className="text-2xl font-bold">{getMetricFormattedValue(worstRecord, bestWorstMetric)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
-                                            Token: {formatTokens(singleQueryStats.worst.tokens)} | Cost: {formatCost(singleQueryStats.worst.cost) || '-'} <br />
-                                            Time: {formatDateTime(singleQueryStats.worst.timestamp)}
+                                            Token: {formatTokens(worstRecord.tokens)} | Cost: {formatCost(worstRecord.cost) || '-'} | Latency: {formatLatency(worstRecord.latency)} <br />
+                                            Time: {formatDateTime(worstRecord.timestamp)}
                                         </div>
                                     </div>
                                     <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
-                                        const url = `${basePath}/details?framework=${encodeURIComponent(singleQueryStats.worst.framework)}&expandTaskId=${singleQueryStats.worst.task_id || singleQueryStats.worst.upload_id}`;
+                                        const url = `${basePath}/details?framework=${encodeURIComponent(worstRecord.framework)}&expandTaskId=${worstRecord.task_id || worstRecord.upload_id}`;
                                         window.open(url, '_blank');
                                     }}>查看 &gt;</div>
                                 </div>
+                                </>
+                                    );
+                                })()
+                                ) : null}
                             </div>
                         ) : (
                             <div className="card" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
@@ -2791,17 +2936,23 @@ export default function Dashboard() {
                             <tbody>
                                 {currentTableData.map((row, i) => {
                                     const recordId = row.upload_id || row.task_id || '';
+                                    const vDiff = versionDiffMap.get(recordId);
                                     return (
                                         <tr key={i} style={{ borderBottom: '1px solid var(--table-row-border)' }}>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{formatDateTime(row.timestamp)}</td>
                                             <td className="p-2" style={{ whiteSpace: 'nowrap' }}>{row.framework}</td>
                                             <td className="p-2" title={row.query}>{row.query.length > 30 ? row.query.substring(0, 30) + '...' : row.query}</td>
-                                            <td className="p-2">{formatLatency(row.latency)}</td>
-                                            <td className="p-2">{formatTokens(row.tokens)}</td>
-                                            <td className="p-2">
+                                            <td className="p-2" style={{ whiteSpace: 'nowrap' }}>{formatLatency(row.latency)}{vDiff && formatDiff(vDiff.latencyDiff, true)}</td>
+                                            <td className="p-2" style={{ whiteSpace: 'nowrap' }} title={
+                                                row.reasoning_tokens
+                                                    ? `Output: ${formatTokens(row.output_tokens || 0)} (Reasoning: ${formatTokens(row.reasoning_tokens)}, Response: ${formatTokens((row.output_tokens || 0) - row.reasoning_tokens)})` + (row.input_tokens ? `\nInput: ${formatTokens(row.input_tokens)}` : '')
+                                                    : (row.input_tokens || row.output_tokens) ? `Input: ${formatTokens(row.input_tokens || 0)}, Output: ${formatTokens(row.output_tokens || 0)}` : undefined
+                                            }>{formatTokens(row.tokens)}{vDiff && formatDiff(vDiff.tokenDiff, true)}</td>
+                                            <td className="p-2" style={{ whiteSpace: 'nowrap' }}>
                                                 <span style={{ color: row.answer_score === null ? 'var(--foreground-muted)' : ((row.answer_score || 0) > 0.8 ? 'var(--success)' : 'var(--error)'), fontWeight: 'bold' }}>
                                                     {row.answer_score === null ? '--' : (row.answer_score || 0).toFixed(2)}
                                                 </span>
+                                                {vDiff && formatDiff(vDiff.accuracyDiff, false)}
                                             </td>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }} title={
                                                 row.cost != null && row.cost_pricing
@@ -2815,6 +2966,7 @@ export default function Dashboard() {
                                                     ? formatCost(row.cost)
                                                     : (row.tokens ? <span style={{ color: 'var(--foreground-muted)' }}>N/A</span> : '-')
                                                 }
+                                                {vDiff && formatDiff(vDiff.costDiff, true)}
                                             </td>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{row.model || '-'}</td>
 
@@ -3443,8 +3595,27 @@ export default function Dashboard() {
                             <div className="detail-grid">
                                 <div><strong>Time:</strong> {formatDateTime(selectedRecord.timestamp)}</div>
                                 <div><strong>Framework:</strong> {selectedRecord.framework}</div>
-                                <div><strong>Latency:</strong> {formatLatency(selectedRecord.latency)}</div>
-                                <div><strong>Token:</strong> {selectedRecord.tokens}</div>
+                                <div><strong>Latency:</strong> {formatLatency(selectedRecord.latency)}{(() => {
+                                    const rid = selectedRecord.upload_id || selectedRecord.task_id || '';
+                                    const vd = versionDiffMap.get(rid);
+                                    return vd ? formatDiff(vd.latencyDiff, true) : null;
+                                })()}</div>
+                                <div><strong>Token:</strong> {selectedRecord.tokens}{(() => {
+                                    const rid = selectedRecord.upload_id || selectedRecord.task_id || '';
+                                    const vd = versionDiffMap.get(rid);
+                                    return vd ? formatDiff(vd.tokenDiff, true) : null;
+                                })()}</div>
+                                {(() => {
+                                    const rid = selectedRecord.upload_id || selectedRecord.task_id || '';
+                                    const vd = versionDiffMap.get(rid);
+                                    if (!vd) return null;
+                                    return (
+                                        <>
+                                            <div><strong>准确率变化:</strong> {formatDiff(vd.accuracyDiff, false)}</div>
+                                            <div><strong>成本变化:</strong> {formatDiff(vd.costDiff, true)}</div>
+                                        </>
+                                    );
+                                })()}
                             </div>
                         </div>
 
