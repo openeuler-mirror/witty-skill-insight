@@ -1,4 +1,6 @@
 import { readConfig } from '@/lib/data-service';
+import { normalizeConfigDatasetType } from '@/lib/config-dataset';
+import { normalizeConfigQuery, normalizeConfigSkillName, normalizeOptionalSkillVersion } from '@/lib/config-target';
 import { db, prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
@@ -42,13 +44,18 @@ export async function POST(request: Request) {
             
             for (const item of newConfig) {
                 const id = require('uuid').v4();
+                const datasetType = normalizeConfigDatasetType(item.dataset_type || item.datasetType);
+                const normalizedQuery = normalizeConfigQuery(item.query);
                 await pgClient.query(
-                    `INSERT INTO "Config" (id, query, skill, "skillVersion", "expectedSkills", "standardAnswer", "rootCauses", "keyActions", "user", "parseStatus") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    `INSERT INTO "Config" (id, query, skill, "skillVersion", "datasetType", "routingIntent", "routingAnchors", "expectedSkills", "standardAnswer", "rootCauses", "keyActions", "user", "parseStatus") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
                     [
                         id,
-                        item.query,
-                        item.skill || '',
-                        item.skillVersion || null,
+                        normalizedQuery,
+                        normalizeConfigSkillName(item.skill),
+                        normalizeOptionalSkillVersion(item.skillVersion),
+                        datasetType,
+                        item.routing_intent || null,
+                        item.routing_anchors ? JSON.stringify(item.routing_anchors) : null,
                         item.expectedSkills ? JSON.stringify(item.expectedSkills) : (item.skills ? JSON.stringify(item.skills) : null),
                         item.standard_answer || '',
                         item.root_causes ? JSON.stringify(item.root_causes) : null,
@@ -76,11 +83,15 @@ export async function POST(request: Request) {
             });
             
             for (const item of newConfig) {
+                 const datasetType = normalizeConfigDatasetType(item.dataset_type || item.datasetType);
                  const data: any = {
-                     query: item.query,
-                     skill: item.skill || '',
-                     skillVersion: item.skillVersion || null,
-                      expectedSkills: item.expectedSkills ? JSON.stringify(item.expectedSkills) : (item.skills ? JSON.stringify(item.skills) : null),
+                     query: normalizeConfigQuery(item.query),
+                     skill: normalizeConfigSkillName(item.skill),
+                     skillVersion: normalizeOptionalSkillVersion(item.skillVersion),
+                     datasetType,
+                     routingIntent: item.routing_intent || null,
+                     routingAnchors: item.routing_anchors ? JSON.stringify(item.routing_anchors) : null,
+                     expectedSkills: item.expectedSkills ? JSON.stringify(item.expectedSkills) : (item.skills ? JSON.stringify(item.skills) : null),
                      standardAnswer: item.standard_answer || '',
                      rootCauses: item.root_causes ? JSON.stringify(item.root_causes) : null,
                      keyActions: item.key_actions ? JSON.stringify(item.key_actions) : null,

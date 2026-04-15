@@ -1,4 +1,5 @@
 import { db } from '@/lib/prisma';
+import { normalizeConfigDatasetType } from '@/lib/config-dataset';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -27,16 +28,22 @@ export async function GET(request: Request) {
 
         let rootCauses = [];
         let keyActions = [];
+        let routingAnchors = [];
         try {
             if (config.rootCauses) rootCauses = JSON.parse(config.rootCauses);
             if (config.keyActions) keyActions = JSON.parse(config.keyActions);
+            if (config.routingAnchors) routingAnchors = JSON.parse(config.routingAnchors);
         } catch (e) {}
 
         return NextResponse.json({
             id: config.id,
-            query: config.query,
+            query: config.query ?? null,
+            dataset_type: normalizeConfigDatasetType(config.datasetType),
             skill: config.skill,
-            standard_answer: config.standardAnswer,
+            skillVersion: config.skillVersion ?? null,
+            routing_intent: config.routingIntent || null,
+            routing_anchors: routingAnchors,
+            standard_answer: config.standardAnswer || '',
             root_causes: rootCauses,
             key_actions: keyActions,
             parse_status: config.parseStatus || 'completed'

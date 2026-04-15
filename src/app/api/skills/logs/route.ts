@@ -1,4 +1,4 @@
-import { readConfig, readRecords } from '@/lib/data-service';
+import { readRecords, type OutcomeSkillBreakdown, type RoutingSkillBreakdown } from '@/lib/data-service';
 import { db } from '@/lib/prisma';
 import { resolveUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
@@ -36,41 +36,29 @@ export async function GET(request: Request) {
         if (isNaN(targetVersion)) {
             return NextResponse.json({ error: 'Invalid skill_version format' }, { status: 400 });
         }
-    } else {
-        const skillRecord = await db.findSkill(skillName, username || null);
-        if (skillRecord && skillRecord.activeVersion !== undefined && skillRecord.activeVersion !== null) {
-            targetVersion = skillRecord.activeVersion;
-            console.log(`[Skills-Logs] Using active version ${targetVersion} for skill ${skillName}`);
-        }
     }
 
     const records = await readRecords(username || undefined);
-    const configs = await readConfig(username || undefined);
-    
-    // Create a map for quick config lookup by query
-    const configMap = new Map();
-    configs.forEach(c => {
-        const criteria = {
-            root_causes: c.root_causes || [],
-            key_actions: c.key_actions || []
-        };
-        // Store by full query
-        configMap.set(c.query, criteria);
-        // Also store by clean query if it contains a pipe
-        if (c.query.includes('|')) {
-            configMap.set(c.query.split('|')[0], criteria);
-        }
-    });
     
     // Filter records
     const filtered = records.filter(r => {
+        const focusedRouting = r.routing_evaluation?.skill_breakdown?.find((item: RoutingSkillBreakdown) => item.skill === skillName) || null;
+        const focusedOutcome = r.outcome_evaluation?.skill_breakdown?.find((item: OutcomeSkillBreakdown) => item.skill === skillName) || null;
         const inList = r.skills?.some(s => s === skillName);
         const inSingle = r.skill === skillName;
-        if (!inList && !inSingle) return false;
+        const relatedToSkill = Boolean(inList || inSingle || focusedRouting || focusedOutcome);
+        if (!relatedToSkill) return false;
 
         // Skill Version Filter
         if (targetVersion !== undefined) {
-            return r.skill_version === targetVersion;
+            const candidateVersions = [
+                focusedOutcome?.version,
+                focusedRouting?.invoked_version,
+                focusedRouting?.expected_version,
+                r.skill === skillName ? r.skill_version : null,
+            ].filter((value): value is number => typeof value === 'number');
+
+            return candidateVersions.includes(targetVersion);
         }
 
         return true;
@@ -87,11 +75,12 @@ export async function GET(request: Request) {
         // Construct display label
         const verStr = r.skill_version !== undefined ? `v${r.skill_version}` : '';
         const displayLabel = r.label || verStr;
-        
-        // Get criteria from configMap
-        const criteria = configMap.get(r.query) || { root_causes: [], key_actions: [] };
+        const routingFocus = r.routing_evaluation?.skill_breakdown?.find((item: RoutingSkillBreakdown) => item.skill === skillName) || null;
+        const outcomeFocus = r.outcome_evaluation?.skill_breakdown?.find((item: OutcomeSkillBreakdown) => item.skill === skillName) || null;
 
         return {
+            task_id: r.task_id,
+            upload_id: r.upload_id,
             timestamp: r.timestamp,
             query: r.query,
             final_result: r.final_result,
@@ -101,7 +90,11 @@ export async function GET(request: Request) {
             skill_issues: r.skill_issues || [],
             label: displayLabel || null,
             skill_version: r.skill_version,
-            criteria: criteria // Added: root_causes and key_actions
+            invoked_skills: r.invokedSkills || [],
+            routing_evaluation: r.routing_evaluation || null,
+            outcome_evaluation: r.outcome_evaluation || null,
+            focused_routing: routingFocus,
+            focused_outcome: outcomeFocus,
         };
     });
 

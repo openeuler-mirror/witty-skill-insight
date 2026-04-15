@@ -5,12 +5,86 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { SkillLinks } from './SkillLink';
 import { useTheme } from '@/lib/theme-context';
 import { apiFetch, getApiUrl } from '@/lib/api';
+import {
+    configSupportsDatasetType,
+    hasOutcomeExpectations,
+    hasRoutingExpectations,
+    normalizeExpectedSkills,
+    normalizeConfigDatasetType,
+    type ConfigDatasetType,
+} from '@/lib/config-dataset';
+import {
+    formatSkillTargetLabel,
+    normalizeConfigQuery,
+    normalizeConfigSkillName,
+    normalizeOptionalSkillVersion,
+} from '@/lib/config-target';
 
 
 // --- Types ---
 interface InvokedSkill {
     name: string;
     version: number | null;
+}
+
+interface RoutingMatchedSkill {
+    skill: string;
+    expected_version: number | null;
+    invoked_version: number | null;
+}
+
+interface RoutingSkillBreakdown {
+    skill: string;
+    expected: boolean;
+    invoked: boolean;
+    matched: boolean;
+    status: 'matched' | 'missed' | 'unexpected' | 'not_applicable';
+    expected_version: number | null;
+    invoked_version: number | null;
+}
+
+interface RoutingEvaluation {
+    status: 'available' | 'missing';
+    matched_config_id?: string;
+    matched_query?: string;
+    matched_intent?: string;
+    matched_anchors?: string[];
+    expected_skills: { skill: string; version: number | null }[];
+    invoked_skills: InvokedSkill[];
+    matched_skills: RoutingMatchedSkill[];
+    expected_count: number;
+    matched_count: number;
+    is_correct: boolean;
+    recall_rate: number | null;
+    skill_breakdown: RoutingSkillBreakdown[];
+}
+
+interface OutcomeSkillBreakdown {
+    skill: string;
+    version: number | null;
+    role: 'primary' | 'invoked' | 'expected_only' | 'context_only';
+    is_primary: boolean;
+    is_invoked: boolean;
+    is_expected: boolean;
+    routing_status: RoutingSkillBreakdown['status'] | 'missing_dataset';
+    shares_execution_outcome: true;
+    score: number | null;
+    is_correct: boolean | null;
+}
+
+interface OutcomeEvaluation {
+    status: 'available' | 'missing' | 'pending';
+    matched_config_id?: string;
+    matched_query?: string;
+    matched_skill?: string;
+    matched_skill_version?: number | null;
+    is_correct: boolean | null;
+    score: number | null;
+    reason?: string;
+    standard_answer_present: boolean;
+    root_cause_count: number;
+    key_action_count: number;
+    skill_breakdown: OutcomeSkillBreakdown[];
 }
 
 interface Execution {
@@ -26,7 +100,7 @@ interface Execution {
     final_result?: string;
     is_skill_correct?: boolean;
     is_answer_correct?: boolean;
-    answer_score?: number;
+    answer_score?: number | null;
     judgment_reason?: string;
     cost?: number;
     cost_pricing?: { inputTokenPrice: number; outputTokenPrice: number; cacheReadInputTokenPrice?: number; cacheCreationInputTokenPrice?: number; source?: 'default' | 'custom' } | null;
@@ -53,14 +127,18 @@ interface Execution {
     cache_creation_input_tokens?: number;
     input_tokens?: number;
     output_tokens?: number;
-    reasoning_tokens?: number;
+    routing_evaluation?: RoutingEvaluation;
+    outcome_evaluation?: OutcomeEvaluation;
 }
 
 interface ConfigItem {
     id: string;
-    query: string;
+    query?: string | null;
+    dataset_type?: ConfigDatasetType;
     skill: string;
     skillVersion?: number | null;
+    routing_intent?: string | null;
+    routing_anchors?: string[];
     expectedSkills?: { skill: string; version: number | null }[];
     standard_answer: string;
     root_causes?: { content: string; weight: number }[];
@@ -109,62 +187,133 @@ const formatCost = (cost?: number) => {
     return `$${cost.toFixed(2)}`;
 };
 
-type BestWorstMetric = 'latency' | 'accuracy' | 'tokens' | 'cost' | 'recall';
-
-const getMetricValue = (d: Execution, metric: BestWorstMetric): number => {
-    switch (metric) {
-        case 'latency': return d.latency;
-        case 'accuracy': return d.answer_score ?? 0;
-        case 'tokens': return d.tokens;
-        case 'cost': return d.cost ?? 0;
-        case 'recall': return (d.skill_recall_rate ?? 0) * 100;
-    }
+const formatExpectedSkillList = (skills: { skill: string; version: number | null }[] = []) => {
+    if (skills.length === 0) return '--';
+    return skills
+        .map(item => `${item.skill}${item.version != null ? ` v${item.version}` : ''}`)
+        .join(', ');
 };
 
-const hasMetricValue = (d: Execution, metric: BestWorstMetric): boolean => {
-    switch (metric) {
-        case 'latency': return d.latency != null;
-        case 'accuracy': return d.answer_score != null;
-        case 'tokens': return d.tokens != null;
-        case 'cost': return d.cost != null;
-        case 'recall': return d.skill_recall_rate != null;
-    }
+const formatInvokedSkillList = (skills: InvokedSkill[] = []) => {
+    if (skills.length === 0) return '--';
+    return skills
+        .map(item => `${item.name}${item.version != null ? ` v${item.version}` : ''}`)
+        .join(', ');
 };
 
-const getMetricLabel = (metric: BestWorstMetric): string => {
-    switch (metric) {
-        case 'latency': return '时延';
-        case 'accuracy': return '准确率';
-        case 'tokens': return 'Token';
-        case 'cost': return '成本';
-        case 'recall': return '召回率';
+const truncateCardText = (value: string, maxLength = 120) => (
+    value.length > maxLength ? `${value.slice(0, maxLength)}...` : value
+);
+
+const getConfigDisplayTitle = (config: ConfigItem, sectionType: 'routing' | 'outcome') => {
+    if (sectionType === 'routing') {
+        const semanticIntent = config.routing_intent?.trim();
+        if (semanticIntent) {
+            return semanticIntent;
+        }
+        const query = normalizeConfigQuery(config.query);
+        return query ? truncateCardText(query) : 'Untitled routing benchmark';
     }
+    return formatSkillTargetLabel(config.skill, config.skillVersion ?? null) || 'Unbound outcome benchmark';
 };
 
-const getMetricFormattedValue = (d: Execution, metric: BestWorstMetric): string => {
-    switch (metric) {
-        case 'latency': return formatLatency(d.latency);
-        case 'accuracy': return d.answer_score === null ? '--' : (d.answer_score || 0).toFixed(2);
-        case 'tokens': return formatTokens(d.tokens);
-        case 'cost': return formatCost(d.cost) || '-';
-        case 'recall': return d.skill_recall_rate == null ? '--' : `${((d.skill_recall_rate ?? 0) * 100).toFixed(1)}%`;
-    }
+const getOutcomeTargetMeta = (config: ConfigItem) => {
+    const query = normalizeConfigQuery(config.query);
+    if (!query) return null;
+    return query.length > 90 ? `${query.slice(0, 90)}...` : query;
 };
 
-const isMetricLowerBetter = (metric: BestWorstMetric): boolean => {
-    return metric === 'latency' || metric === 'tokens' || metric === 'cost';
+const getRoutingSourceQueryMeta = (config: ConfigItem) => {
+    const query = normalizeConfigQuery(config.query);
+    if (!query) return null;
+    return truncateCardText(query, 140);
 };
 
-const formatDiff = (diff: number | null, lowerBetter: boolean): React.ReactNode => {
-    if (diff === null) return null;
-    if (Math.abs(diff) < 0.05) {
-        return <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '4px' }}>—</span>;
+const getRoutingEvaluationMeta = (routing?: RoutingEvaluation) => {
+    if (!routing || routing.status === 'missing') {
+        return {
+            label: 'No routing dataset',
+            accent: '#94a3b8',
+            background: 'rgba(148, 163, 184, 0.12)',
+            border: 'rgba(148, 163, 184, 0.35)',
+        };
     }
-    const isPositive = diff > 0;
-    const isGood = lowerBetter ? !isPositive : isPositive;
-    const color = isGood ? '#4ade80' : '#f87171';
-    const arrow = isPositive ? '↑' : '↓';
-    return <span style={{ fontSize: '0.75rem', color, marginLeft: '4px' }}>{arrow}{Math.abs(diff).toFixed(1)}%</span>;
+
+    if ((routing.recall_rate ?? 0) >= 1) {
+        return {
+            label: 'Route hit',
+            accent: '#4ade80',
+            background: 'rgba(74, 222, 128, 0.12)',
+            border: 'rgba(74, 222, 128, 0.35)',
+        };
+    }
+
+    if (routing.is_correct) {
+        return {
+            label: 'Partial hit',
+            accent: '#fbbf24',
+            background: 'rgba(251, 191, 36, 0.12)',
+            border: 'rgba(251, 191, 36, 0.35)',
+        };
+    }
+
+    return {
+        label: 'Route miss',
+        accent: '#f87171',
+        background: 'rgba(248, 113, 113, 0.12)',
+        border: 'rgba(248, 113, 113, 0.35)',
+    };
+};
+
+const getOutcomeEvaluationMeta = (outcome?: OutcomeEvaluation) => {
+    if (!outcome || outcome.status === 'missing') {
+        return {
+            label: 'No outcome dataset',
+            accent: '#94a3b8',
+            background: 'rgba(148, 163, 184, 0.12)',
+            border: 'rgba(148, 163, 184, 0.35)',
+        };
+    }
+
+    if (outcome.status === 'pending') {
+        return {
+            label: 'Pending',
+            accent: '#38bdf8',
+            background: 'rgba(56, 189, 248, 0.12)',
+            border: 'rgba(56, 189, 248, 0.35)',
+        };
+    }
+
+    if ((outcome.score ?? 0) > 0.8) {
+        return {
+            label: 'Outcome pass',
+            accent: '#4ade80',
+            background: 'rgba(74, 222, 128, 0.12)',
+            border: 'rgba(74, 222, 128, 0.35)',
+        };
+    }
+
+    return {
+        label: 'Outcome needs work',
+        accent: '#f87171',
+        background: 'rgba(248, 113, 113, 0.12)',
+        border: 'rgba(248, 113, 113, 0.35)',
+    };
+};
+
+const getRoutingSkillStatusMeta = (status?: RoutingSkillBreakdown['status'] | 'missing_dataset') => {
+    switch (status) {
+        case 'matched':
+            return { label: 'Matched', color: '#4ade80', background: 'rgba(74, 222, 128, 0.12)', border: 'rgba(74, 222, 128, 0.35)' };
+        case 'missed':
+            return { label: 'Missed', color: '#f87171', background: 'rgba(248, 113, 113, 0.12)', border: 'rgba(248, 113, 113, 0.35)' };
+        case 'unexpected':
+            return { label: 'Unexpected', color: '#fbbf24', background: 'rgba(251, 191, 36, 0.12)', border: 'rgba(251, 191, 36, 0.35)' };
+        case 'missing_dataset':
+            return { label: 'No routing dataset', color: '#94a3b8', background: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.35)' };
+        default:
+            return { label: 'Context only', color: '#94a3b8', background: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.35)' };
+    }
 };
 
 const calculateCPSR = (records: Execution[]): number | null => {
@@ -414,6 +563,7 @@ export default function Dashboard() {
     }, [apiKey]);
 
     const [activeTab, setActiveTab] = useState<'dashboard' | 'config' | 'skill'>('dashboard');
+    const optimizerConsoleHref = getApiUrl(`/optimizer${user ? `?user=${encodeURIComponent(user)}` : ''}`);
     const [showUserModal, setShowUserModal] = useState(false); // State for User Modal
 
     // Fetch fresh API Key from DB when user modal opens to ensure accuracy
@@ -474,7 +624,6 @@ export default function Dashboard() {
     const [drillDownGroupByModel, setDrillDownGroupByModel] = useState(false);
     const [selectedDrillDownLabels, setSelectedDrillDownLabels] = useState<string[]>([]);
     const [selectedDrillDownModels, setSelectedDrillDownModels] = useState<string[]>([]);
-    const [bestWorstMetric, setBestWorstMetric] = useState<'latency' | 'accuracy' | 'tokens' | 'cost' | 'recall'>('latency');
 
     // User Feedback State
     const [feedbackComment, setFeedbackComment] = useState('');
@@ -898,6 +1047,7 @@ export default function Dashboard() {
 
     const [editingConfig, setEditingConfig] = useState<Partial<ConfigItem> & { version?: number }>({});
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [configModalPerspective, setConfigModalPerspective] = useState<'routing' | 'outcome' | 'combined' | null>(null);
     const [isSavingConfig, setIsSavingConfig] = useState(false);
     const [configAnswerMode, setConfigAnswerMode] = useState<'manual' | 'document'>('manual');
     const [configDocumentFile, setConfigDocumentFile] = useState<File | null>(null);
@@ -922,6 +1072,8 @@ export default function Dashboard() {
                     // Update the config in state (including standard_answer which may have been extracted from document)
                     setConfigs(prev => prev.map(c => c.id === configId ? {
                         ...c,
+                        routing_intent: data.routing_intent || c.routing_intent,
+                        routing_anchors: data.routing_anchors || c.routing_anchors,
                         standard_answer: data.standard_answer || c.standard_answer,
                         root_causes: data.root_causes,
                         key_actions: data.key_actions,
@@ -956,41 +1108,157 @@ export default function Dashboard() {
         });
     }, [configs, pollConfigStatus]);
 
+    const openCreateConfigModal = (datasetType: 'routing' | 'outcome') => {
+        setConfigModalPerspective(datasetType);
+        setEditingConfig({
+            dataset_type: datasetType,
+            query: datasetType === 'routing' ? '' : null,
+            skill: '',
+            skillVersion: null,
+            expectedSkills: datasetType === 'routing' ? [{ skill: '', version: 0 }] : [],
+            standard_answer: '',
+            root_causes: [],
+            key_actions: [],
+        });
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+        setIsEditModalOpen(true);
+    };
+
+    const openConfigModal = (config: ConfigItem, sectionType?: 'routing' | 'outcome') => {
+        const configToEdit = {
+            ...config,
+            dataset_type: normalizeConfigDatasetType(config.dataset_type),
+        };
+        if (!configToEdit.expectedSkills && configToEdit.skill) {
+            configToEdit.expectedSkills = [{ skill: configToEdit.skill, version: configToEdit.skillVersion ?? null }];
+        }
+        setConfigModalPerspective(sectionType || normalizeConfigDatasetType(config.dataset_type));
+        setEditingConfig(configToEdit);
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+        setIsEditModalOpen(true);
+    };
+
+    const duplicateConfigToDataset = (config: ConfigItem, datasetType: 'routing' | 'outcome') => {
+        setConfigModalPerspective(datasetType);
+        const duplicatedSkill = normalizeConfigSkillName(config.skill)
+            || normalizeConfigSkillName(config.expectedSkills?.[0]?.skill)
+            || '';
+        const duplicatedVersion = config.skillVersion
+            ?? config.expectedSkills?.[0]?.version
+            ?? null;
+
+        setEditingConfig({
+            dataset_type: datasetType,
+            query: datasetType === 'routing' ? (config.query ?? '') : null,
+            skill: datasetType === 'outcome' ? duplicatedSkill : '',
+            skillVersion: datasetType === 'outcome' ? duplicatedVersion : null,
+            expectedSkills: datasetType === 'routing'
+                ? (config.expectedSkills ? [...config.expectedSkills] : (config.skill ? [{ skill: config.skill, version: config.skillVersion ?? null }] : []))
+                : [],
+            standard_answer: datasetType === 'outcome' ? config.standard_answer : '',
+            routing_intent: datasetType === 'routing' ? config.routing_intent : null,
+            routing_anchors: datasetType === 'routing' ? [...(config.routing_anchors || [])] : [],
+            root_causes: datasetType === 'outcome' ? [...(config.root_causes || [])] : [],
+            key_actions: datasetType === 'outcome' ? [...(config.key_actions || [])] : [],
+        });
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+        setIsEditModalOpen(true);
+    };
+
+    const routingConfigs = useMemo(
+        () => configs.filter(config => configSupportsDatasetType(config.dataset_type, 'routing')),
+        [configs]
+    );
+
+    const outcomeConfigs = useMemo(
+        () => configs.filter(config => configSupportsDatasetType(config.dataset_type, 'outcome')),
+        [configs]
+    );
+
+    const editingConfigType = normalizeConfigDatasetType(editingConfig.dataset_type);
+    const modalEditingType = configModalPerspective || editingConfigType;
+    const isRoutingEditor = modalEditingType === 'routing' || modalEditingType === 'combined';
+    const isOutcomeEditor = modalEditingType === 'outcome' || modalEditingType === 'combined';
+    const configModalTitle = editingConfig.id
+        ? (modalEditingType === 'routing'
+            ? '路由数据项详情'
+            : modalEditingType === 'outcome'
+                ? '效果数据项详情'
+                : '兼容旧数据详情')
+        : (modalEditingType === 'routing'
+            ? '新增路由数据项'
+            : modalEditingType === 'outcome'
+                ? '新增效果数据项'
+                : '新增数据项');
 
     const saveConfig = async () => {
-        if (!editingConfig.query?.trim()) return alert('问题 (Query) 不能为空');
+        const editingDatasetType = normalizeConfigDatasetType(editingConfig.dataset_type);
+        const trimmedQuery = normalizeConfigQuery(editingConfig.query);
+        const trimmedSkill = normalizeConfigSkillName(editingConfig.skill);
+        const normalizedSkillVersion = normalizeOptionalSkillVersion(editingConfig.skillVersion);
 
-        // 新增模式下校验问题是否已存在（trim 后比较，防止前后空格绕过）
         if (!editingConfig.id) {
-            const trimmedQuery = editingConfig.query.trim();
-            const isDuplicate = configs.some(c => c.query.trim() === trimmedQuery);
-            if (isDuplicate) {
-                return alert('该问题已存在于数据集中，请修改后再保存');
+            if ((editingDatasetType === 'routing' || editingDatasetType === 'combined') && !trimmedQuery) {
+                return alert('问题 (Query) 不能为空');
             }
-            // 自动 trim 问题
-            editingConfig.query = trimmedQuery;
+            if ((editingDatasetType === 'outcome' || editingDatasetType === 'combined') && !trimmedSkill) {
+                return alert('请绑定目标 skill');
+            }
+
+            const isDuplicate = configs.some(c => {
+                if (normalizeConfigDatasetType(c.dataset_type) !== editingDatasetType) {
+                    return false;
+                }
+
+                if (editingDatasetType === 'routing' || editingDatasetType === 'combined') {
+                    return normalizeConfigQuery(c.query) === trimmedQuery;
+                }
+
+                return normalizeConfigSkillName(c.skill) === trimmedSkill
+                    && normalizeOptionalSkillVersion(c.skillVersion) === normalizedSkillVersion;
+            });
+            if (isDuplicate) {
+                return alert(editingDatasetType === 'routing'
+                    ? '该问题已存在于当前数据集类型中，请修改后再保存'
+                    : '该目标 skill 已存在于当前效果数据集中，请修改后再保存');
+            }
         }
+
+        editingConfig.query = trimmedQuery;
+        editingConfig.skill = trimmedSkill;
+        editingConfig.skillVersion = normalizedSkillVersion;
 
         setIsSavingConfig(true);
 
         try {
             if (!editingConfig.id) {
-                // Validate: need standard answer OR document
-                if (configAnswerMode === 'manual' && !editingConfig.standard_answer?.trim()) {
+                if ((editingDatasetType === 'routing' || editingDatasetType === 'combined') && !hasRoutingExpectations(editingConfig)) {
                     setIsSavingConfig(false);
-                    return alert('请填写标准答案');
+                    return alert('请至少填写一个预期技能');
                 }
-                if (configAnswerMode === 'document' && !configDocumentFile) {
-                    setIsSavingConfig(false);
-                    return alert('请上传案例文档');
+
+                if (editingDatasetType === 'outcome' || editingDatasetType === 'combined') {
+                    if (configAnswerMode === 'manual' && !editingConfig.standard_answer?.trim()) {
+                        setIsSavingConfig(false);
+                        return alert('请填写标准答案');
+                    }
+                    if (configAnswerMode === 'document' && !configDocumentFile) {
+                        setIsSavingConfig(false);
+                        return alert('请上传案例文档');
+                    }
                 }
 
                 let res: Response;
-                if (configAnswerMode === 'document' && configDocumentFile) {
-                    // Use FormData for file upload
+                if ((editingDatasetType === 'outcome' || editingDatasetType === 'combined') && configAnswerMode === 'document' && configDocumentFile) {
                     const formData = new FormData();
-                    formData.append('query', editingConfig.query);
+                    if (trimmedQuery) formData.append('query', trimmedQuery);
+                    if (trimmedSkill) formData.append('skill', trimmedSkill);
+                    if (normalizedSkillVersion != null) formData.append('skillVersion', String(normalizedSkillVersion));
                     formData.append('document', configDocumentFile);
+                    formData.append('datasetType', editingDatasetType);
                     if (user) formData.append('user', user);
                     if (editingConfig.expectedSkills) {
                         formData.append('expectedSkills', JSON.stringify(editingConfig.expectedSkills));
@@ -1001,10 +1269,11 @@ export default function Dashboard() {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            query: editingConfig.query,
+                            query: trimmedQuery,
                             standardAnswer: editingConfig.standard_answer,
-                            skill: editingConfig.skill,
-                            skillVersion: editingConfig.skillVersion,
+                            datasetType: editingDatasetType,
+                            skill: trimmedSkill,
+                            skillVersion: normalizedSkillVersion,
                             expectedSkills: editingConfig.expectedSkills,
                             user
                         })
@@ -1021,6 +1290,7 @@ export default function Dashboard() {
                         }
                     }
                     setIsEditModalOpen(false);
+                    setConfigModalPerspective(null);
                     setEditingConfig({});
                     setConfigDocumentFile(null);
                     setConfigAnswerMode('manual');
@@ -1040,6 +1310,7 @@ export default function Dashboard() {
                 if (res.ok) {
                     setConfigs(newConfigs);
                     setIsEditModalOpen(false);
+                    setConfigModalPerspective(null);
                     setEditingConfig({});
                 } else {
                     alert('保存失败');
@@ -1064,6 +1335,219 @@ export default function Dashboard() {
         });
         if (res.ok) setConfigs(newConfigs);
     };
+
+    const renderConfigSection = (
+        sectionType: 'routing' | 'outcome',
+        title: string,
+        description: string,
+        items: ConfigItem[],
+        accent: string,
+        actionLabel: string,
+        emptyText: string
+    ) => (
+        <div
+            className="card"
+            style={{
+                padding: '18px',
+                border: `1px solid ${accent}33`,
+                boxShadow: `inset 0 1px 0 ${accent}14`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px',
+            }}
+        >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                        <h3 style={{ margin: 0, color: '#e2e8f0', fontSize: '1.05rem' }}>{title}</h3>
+                        <span
+                            style={{
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                background: `${accent}22`,
+                                border: `1px solid ${accent}44`,
+                                color: accent,
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                            }}
+                        >
+                            {items.length} 项
+                        </span>
+                    </div>
+                    <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.6 }}>{description}</p>
+                </div>
+                <button
+                    onClick={() => openCreateConfigModal(sectionType)}
+                    className="btn-primary"
+                    style={{ padding: '8px 16px', fontSize: '0.85rem', borderRadius: '8px', whiteSpace: 'nowrap' }}
+                >
+                    {actionLabel}
+                </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {items.length === 0 && (
+                    <div
+                        style={{
+                            border: '1px dashed #334155',
+                            borderRadius: '12px',
+                            padding: '2rem 1rem',
+                            textAlign: 'center',
+                            color: '#64748b',
+                            background: 'rgba(15, 23, 42, 0.35)',
+                        }}
+                    >
+                        {emptyText}
+                    </div>
+                )}
+
+                {items.map(c => {
+                    const datasetType = normalizeConfigDatasetType(c.dataset_type);
+                    const titleText = getConfigDisplayTitle(c, sectionType);
+                    const outcomeTargetMeta = getOutcomeTargetMeta(c);
+                    const routingSourceQuery = getRoutingSourceQueryMeta(c);
+                    const statusColor = c.parse_status === 'parsing'
+                        ? '#fbbf24'
+                        : c.parse_status === 'failed'
+                            ? '#ef4444'
+                            : '#4ade80';
+                    const badgeText = datasetType === 'combined'
+                        ? '兼容旧数据'
+                        : datasetType === 'routing'
+                            ? 'Routing only'
+                            : 'Outcome only';
+                    const normalizedExpectedSkills = normalizeExpectedSkills(c.expectedSkills);
+                    const summaryText = sectionType === 'routing'
+                        ? (
+                            hasRoutingExpectations(c)
+                                ? `Expected skills: ${(normalizedExpectedSkills.length > 0
+                                    ? normalizedExpectedSkills
+                                    : (c.skill ? [{ skill: c.skill, version: c.skillVersion ?? null }] : [])
+                                ).map(item => `${item.skill}${item.version !== null && item.version !== undefined ? ` (v${item.version})` : ''}`).join(', ')}`
+                                : 'No expected skill configured'
+                        )
+                        : (
+                            hasOutcomeExpectations(c)
+                                ? ((c.standard_answer || '').length > 120
+                                    ? `${(c.standard_answer || '').slice(0, 120)}...`
+                                    : (c.standard_answer || '已配置关键观点/关键动作'))
+                                : '未配置标准答案或关键动作'
+                        );
+
+                    return (
+                        <div
+                            key={`${sectionType}-${c.id}`}
+                            style={{
+                                border: '1px solid #1e293b',
+                                borderRadius: '12px',
+                                padding: '14px 16px',
+                                background: 'rgba(15, 23, 42, 0.55)',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '14px',
+                            }}
+                        >
+                            <div
+                                style={{
+                                    flexShrink: 0,
+                                    width: '10px',
+                                    height: '10px',
+                                    borderRadius: '50%',
+                                    marginTop: '6px',
+                                    background: statusColor,
+                                    boxShadow: `0 0 10px ${statusColor}55`,
+                                }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                                    <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.5 }}>{titleText}</div>
+                                    <span
+                                        style={{
+                                            padding: '2px 8px',
+                                            borderRadius: '999px',
+                                            background: datasetType === 'combined' ? 'rgba(148, 163, 184, 0.16)' : `${accent}22`,
+                                            border: `1px solid ${datasetType === 'combined' ? 'rgba(148, 163, 184, 0.28)' : `${accent}44`}`,
+                                            color: datasetType === 'combined' ? '#cbd5e1' : accent,
+                                            fontSize: '0.72rem',
+                                            fontWeight: 600,
+                                        }}
+                                    >
+                                        {badgeText}
+                                    </span>
+                                </div>
+                                <div style={{ color: '#94a3b8', fontSize: '0.83rem', lineHeight: 1.6 }}>
+                                    {summaryText}
+                                </div>
+                                {sectionType === 'routing' && routingSourceQuery && (
+                                    <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
+                                        Source query: {routingSourceQuery}
+                                    </div>
+                                )}
+                                {sectionType === 'routing' && c.routing_anchors && c.routing_anchors.length > 0 && (
+                                    <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
+                                        Semantic anchors: {c.routing_anchors.join(', ')}
+                                    </div>
+                                )}
+                                {sectionType === 'outcome' && outcomeTargetMeta && (
+                                    <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
+                                        Source scenario: {outcomeTargetMeta}
+                                    </div>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                <button
+                                    onClick={() => openConfigModal(c, sectionType)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#1e3a5f',
+                                        color: '#38bdf8',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    详情
+                                </button>
+                                <button
+                                    onClick={() => duplicateConfigToDataset(c, sectionType)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#2d1b4e',
+                                        color: '#c084fc',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    复制到本区
+                                </button>
+                                <button
+                                    onClick={() => deleteConfig(c.id)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#3b1c1c',
+                                        color: '#ef4444',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    删除
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+
     const allFrameworks = useMemo(() => Array.from(new Set(rawData.map(d => d.framework))).sort(), [rawData]);
 
     const allQueries = useMemo(() => Array.from(new Set(rawData.map(d => d.query))).sort(), [rawData]);
@@ -1283,13 +1767,7 @@ export default function Dashboard() {
         if (relevant.length === 0) return null;
 
         const totalLat = relevant.reduce((sum, d) => sum + d.latency, 0);
-        const lowerBetter = isMetricLowerBetter(bestWorstMetric);
-        const withMetric = relevant.filter(d => hasMetricValue(d, bestWorstMetric));
-        const sorted = withMetric.length > 0 ? [...withMetric].sort((a, b) => {
-            const va = getMetricValue(a, bestWorstMetric);
-            const vb = getMetricValue(b, bestWorstMetric);
-            return lowerBetter ? va - vb : vb - va;
-        }) : [];
+        const sorted = [...relevant].sort((a, b) => a.latency - b.latency);
 
         // Calculate global skill recall rate (only for queries with expected skill info)
         // First, identify queries that have expected skill info (check both legacy skill and new expectedSkills)
@@ -1299,7 +1777,8 @@ export default function Dashboard() {
                     (c.skill && c.skill.trim() !== '') ||
                     (c.expectedSkills && c.expectedSkills.some((e: any) => e.skill && e.skill.trim() !== ''))
                 )
-                .map(c => c.query.trim())
+                .map(c => normalizeConfigQuery(c.query))
+                .filter((query): query is string => Boolean(query))
         );
         
         // Filter execution records to only include queries with expected skill info
@@ -1336,11 +1815,11 @@ export default function Dashboard() {
             querySkillRecallRate: querySkillRecallRate,
             cpsr,
             avgAnsScore: relevant.filter(d => d.answer_score !== null).length ? (relevant.filter(d => d.answer_score !== null).reduce((sum, d) => sum + (d.answer_score || 0), 0) / relevant.filter(d => d.answer_score !== null).length) : 0,
-            best: sorted.length > 0 ? sorted[0] : null,
-            worst: sorted.length > 0 ? sorted[sorted.length - 1] : null,
+            best: sorted[0],
+            worst: sorted[sorted.length - 1],
             avgSkillScore: (relevant.reduce((sum, d) => sum + (d.skill_score || 0), 0) / relevant.filter(d => d.skill_score !== undefined).length) || 0
         };
-    }, [filteredData, selectedFramework, selectedQuery, configs, bestWorstMetric]);
+    }, [filteredData, selectedFramework, selectedQuery, configs]);
 
     // Derived Table Data
     const tableFilteredData = useMemo(() => {
@@ -1355,56 +1834,6 @@ export default function Dashboard() {
 
     const totalTablePages = Math.ceil(tableFilteredData.length / TABLE_PAGE_SIZE);
     const currentTableData = tableFilteredData.slice((tablePage - 1) * TABLE_PAGE_SIZE, tablePage * TABLE_PAGE_SIZE);
-
-    const versionDiffMap = useMemo(() => {
-        const map = new Map<string, { latencyDiff: number | null; tokenDiff: number | null; accuracyDiff: number | null; costDiff: number | null }>();
-        const skillVersionRecords = filteredData.filter(d => d.skill && d.skill_version != null);
-        const groupByKey = new Map<string, Execution[]>();
-        for (const d of skillVersionRecords) {
-            const key = `${d.query}|||${d.skill}`;
-            if (!groupByKey.has(key)) groupByKey.set(key, []);
-            groupByKey.get(key)!.push(d);
-        }
-        for (const [, records] of Array.from(groupByKey.entries())) {
-            records.sort((a, b) => {
-                const va = parseInt(a.skill_version || '0');
-                const vb = parseInt(b.skill_version || '0');
-                return va - vb;
-            });
-            const avgByVersion = new Map<number, { latency: number; tokens: number; accuracy: number; cost: number; count: number }>();
-            for (const r of records) {
-                const v = parseInt(r.skill_version || '0');
-                if (!avgByVersion.has(v)) {
-                    avgByVersion.set(v, { latency: 0, tokens: 0, accuracy: 0, cost: 0, count: 0 });
-                }
-                const entry = avgByVersion.get(v)!;
-                entry.latency += r.latency;
-                entry.tokens += r.tokens;
-                entry.accuracy += r.answer_score ?? 0;
-                entry.cost += r.cost ?? 0;
-                entry.count += 1;
-            }
-            for (const r of records) {
-                const v = parseInt(r.skill_version || '0');
-                const prevV = v - 1;
-                if (!avgByVersion.has(prevV)) continue;
-                const prev = avgByVersion.get(prevV)!;
-                const prevLat = prev.latency / prev.count;
-                const prevTok = prev.tokens / prev.count;
-                const prevAcc = prev.accuracy / prev.count;
-                const prevCost = prev.cost / prev.count;
-                const rid = r.upload_id || r.task_id || '';
-                if (!rid) continue;
-                map.set(rid, {
-                    latencyDiff: prevLat !== 0 ? ((r.latency - prevLat) / prevLat) * 100 : null,
-                    tokenDiff: prevTok !== 0 ? ((r.tokens - prevTok) / prevTok) * 100 : null,
-                    accuracyDiff: prevAcc !== 0 ? (((r.answer_score ?? 0) - prevAcc) / prevAcc) * 100 : null,
-                    costDiff: prevCost !== 0 ? (((r.cost ?? 0) - prevCost) / prevCost) * 100 : null,
-                });
-            }
-        }
-        return map;
-    }, [filteredData]);
 
     const ChartLayout = ({ title, dataKey, unit = '', data, frameworks, yFormatter }: { title: React.ReactNode, dataKey: string, unit?: string, data: any[], frameworks: string[], yFormatter?: (val: number) => string }) => (
         <div className="card" style={{ height: '350px', display: 'flex', flexDirection: 'column' }}>
@@ -1441,25 +1870,45 @@ export default function Dashboard() {
                         <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)', letterSpacing: '1px' }}>智能体技能评估、分析与优化</span>
                     </div>
 
-                    {/* Main Navigation Tabs */}
-                    <div className="tabs">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {/* Main Navigation Tabs */}
+                        <div className="tabs">
+                            <button
+                                className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('dashboard')}
+                            >
+                                数据概览
+                            </button>
+                            <button
+                                className={`tab-btn ${activeTab === 'config' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('config')}
+                            >
+                                数据集管理
+                            </button>
+                            <button
+                                className={`tab-btn ${activeTab === 'skill' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('skill')}
+                            >
+                                技能管理
+                            </button>
+                        </div>
                         <button
-                            className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('dashboard')}
+                            className="btn-secondary"
+                            style={{
+                                padding: '0.6rem 0.95rem',
+                                background: 'rgba(56, 189, 248, 0.12)',
+                                border: '1px solid rgba(56, 189, 248, 0.28)',
+                                color: '#7dd3fc',
+                                borderRadius: '0.5rem',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                whiteSpace: 'nowrap'
+                            }}
+                            onClick={() => {
+                                window.location.href = optimizerConsoleHref;
+                            }}
                         >
-                            数据概览
-                        </button>
-                        <button
-                            className={`tab-btn ${activeTab === 'config' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('config')}
-                        >
-                            数据集管理
-                        </button>
-                        <button
-                            className={`tab-btn ${activeTab === 'skill' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('skill')}
-                        >
-                            技能管理
+                            进入优化控制台
                         </button>
                     </div>
                 </div>
@@ -1770,7 +2219,8 @@ export default function Dashboard() {
                                         (c.skill && c.skill.trim() !== '') ||
                                         (c.expectedSkills && c.expectedSkills.some((e: any) => e.skill && e.skill.trim() !== ''))
                                     )
-                                    .map(c => c.query.trim())
+                                    .map(c => normalizeConfigQuery(c.query))
+                                    .filter((query): query is string => Boolean(query))
                             );
                             const fwDataWithExpectedSkill = fwData.filter(d => 
                                 d.query && queriesWithExpectedSkill.has(d.query.trim())
@@ -1978,13 +2428,6 @@ export default function Dashboard() {
                             <option value="">选择问题</option>
                             {filteredQueries.map(q => <option key={q} value={q}>{q.substring(0, 80)}</option>)}
                         </select>
-                        <select value={bestWorstMetric} onChange={e => setBestWorstMetric(e.target.value as BestWorstMetric)} style={{ fontSize: '0.9rem' }}>
-                            <option value="latency">最好/最差指标: 时延</option>
-                            <option value="accuracy">最好/最差指标: 准确率</option>
-                            <option value="tokens">最好/最差指标: Token</option>
-                            <option value="cost">最好/最差指标: 成本</option>
-                            <option value="recall">最好/最差指标: 召回率</option>
-                        </select>
                         <div style={{ marginLeft: '10px', display: 'flex', alignItems: 'center', gap: '20px' }}>
                             <label style={{ cursor: 'pointer', color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                 <input type="checkbox" checked={drillDownGroupByLabel} onChange={(e) => {
@@ -2112,17 +2555,8 @@ export default function Dashboard() {
                                     const recall = relevant.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / counts * 100;
                                     const evaluatedRelevant = relevant.filter(d => d.answer_score !== null);
                                     const avgSc = evaluatedRelevant.length ? (evaluatedRelevant.reduce((sum, d) => sum + (d.answer_score || 0), 0) / evaluatedRelevant.length) : 0;
-                                    const withMetric = relevant.filter(d => hasMetricValue(d, bestWorstMetric));
-                                    const best = withMetric.length > 0 ? [...withMetric].sort((a, b) => {
-                                        const va = getMetricValue(a, bestWorstMetric);
-                                        const vb = getMetricValue(b, bestWorstMetric);
-                                        return isMetricLowerBetter(bestWorstMetric) ? va - vb : vb - va;
-                                    })[0] : null;
-                                    const worst = withMetric.length > 0 ? [...withMetric].sort((a, b) => {
-                                        const va = getMetricValue(a, bestWorstMetric);
-                                        const vb = getMetricValue(b, bestWorstMetric);
-                                        return isMetricLowerBetter(bestWorstMetric) ? vb - va : va - vb;
-                                    })[0] : null;
+                                    const best = [...relevant].sort((a, b) => a.latency - b.latency)[0];
+                                    const worst = [...relevant].sort((a, b) => b.latency - a.latency)[0];
                                     const groupWithCost = relevant.filter(d => d.cost != null);
                                     const groupAvgCost = groupWithCost.length ? groupWithCost.reduce((sum, d) => sum + (d.cost || 0), 0) / groupWithCost.length : null;
                                     
@@ -2182,15 +2616,13 @@ export default function Dashboard() {
                                                     </div>
                                                 </div>
                                                 {/* Best/Worst */}
-                                                {best && worst ? (
-                                                <>
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
-                                                        <div className="card-title text-green-400" style={{ fontSize: '0.85rem' }}>最好表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Min' : 'Max'} {getMetricLabel(bestWorstMetric)})</div>
-                                                        <div className="text-xl font-bold">{getMetricFormattedValue(best, bestWorstMetric)}</div>
+                                                        <div className="card-title text-green-400" style={{ fontSize: '0.85rem' }}>最好表现 (Min Lat)</div>
+                                                        <div className="text-xl font-bold">{formatLatency(best.latency)}</div>
                                                         <div className="text-sm text-slate-400 mt-2" style={{ fontSize: '0.75rem' }}>
                                                             Token: {formatTokens(best.tokens)} | Score: {best.answer_score?.toFixed(2) || '-'} <br />
-                                                            Cost: {formatCost(best.cost) || '-'} | Latency: {formatLatency(best.latency)}
+                                                            Cost: {formatCost(best.cost) || '-'}
                                                         </div>
                                                     </div>
                                                     <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
@@ -2200,21 +2632,15 @@ export default function Dashboard() {
                                                 </div>
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
-                                                        <div className="card-title text-red-400" style={{ fontSize: '0.85rem' }}>最差表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Max' : 'Min'} {getMetricLabel(bestWorstMetric)})</div>
-                                                        <div className="text-xl font-bold">{getMetricFormattedValue(worst, bestWorstMetric)}</div>
+                                                        <div className="card-title text-red-400" style={{ fontSize: '0.85rem' }}>最差表现 (Max Lat)</div>
+                                                        <div className="text-xl font-bold">{formatLatency(worst.latency)}</div>
                                                         <div className="text-sm text-slate-400 mt-2" style={{ fontSize: '0.75rem' }}>
                                                             Token: {formatTokens(worst.tokens)} | Score: {worst.answer_score?.toFixed(2) || '-'} <br />
-                                                            Cost: {formatCost(worst.cost) || '-'} | Latency: {formatLatency(worst.latency)}
+                                                            Cost: {formatCost(worst.cost) || '-'}
                                                         </div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(worst.framework)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>查看 &gt;</div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(worst.framework)}&query=${encodeURIComponent(worst.query)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>查看 &gt;</div>
                                                 </div>
-                                                </>
-                                                ) : (
-                                                <div className="card" style={{ textAlign: 'center', padding: '1rem', color: '#94a3b8', fontSize: '0.85rem' }}>
-                                                    该指标暂无有效数据
-                                                </div>
-                                                )}
                                                 {/*Skill Lift*/}
                                                 {drillDownGroupByLabel && skillLiftMetrics !== null && (
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
@@ -2298,45 +2724,31 @@ export default function Dashboard() {
 
                                 </div>
                                 {/* Best/Worst */}
-                                {singleQueryStats.best && singleQueryStats.worst ? (
-                                <>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
-                                        <div className="card-title text-green-400">最好表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Min' : 'Max'} {getMetricLabel(bestWorstMetric)})</div>
-                                        <div className="text-2xl font-bold">{getMetricFormattedValue(singleQueryStats.best, bestWorstMetric)}</div>
+                                        <div className="card-title text-green-400">最好表现 (Min Latency)</div>
+                                        <div className="text-2xl font-bold">{formatLatency(singleQueryStats.best.latency)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
-                                            Token: {formatTokens(singleQueryStats.best.tokens)} | Cost: {formatCost(singleQueryStats.best.cost) || '-'} | Latency: {formatLatency(singleQueryStats.best.latency)} <br />
+                                            Token: {formatTokens(singleQueryStats.best.tokens)} | Cost: {formatCost(singleQueryStats.best.cost) || '-'} <br />
                                             Time: {formatDateTime(singleQueryStats.best.timestamp)}
                                         </div>
                                     </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
-                                        const best = singleQueryStats.best;
-                                        if (!best) return;
-                                        window.open(`${basePath}/details?framework=${encodeURIComponent(best.framework)}&expandTaskId=${best.task_id || best.upload_id}`, '_blank');
-                                    }}>查看 &gt;</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(singleQueryStats.best.framework)}&query=${encodeURIComponent(singleQueryStats.best.query)}&expandTaskId=${singleQueryStats.best.task_id || singleQueryStats.best.upload_id}`, '_blank')}>查看 &gt;</div>
                                 </div>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
-                                        <div className="card-title text-red-400">最差表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Max' : 'Min'} {getMetricLabel(bestWorstMetric)})</div>
-                                        <div className="text-2xl font-bold">{getMetricFormattedValue(singleQueryStats.worst, bestWorstMetric)}</div>
+                                        <div className="card-title text-red-400">最差表现 (Max Latency)</div>
+                                        <div className="text-2xl font-bold">{formatLatency(singleQueryStats.worst.latency)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
-                                            Token: {formatTokens(singleQueryStats.worst.tokens)} | Cost: {formatCost(singleQueryStats.worst.cost) || '-'} | Latency: {formatLatency(singleQueryStats.worst.latency)} <br />
+                                            Token: {formatTokens(singleQueryStats.worst.tokens)} | Cost: {formatCost(singleQueryStats.worst.cost) || '-'} <br />
                                             Time: {formatDateTime(singleQueryStats.worst.timestamp)}
                                         </div>
                                     </div>
                                     <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
-                                        const worst = singleQueryStats.worst;
-                                        if (!worst) return;
-                                        const url = `${basePath}/details?framework=${encodeURIComponent(worst.framework)}&expandTaskId=${worst.task_id || worst.upload_id}`;
+                                        const url = `${basePath}/details?framework=${encodeURIComponent(singleQueryStats.worst.framework)}&expandTaskId=${singleQueryStats.worst.task_id || singleQueryStats.worst.upload_id}`;
                                         window.open(url, '_blank');
                                     }}>查看 &gt;</div>
                                 </div>
-                                </>
-                                ) : (
-                                <div className="card" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
-                                    该指标暂无有效数据
-                                </div>
-                                )}
                             </div>
                         ) : (
                             <div className="card" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
@@ -2398,23 +2810,17 @@ export default function Dashboard() {
                             <tbody>
                                 {currentTableData.map((row, i) => {
                                     const recordId = row.upload_id || row.task_id || '';
-                                    const vDiff = versionDiffMap.get(recordId);
                                     return (
                                         <tr key={i} style={{ borderBottom: '1px solid var(--table-row-border)' }}>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{formatDateTime(row.timestamp)}</td>
                                             <td className="p-2" style={{ whiteSpace: 'nowrap' }}>{row.framework}</td>
                                             <td className="p-2" title={row.query}>{row.query.length > 30 ? row.query.substring(0, 30) + '...' : row.query}</td>
-                                            <td className="p-2" style={{ whiteSpace: 'nowrap' }}>{formatLatency(row.latency)}{vDiff && formatDiff(vDiff.latencyDiff, true)}</td>
-                                            <td className="p-2" style={{ whiteSpace: 'nowrap' }} title={
-                                                row.reasoning_tokens
-                                                    ? `Output: ${formatTokens(row.output_tokens || 0)} (Reasoning: ${formatTokens(row.reasoning_tokens)}, Response: ${formatTokens((row.output_tokens || 0) - row.reasoning_tokens)})` + (row.input_tokens ? `\nInput: ${formatTokens(row.input_tokens)}` : '')
-                                                    : (row.input_tokens || row.output_tokens) ? `Input: ${formatTokens(row.input_tokens || 0)}, Output: ${formatTokens(row.output_tokens || 0)}` : undefined
-                                            }>{formatTokens(row.tokens)}{vDiff && formatDiff(vDiff.tokenDiff, true)}</td>
-                                            <td className="p-2" style={{ whiteSpace: 'nowrap' }}>
+                                            <td className="p-2">{formatLatency(row.latency)}</td>
+                                            <td className="p-2">{formatTokens(row.tokens)}</td>
+                                            <td className="p-2">
                                                 <span style={{ color: row.answer_score === null ? 'var(--foreground-muted)' : ((row.answer_score || 0) > 0.8 ? 'var(--success)' : 'var(--error)'), fontWeight: 'bold' }}>
                                                     {row.answer_score === null ? '--' : (row.answer_score || 0).toFixed(2)}
                                                 </span>
-                                                {vDiff && formatDiff(vDiff.accuracyDiff, false)}
                                             </td>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }} title={
                                                 row.cost != null && row.cost_pricing
@@ -2428,7 +2834,6 @@ export default function Dashboard() {
                                                     ? formatCost(row.cost)
                                                     : (row.tokens ? <span style={{ color: 'var(--foreground-muted)' }}>N/A</span> : '-')
                                                 }
-                                                {vDiff && formatDiff(vDiff.costDiff, true)}
                                             </td>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{row.model || '-'}</td>
 
@@ -2549,172 +2954,39 @@ export default function Dashboard() {
             {/* CONFIG TAB */}
             {activeTab === 'config' && (
                 <div className="config-container">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
-                        <h2 className="section-title" style={{ marginBottom: 0 }}>数据集管理</h2>
-                        <button
-                            onClick={() => { setEditingConfig({}); setConfigAnswerMode('manual'); setConfigDocumentFile(null); setIsEditModalOpen(true) }}
-                            className="btn-primary"
-                            style={{ padding: '8px 20px', fontSize: '0.9rem', borderRadius: '6px' }}
-                        >
-                            + 新增数据项
-                        </button>
+                    <div style={{ marginBottom: '1rem' }}>
+                        <h2 className="section-title" style={{ marginBottom: '0.35rem' }}>数据集管理</h2>
+                        <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.9rem', lineHeight: 1.7 }}>
+                            将路由命中评测与执行效果评测拆成两条独立数据链路。新建数据时建议分别维护，历史混合数据会以“兼容旧数据”的形式保留。
+                        </p>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {Array.isArray(configs) && configs.length === 0 && (
-                            <div className="card" style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
-                                暂无数据项，点击上方"+ 新增数据项"开始添加
-                            </div>
+
+                    <div
+                        style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
+                            gap: '16px',
+                            alignItems: 'start',
+                        }}
+                    >
+                        {renderConfigSection(
+                            'routing',
+                            '路由命中数据集',
+                            '只定义 query 应该命中哪些 skill / version，用于计算 is_skill_correct 与 skill_recall_rate。',
+                            routingConfigs,
+                            '#38bdf8',
+                            '+ 新增路由数据项',
+                            '暂无路由评测数据，添加后即可开始评估 skill 命中情况。'
                         )}
-                        {Array.isArray(configs) && configs.map(c => (
-                            <div key={c.id} className="card" style={{
-                                padding: '14px 18px',
-                                display: 'flex',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: '16px',
-                                transition: 'border-color 0.2s',
-                                borderColor: '#1e293b'
-                            }}>
-                                {/* 解析状态指示器 */}
-                                <div style={{
-                                    flexShrink: 0, width: '8px', height: '8px', borderRadius: '50%',
-                                    background: c.parse_status === 'parsing' ? '#fbbf24' : c.parse_status === 'failed' ? '#ef4444' : '#4ade80',
-                                    boxShadow: `0 0 6px ${c.parse_status === 'parsing' ? '#fbbf2444' : c.parse_status === 'failed' ? '#ef444444' : '#4ade8044'}`,
-                                    ...(c.parse_status === 'parsing' ? { animation: 'pulse-dot 1.5s ease-in-out infinite' } : {})
-                                }} />
-                                {/* 内容区 */}
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{
-                                        fontWeight: 500,
-                                        color: '#e2e8f0',
-                                        fontSize: '0.9rem',
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        marginBottom: '4px'
-                                    }}>
-                                        {c.query}
-                                    </div>
-                                    <div style={{
-                                        color: '#64748b',
-                                        fontSize: '0.8rem',
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis'
-                                    }}>
-                                        {(c.standard_answer || '').length > 100 ? (c.standard_answer || '').substring(0, 100) + '...' : (c.standard_answer || '暂无标准答案')}
-                                    </div>
-                                     {(c.expectedSkills && c.expectedSkills.length > 0) ? (
-                                        <div style={{
-                                            color: '#94a3b8',
-                                            fontSize: '0.75rem',
-                                            marginTop: '2px'
-                                        }}>
-                                            预期技能: {c.expectedSkills.map(s => `${s.skill}${s.version !== null && s.version !== undefined ? ` (v${s.version})` : ''}`).join(', ')}
-                                        </div>
-                                    ) : c.skill && (
-                                        <div style={{
-                                            color: '#94a3b8',
-                                            fontSize: '0.75rem',
-                                            marginTop: '2px'
-                                        }}>
-                                            预期技能: {c.skill}{c.skillVersion !== null && c.skillVersion !== undefined ? ` (v${c.skillVersion})` : ''}
-                                        </div>
-                                    )}
-                                </div>
-                                {/* 状态标签 */}
-                                <div style={{ flexShrink: 0 }}>
-                                    {c.parse_status === 'parsing' ? (
-                                        <span style={{
-                                            display: 'inline-flex', alignItems: 'center', gap: '5px',
-                                            padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
-                                            background: 'rgba(251, 191, 36, 0.12)', color: '#fbbf24', border: '1px solid rgba(251, 191, 36, 0.25)'
-                                        }}>
-                                            <span style={{ width: '10px', height: '10px', border: '1.5px solid #fbbf24', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', display: 'inline-block' }}></span>
-                                            解析中
-                                        </span>
-                                    ) : c.parse_status === 'failed' ? (
-                                        <span style={{
-                                            padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
-                                            background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.25)'
-                                        }}>✕ 失败</span>
-                                    ) : (
-                                        <span style={{
-                                            padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
-                                            background: 'rgba(74, 222, 128, 0.12)', color: '#4ade80', border: '1px solid rgba(74, 222, 128, 0.25)'
-                                        }}>✓ 完成</span>
-                                    )}
-                                </div>
-                                {/* 操作按钮 */}
-                                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                                    <button
-                                        onClick={() => { 
-                                            const configToEdit = { ...c };
-                                            if (!configToEdit.expectedSkills && configToEdit.skill) {
-                                                configToEdit.expectedSkills = [{ skill: configToEdit.skill, version: configToEdit.skillVersion ?? null }];
-                                            }
-                                            setEditingConfig(configToEdit); 
-                                            setIsEditModalOpen(true) 
-                                        }}
-                                        style={{
-                                            padding: '5px 12px',
-                                            background: '#1e3a5f',
-                                            color: '#38bdf8',
-                                            border: 'none',
-                                            borderRadius: '6px',
-                                            cursor: 'pointer',
-                                            fontSize: '0.8rem',
-                                            fontWeight: 500,
-                                            transition: 'background 0.2s'
-                                        }}
-                                    >
-                                        详情
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            setEditingConfig({
-                                                query: c.query,
-                                                skill: '',
-                                                expectedSkills: c.expectedSkills ? [...c.expectedSkills] : (c.skill ? [{ skill: c.skill, version: c.skillVersion ?? null }] : undefined),
-                                                standard_answer: c.standard_answer,
-                                            });
-                                            setConfigAnswerMode('manual');
-                                            setConfigDocumentFile(null);
-                                            setIsEditModalOpen(true);
-                                        }}
-                                        style={{
-                                            padding: '5px 12px',
-                                            background: '#2d1b4e',
-                                            color: '#a855f7',
-                                            border: 'none',
-                                            borderRadius: '6px',
-                                            cursor: 'pointer',
-                                            fontSize: '0.8rem',
-                                            fontWeight: 500,
-                                            transition: 'background 0.2s'
-                                        }}
-                                    >
-                                        复制
-                                    </button>
-                                    <button
-                                        onClick={() => deleteConfig(c.id)}
-                                        style={{
-                                            padding: '5px 12px',
-                                            background: '#3b1c1c',
-                                            color: '#ef4444',
-                                            border: 'none',
-                                            borderRadius: '6px',
-                                            cursor: 'pointer',
-                                            fontSize: '0.8rem',
-                                            fontWeight: 500,
-                                            transition: 'background 0.2s'
-                                        }}
-                                    >
-                                        删除
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
+                        {renderConfigSection(
+                            'outcome',
+                            '执行效果数据集',
+                            '只定义标准答案、关键观点与关键动作，用于评估最终回答质量与执行效果。',
+                            outcomeConfigs,
+                            '#a78bfa',
+                            '+ 新增效果数据项',
+                            '暂无效果评测数据，添加后即可开始评估回答质量与执行动作。'
+                        )}
                     </div>
                 </div>
             )}
@@ -2728,78 +3000,214 @@ export default function Dashboard() {
             {/* MODALS */}
             {/* 1. Config Edit Modal */}
             {isEditModalOpen && (
-                <div className="modal-overlay" onClick={() => setIsEditModalOpen(false)}>
+                <div className="modal-overlay" onClick={() => { setIsEditModalOpen(false); setConfigModalPerspective(null); }}>
                     <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ maxHeight: '90vh', overflowY: 'auto', maxWidth: '900px', width: '66vw', minWidth: '500px', flexDirection: 'column' }}>
-                        <h3>{editingConfig.id ? '数据项详情' : '新增数据项'}</h3>
+                        <h3>{configModalTitle}</h3>
 
-                        {/* 问题 - 始终突出显示 */}
-                        <div className="form-group">
-                            <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>问题 (Query) <span style={{ color: '#ef4444' }}>*</span></label>
-                            <textarea
-                                value={editingConfig.query || ''}
-                                onChange={e => setEditingConfig({ ...editingConfig, query: e.target.value })}
-                                disabled={!!editingConfig.id}
-                                placeholder="请输入需要评估的问题..."
-                                style={{ width: '100%', padding: '10px', minHeight: '60px', opacity: editingConfig.id ? 0.7 : 1, cursor: editingConfig.id ? 'not-allowed' : 'text', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
-                            />
+                        <div style={{ marginBottom: '1rem', padding: '12px 14px', borderRadius: '10px', background: 'rgba(15, 23, 42, 0.75)', border: '1px solid #334155', color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.7 }}>
+                            {modalEditingType === 'routing' && '该数据项只参与 skill 路由命中评测。这里只看语义意图与 expected skills，不看标准答案、关键观点或执行动作。'}
+                            {modalEditingType === 'outcome' && '该数据项只参与最终答案质量与执行动作评测，不参与 skill 路由命中判断。'}
+                            {modalEditingType === 'combined' && '这是历史兼容的混合数据项，同时包含路由与效果评测信息。后续建议逐步拆成两条独立数据。'}
                         </div>
 
-                        {!editingConfig.id ? (                            <>
-                                {/* 标准答案 - 突出显示 */}
-                                <div className="form-group">
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>标准答案 <span style={{ color: '#ef4444' }}>*</span></label>
-                                    <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
-                                        <button
-                                            onClick={() => { setConfigAnswerMode('manual'); setConfigDocumentFile(null); }}
-                                            style={{
-                                                padding: '6px 16px',
-                                                background: configAnswerMode === 'manual' ? '#38bdf8' : '#1e293b',
-                                                color: configAnswerMode === 'manual' ? '#0f172a' : '#94a3b8',
-                                                border: `1px solid ${configAnswerMode === 'manual' ? '#38bdf8' : '#334155'}`,
-                                                borderRadius: '6px',
-                                                cursor: 'pointer',
-                                                fontSize: '0.85rem',
-                                                fontWeight: configAnswerMode === 'manual' ? 600 : 400,
-                                                transition: 'all 0.2s'
-                                            }}
-                                        >
-                                            ✏️ 手动填写
-                                        </button>
-                                        <button
-                                            onClick={() => setConfigAnswerMode('document')}
-                                            style={{
-                                                padding: '6px 16px',
-                                                background: configAnswerMode === 'document' ? '#38bdf8' : '#1e293b',
-                                                color: configAnswerMode === 'document' ? '#0f172a' : '#94a3b8',
-                                                border: `1px solid ${configAnswerMode === 'document' ? '#38bdf8' : '#334155'}`,
-                                                borderRadius: '6px',
-                                                cursor: 'pointer',
-                                                fontSize: '0.85rem',
-                                                fontWeight: configAnswerMode === 'document' ? 600 : 400,
-                                                transition: 'all 0.2s'
-                                            }}
-                                        >
-                                            📄 上传案例文档
-                                        </button>
-                                    </div>
+                        {isRoutingEditor && !editingConfig.id && (
+                            <div className="form-group">
+                                <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>问题 (Query) <span style={{ color: '#ef4444' }}>*</span></label>
+                                <textarea
+                                    value={editingConfig.query || ''}
+                                    onChange={e => setEditingConfig({ ...editingConfig, query: e.target.value })}
+                                    placeholder="请输入需要评估的问题..."
+                                    style={{ width: '100%', padding: '10px', minHeight: '60px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                />
+                            </div>
+                        )}
 
-                                    {configAnswerMode === 'manual' ? (
+                        {isRoutingEditor && (
+                            <div className="form-group" style={{ marginTop: '1rem' }}>
+                                <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>
+                                    预期技能 (Expected Skills) <span style={{ color: '#ef4444' }}>*</span>
+                                </label>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {(editingConfig.expectedSkills || []).map((item, index) => (
+                                        <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                            <input
+                                                type="text"
+                                                value={item.skill}
+                                                onChange={e => {
+                                                    const newSkills = [...(editingConfig.expectedSkills || [])];
+                                                    newSkills[index] = { ...newSkills[index], skill: e.target.value };
+                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                }}
+                                                placeholder="技能名称"
+                                                style={{ flex: 2, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                            />
+                                            <input
+                                                type="number"
+                                                value={item.version ?? 0}
+                                                onChange={e => {
+                                                    const value = e.target.value;
+                                                    const newSkills = [...(editingConfig.expectedSkills || [])];
+                                                    newSkills[index] = {
+                                                        ...newSkills[index],
+                                                        version: value === '' ? 0 : Math.max(0, parseInt(value, 10) || 0)
+                                                    };
+                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                }}
+                                                placeholder="版本 (默认: 0)"
+                                                style={{ flex: 1, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const newSkills = (editingConfig.expectedSkills || []).filter((_, i) => i !== index);
+                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                }}
+                                                style={{ padding: '10px', background: '#3b1c1c', color: '#ef4444', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const newSkills = [...(editingConfig.expectedSkills || []), { skill: '', version: 0 }];
+                                            setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                        }}
+                                        style={{ padding: '8px', background: '#1e3a5f', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
+                                    >
+                                        + 添加预期技能
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {isRoutingEditor && editingConfig.id && (
+                            <>
+                                <div style={{ marginTop: '1rem', padding: '12px 16px', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.7 }}>
+                                    <div><strong style={{ color: '#e2e8f0' }}>Semantic Intent:</strong> {editingConfig.routing_intent || 'Pending extraction'}</div>
+                                    <div style={{ marginTop: '6px' }}>
+                                        <strong style={{ color: '#e2e8f0' }}>Semantic Anchors:</strong> {(editingConfig.routing_anchors && editingConfig.routing_anchors.length > 0)
+                                            ? editingConfig.routing_anchors.join(', ')
+                                            : 'Pending extraction'}
+                                    </div>
+                                </div>
+
+                                <div className="form-group" style={{ marginTop: '1rem' }}>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>Source Query</label>
+                                    <div
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 12px',
+                                            maxHeight: '120px',
+                                            overflowY: 'auto',
+                                            background: 'rgba(15, 23, 42, 0.72)',
+                                            border: '1px solid #334155',
+                                            color: '#94a3b8',
+                                            borderRadius: '6px',
+                                            fontSize: '0.88rem',
+                                            lineHeight: 1.65,
+                                        }}
+                                    >
+                                        {editingConfig.query || '--'}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {isOutcomeEditor && (
+                            <>
+                                <div className="form-group" style={{ marginTop: '1rem' }}>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>
+                                        目标 Skill {!editingConfig.id && <span style={{ color: '#ef4444' }}>*</span>}
+                                    </label>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) 160px', gap: '8px' }}>
+                                        <input
+                                            type="text"
+                                            list="outcome-skill-options"
+                                            value={editingConfig.skill || ''}
+                                            onChange={e => setEditingConfig({ ...editingConfig, skill: e.target.value })}
+                                            placeholder="请输入或选择目标 skill"
+                                            style={{ width: '100%', padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                        />
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            value={editingConfig.skillVersion ?? 0}
+                                            onChange={e => setEditingConfig({
+                                                ...editingConfig,
+                                                skillVersion: e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0),
+                                            })}
+                                            placeholder="版本 (0=任意)"
+                                            style={{ width: '100%', padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                        />
+                                    </div>
+                                    <div style={{ marginTop: '8px', color: '#64748b', fontSize: '0.8rem' }}>
+                                        将执行效果基准绑定到 skill；版本填 `0` 表示对该 skill 的任意版本生效。
+                                    </div>
+                                    <datalist id="outcome-skill-options">
+                                        {availableSkills.map(skill => (
+                                            <option key={skill.id} value={skill.name} />
+                                        ))}
+                                    </datalist>
+                                </div>
+
+                                <div className="form-group" style={{ marginTop: '1rem' }}>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>
+                                        标准答案 {!editingConfig.id && <span style={{ color: '#ef4444' }}>*</span>}
+                                    </label>
+                                    {!editingConfig.id && (
+                                        <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
+                                            <button
+                                                onClick={() => { setConfigAnswerMode('manual'); setConfigDocumentFile(null); }}
+                                                style={{
+                                                    padding: '6px 16px',
+                                                    background: configAnswerMode === 'manual' ? '#38bdf8' : '#1e293b',
+                                                    color: configAnswerMode === 'manual' ? '#0f172a' : '#94a3b8',
+                                                    border: `1px solid ${configAnswerMode === 'manual' ? '#38bdf8' : '#334155'}`,
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.85rem',
+                                                    fontWeight: configAnswerMode === 'manual' ? 600 : 400,
+                                                }}
+                                            >
+                                                手动填写
+                                            </button>
+                                            <button
+                                                onClick={() => setConfigAnswerMode('document')}
+                                                style={{
+                                                    padding: '6px 16px',
+                                                    background: configAnswerMode === 'document' ? '#38bdf8' : '#1e293b',
+                                                    color: configAnswerMode === 'document' ? '#0f172a' : '#94a3b8',
+                                                    border: `1px solid ${configAnswerMode === 'document' ? '#38bdf8' : '#334155'}`,
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.85rem',
+                                                    fontWeight: configAnswerMode === 'document' ? 600 : 400,
+                                                }}
+                                            >
+                                                上传案例文档
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {editingConfig.id || configAnswerMode === 'manual' ? (
                                         <textarea
                                             value={editingConfig.standard_answer || ''}
                                             onChange={e => setEditingConfig({ ...editingConfig, standard_answer: e.target.value })}
-                                            placeholder="请填写该问题的标准答案..."
+                                            placeholder="请填写该 skill 的标准执行效果或标准答案..."
                                             style={{ width: '100%', padding: '10px', minHeight: '150px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.9rem' }}
                                         />
                                     ) : (
-                                        <div style={{
-                                            border: '2px dashed #334155',
-                                            borderRadius: '8px',
-                                            padding: '2rem',
-                                            textAlign: 'center',
-                                            background: '#0f172a',
-                                            cursor: 'pointer',
-                                            transition: 'border-color 0.2s'
-                                        }}
+                                        <div
+                                            style={{
+                                                border: '2px dashed #334155',
+                                                borderRadius: '8px',
+                                                padding: '2rem',
+                                                textAlign: 'center',
+                                                background: '#0f172a',
+                                                cursor: 'pointer',
+                                            }}
                                             onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#38bdf8'; }}
                                             onDragLeave={e => { e.currentTarget.style.borderColor = '#334155'; }}
                                             onDrop={e => {
@@ -2836,143 +3244,21 @@ export default function Dashboard() {
                                                     </div>
                                                 </div>
                                             )}
-                                         </div>
+                                        </div>
                                     )}
                                 </div>
 
-                                {/* Expected Skills (Optional) */}
-                                <div className="form-group" style={{ marginTop: '1rem' }}>
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>预期技能 (Expected Skills) <span style={{ color: '#64748b', fontWeight: 400 }}>(可选)</span></label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {(editingConfig.expectedSkills || []).map((item, index) => (
-                                            <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                <input
-                                                    type="text"
-                                                    value={item.skill}
-                                                    onChange={e => {
-                                                        const newSkills = [...(editingConfig.expectedSkills || [])];
-                                                        newSkills[index] = { ...newSkills[index], skill: e.target.value };
-                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                    }}
-                                                    placeholder="技能名称"
-                                                    style={{ flex: 2, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
-                                                />
-                                            <input
-                                                type="number"
-                                                value={item.version ?? 0}
-                                                onChange={e => {
-                                                    const value = e.target.value;
-                                                    const newSkills = [...(editingConfig.expectedSkills || [])];
-                                                    newSkills[index] = { 
-                                                        ...newSkills[index], 
-                                                        version: value === '' ? 0 : Math.max(0, parseInt(value, 10) || 0)
-                                                    };
-                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                }}
-                                                placeholder="版本 (默认: 0)"
-                                                style={{ flex: 1, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    const newSkills = (editingConfig.expectedSkills || []).filter((_, i) => i !== index);
-                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                }}
-                                                style={{ padding: '10px', background: '#3b1c1c', color: '#ef4444', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-                                            >
-                                                ✕
-                                            </button>
-                                        </div>
-                                    ))}
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            const newSkills = [...(editingConfig.expectedSkills || []), { skill: '', version: 0 }];
-                                            setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                        }}
-                                        style={{ padding: '8px', background: '#1e3a5f', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
-                                    >
-                                        + 添加预期技能
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div style={{ marginTop: '1rem', padding: '12px 16px', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: '#94a3b8', fontSize: '0.85rem' }}>
-                                <p style={{ margin: 0 }}>
-                                    💡 保存后，系统将基于标准答案自动提取<strong style={{ color: '#bae6fd' }}>关键观点</strong>（回答中必须包含的核心信息）和<strong style={{ color: '#bae6fd' }}>关键动作</strong>（Agent 必须执行的操作步骤），用于后续的细致评估打分。此过程在后台执行，无需等待。
-                                </p>
-                            </div>
-                        </>
-                    ) : (                            <>
-                                 {/* 标准答案 - 突出显示 */}
-                                <div className="form-group">
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>标准答案</label>
-                                    <textarea
-                                        value={editingConfig.standard_answer || ''}
-                                        onChange={e => setEditingConfig({ ...editingConfig, standard_answer: e.target.value })}
-                                        style={{ width: '100%', padding: '10px', minHeight: '120px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.9rem' }}
-                                    />
-                                </div>
-
-                                {/* Expected Skills (Optional) */}
-                                <div className="form-group" style={{ marginTop: '1rem' }}>
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>预期技能 (Expected Skills) <span style={{ color: '#64748b', fontWeight: 400 }}>(可选)</span></label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {(editingConfig.expectedSkills || []).map((item, index) => (
-                                            <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                <input
-                                                    type="text"
-                                                    value={item.skill}
-                                                    onChange={e => {
-                                                        const newSkills = [...(editingConfig.expectedSkills || [])];
-                                                        newSkills[index] = { ...newSkills[index], skill: e.target.value };
-                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                    }}
-                                                    placeholder="技能名称"
-                                                    style={{ flex: 2, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
-                                                />
-                                                <input
-                                                    type="number"
-                                                    value={item.version ?? 0}
-                                                    onChange={e => {
-                                                        const value = e.target.value;
-                                                        const newSkills = [...(editingConfig.expectedSkills || [])];
-                                                        newSkills[index] = { 
-                                                            ...newSkills[index], 
-                                                            version: value === '' ? 0 : Math.max(0, parseInt(value, 10) || 0)
-                                                        };
-                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                    }}
-                                                    placeholder="版本 (默认: 0)"
-                                                    style={{ flex: 1, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const newSkills = (editingConfig.expectedSkills || []).filter((_, i) => i !== index);
-                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                    }}
-                                                    style={{ padding: '10px', background: '#3b1c1c', color: '#ef4444', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-                                                >
-                                                    ✕
-                                                </button>
-                                            </div>
-                                        ))}
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const newSkills = [...(editingConfig.expectedSkills || []), { skill: '', version: 0 }];
-                                                setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                            }}
-                                            style={{ padding: '8px', background: '#1e3a5f', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
-                                        >
-                                            + 添加预期技能
-                                        </button>
+                                {!editingConfig.id && (
+                                    <div style={{ marginTop: '1rem', padding: '12px 16px', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: '#94a3b8', fontSize: '0.85rem' }}>
+                                        <p style={{ margin: 0 }}>
+                                            保存后，系统会基于标准答案自动提取关键观点和关键动作，用于后续效果评测。
+                                        </p>
                                     </div>
-                                </div>
+                                )}
 
-                                {/* 关键观点 - 默认折叠 */}
-                                <details style={{ marginBottom: '1rem' }}>
+                                {editingConfig.id && (
+                                    <>
+                                        <details style={{ marginBottom: '1rem' }}>
                                     <summary style={{
                                         cursor: 'pointer',
                                         color: '#94a3b8',
@@ -3045,7 +3331,6 @@ export default function Dashboard() {
                                     </div>
                                 </details>
 
-                                {/* 关键动作 - 默认折叠 */}
                                 <details style={{ marginBottom: '1rem' }}>
                                     <summary style={{
                                         cursor: 'pointer',
@@ -3118,12 +3403,14 @@ export default function Dashboard() {
                                         </button>
                                     </div>
                                 </details>
+                                    </>
+                                )}
                             </>
                         )}
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
                             <button
-                                onClick={() => { setIsEditModalOpen(false); setIsSavingConfig(false); }}
+                                onClick={() => { setIsEditModalOpen(false); setConfigModalPerspective(null); setIsSavingConfig(false); }}
                                 style={{
                                     padding: '8px 24px',
                                     background: '#1e293b',
@@ -3175,27 +3462,8 @@ export default function Dashboard() {
                             <div className="detail-grid">
                                 <div><strong>Time:</strong> {formatDateTime(selectedRecord.timestamp)}</div>
                                 <div><strong>Framework:</strong> {selectedRecord.framework}</div>
-                                <div><strong>Latency:</strong> {formatLatency(selectedRecord.latency)}{(() => {
-                                    const rid = selectedRecord.upload_id || selectedRecord.task_id || '';
-                                    const vd = versionDiffMap.get(rid);
-                                    return vd ? formatDiff(vd.latencyDiff, true) : null;
-                                })()}</div>
-                                <div><strong>Token:</strong> {selectedRecord.tokens}{(() => {
-                                    const rid = selectedRecord.upload_id || selectedRecord.task_id || '';
-                                    const vd = versionDiffMap.get(rid);
-                                    return vd ? formatDiff(vd.tokenDiff, true) : null;
-                                })()}</div>
-                                {(() => {
-                                    const rid = selectedRecord.upload_id || selectedRecord.task_id || '';
-                                    const vd = versionDiffMap.get(rid);
-                                    if (!vd) return null;
-                                    return (
-                                        <>
-                                            <div><strong>准确率变化:</strong> {formatDiff(vd.accuracyDiff, false)}</div>
-                                            <div><strong>成本变化:</strong> {formatDiff(vd.costDiff, true)}</div>
-                                        </>
-                                    );
-                                })()}
+                                <div><strong>Latency:</strong> {formatLatency(selectedRecord.latency)}</div>
+                                <div><strong>Token:</strong> {selectedRecord.tokens}</div>
                             </div>
                         </div>
 
@@ -3224,12 +3492,127 @@ export default function Dashboard() {
 
                         <div className="detail-section">
                             <h4>评估结果</h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                                <div className={`status-box ${selectedRecord.answer_score === null ? 'warning' : ((selectedRecord.answer_score || 0) > 0.8 ? 'good' : 'bad')}`}
-                                    style={selectedRecord.answer_score === null ? { borderLeft: '4px solid #94a3b8', background: 'rgba(148, 163, 184, 0.1)', color: '#94a3b8' } : {}}>
-                                    <strong>回答评分:</strong> {selectedRecord.answer_score === null ? '--' : (selectedRecord.answer_score || 0).toFixed(2)}
-                                </div>
-                            </div>
+                            {(() => {
+                                const routing = selectedRecord.routing_evaluation;
+                                const routingMeta = getRoutingEvaluationMeta(routing);
+                                const outcome = selectedRecord.outcome_evaluation;
+                                const outcomeMeta = getOutcomeEvaluationMeta(outcome);
+
+                                return (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                                        <div
+                                            style={{
+                                                borderRadius: '10px',
+                                                padding: '1rem',
+                                                background: routingMeta.background,
+                                                border: `1px solid ${routingMeta.border}`,
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                                                <strong style={{ color: '#e2e8f0' }}>Routing Evaluation</strong>
+                                                <span style={{ color: routingMeta.accent, fontSize: '0.8rem', fontWeight: 700 }}>{routingMeta.label}</span>
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                                <div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Recall</div>
+                                                    <div style={{ color: '#f8fafc', fontWeight: 700 }}>
+                                                        {routing?.recall_rate != null ? `${(routing.recall_rate * 100).toFixed(0)}%` : '--'}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Matched</div>
+                                                    <div style={{ color: '#f8fafc', fontWeight: 700 }}>
+                                                        {routing?.status === 'available' ? `${routing.matched_count}/${routing.expected_count}` : '--'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.6 }}>
+                                                <div><strong style={{ color: '#94a3b8' }}>Expected:</strong> {formatExpectedSkillList(routing?.expected_skills)}</div>
+                                                <div><strong style={{ color: '#94a3b8' }}>Invoked:</strong> {formatInvokedSkillList(routing?.invoked_skills)}</div>
+                                                {routing?.matched_intent && <div><strong style={{ color: '#94a3b8' }}>Matched Intent:</strong> {routing.matched_intent}</div>}
+                                                {routing?.matched_anchors?.length ? <div><strong style={{ color: '#94a3b8' }}>Matched Anchors:</strong> {routing.matched_anchors.join(', ')}</div> : null}
+                                            </div>
+                                            {routing?.skill_breakdown?.length ? (
+                                                <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                                                    {routing.skill_breakdown.map(item => {
+                                                        const statusMeta = getRoutingSkillStatusMeta(item.status);
+                                                        return (
+                                                            <div key={`routing-${item.skill}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', padding: '0.45rem 0.6rem', borderRadius: '8px', background: 'rgba(15, 23, 42, 0.42)' }}>
+                                                                <div style={{ minWidth: 0 }}>
+                                                                    <div style={{ color: '#f8fafc', fontSize: '0.82rem', fontWeight: 700 }}>{item.skill}</div>
+                                                                    <div style={{ color: '#94a3b8', fontSize: '0.76rem' }}>
+                                                                        expected {item.expected_version != null ? `v${item.expected_version}` : 'any'} | invoked {item.invoked_version != null ? `v${item.invoked_version}` : 'none'}
+                                                                    </div>
+                                                                </div>
+                                                                <span style={{ flexShrink: 0, padding: '0.22rem 0.5rem', borderRadius: '999px', fontSize: '0.72rem', color: statusMeta.color, background: statusMeta.background, border: `1px solid ${statusMeta.border}` }}>
+                                                                    {statusMeta.label}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : null}
+                                        </div>
+
+                                        <div
+                                            style={{
+                                                borderRadius: '10px',
+                                                padding: '1rem',
+                                                background: outcomeMeta.background,
+                                                border: `1px solid ${outcomeMeta.border}`,
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                                                <strong style={{ color: '#e2e8f0' }}>Outcome Evaluation</strong>
+                                                <span style={{ color: outcomeMeta.accent, fontSize: '0.8rem', fontWeight: 700 }}>{outcomeMeta.label}</span>
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                                <div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Score</div>
+                                                    <div style={{ color: '#f8fafc', fontWeight: 700 }}>
+                                                        {outcome?.score != null ? outcome.score.toFixed(2) : '--'}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Criteria</div>
+                                                    <div style={{ color: '#f8fafc', fontWeight: 700 }}>
+                                                        {outcome?.status === 'available' || outcome?.status === 'pending'
+                                                            ? `${outcome.root_cause_count + outcome.key_action_count}`
+                                                            : '--'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.6 }}>
+                                                <div><strong style={{ color: '#94a3b8' }}>Matched Skill:</strong> {outcome?.matched_skill ? `${outcome.matched_skill}${outcome.matched_skill_version != null ? ` v${outcome.matched_skill_version}` : ''}` : '--'}</div>
+                                                {outcome?.matched_query && <div><strong style={{ color: '#94a3b8' }}>Source Scenario:</strong> {outcome.matched_query}</div>}
+                                                <div><strong style={{ color: '#94a3b8' }}>Outcome Data:</strong> {outcome?.standard_answer_present ? 'Standard answer configured' : 'Not configured'}</div>
+                                            </div>
+                                            {outcome?.skill_breakdown?.length ? (
+                                                <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                                                    {outcome.skill_breakdown.map(item => {
+                                                        const routingStatusMeta = getRoutingSkillStatusMeta(item.routing_status);
+                                                        return (
+                                                            <div key={`outcome-${item.skill}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', padding: '0.45rem 0.6rem', borderRadius: '8px', background: 'rgba(15, 23, 42, 0.42)' }}>
+                                                                <div style={{ minWidth: 0 }}>
+                                                                    <div style={{ color: '#f8fafc', fontSize: '0.82rem', fontWeight: 700 }}>
+                                                                        {item.skill}{item.version != null ? ` v${item.version}` : ''}
+                                                                    </div>
+                                                                    <div style={{ color: '#94a3b8', fontSize: '0.76rem' }}>
+                                                                        role: {item.role} | routing: {routingStatusMeta.label}
+                                                                    </div>
+                                                                </div>
+                                                                <span style={{ flexShrink: 0, color: '#cbd5e1', fontSize: '0.76rem' }}>
+                                                                    {item.score != null ? item.score.toFixed(2) : '--'}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             {selectedRecord.failures && selectedRecord.failures.length > 0 && (
                                 <div className="detail-section">
@@ -3289,7 +3672,7 @@ export default function Dashboard() {
 
 
                             <div className="detail-row" style={{ marginTop: '1rem' }}>
-                                <strong style={{ color: '#94a3b8' }}>Reason:</strong>
+                                <strong style={{ color: '#94a3b8' }}>Outcome Reason:</strong>
                                 <div style={{ marginTop: '0.2rem', fontSize: '0.9rem', color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>{selectedRecord.judgment_reason || '-'}</div>
                             </div>
                         </div >

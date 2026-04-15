@@ -91,10 +91,13 @@ model Execution {
 }
 
 model Config {
-  id             String @id @default(cuid())
-  query          String
-  skill          String   @default("")    // Ground truth skill name (Legacy - use expectedSkills instead)
-  skillVersion   Int?    // Expected skill version (Legacy - use expectedSkills instead)
+  id             String   @id @default(cuid())
+  query          String?
+  skill          String   @default("") // Ground truth skill name (Legacy - use expectedSkills instead)
+  skillVersion   Int? // Expected skill version (Legacy - use expectedSkills instead)
+  datasetType    String   @default("combined") // combined | routing | outcome
+  routingIntent  String?
+  routingAnchors String? // JSON array of semantic anchor phrases
   expectedSkills String? // JSON array of {skill: string, version: number | null}
   standardAnswer String
   rootCauses     String? // JSON array
@@ -102,7 +105,7 @@ model Config {
   user           String? // Added for user isolation
   parseStatus    String   @default("completed") // parsing | completed | failed
 
-  @@unique([query, user]) // Queries are unique per user
+  @@unique([query, user, datasetType]) // Allow routing and outcome datasets to coexist for one query
 }
 
 model Session {
@@ -170,4 +173,3 @@ model UserGuideState {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
-

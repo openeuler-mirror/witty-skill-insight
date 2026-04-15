@@ -3,6 +3,9 @@ import { db } from '@/lib/prisma';
 import { getProxyConfig } from '@/lib/proxy-config';
 import { getActiveConfig } from '@/lib/server-config';
 import { generateAnswerExtractionPrompt, generateConfigExtractionPrompt } from '@/prompts/config-extraction-prompt';
+import { configSupportsDatasetType, normalizeConfigDatasetType, type ConfigDatasetType } from '@/lib/config-dataset';
+import { getConfigSubjectLabel, normalizeConfigQuery, normalizeConfigSkillName, normalizeOptionalSkillVersion } from '@/lib/config-target';
+import { deriveRoutingSignature } from '@/lib/routing-signature';
 import { NextResponse } from 'next/server';
 import { OpenAI } from "openai";
 const pdfParse = require('pdf-parse/lib/pdf-parse.js');
@@ -11,9 +14,12 @@ export const dynamic = 'force-dynamic';
 
 async function processConfigAsync(
     configId: string, 
-    query: string, 
+    query: string | null,
     standardAnswer: string, 
     documentContent: string | null,
+    datasetType: ConfigDatasetType,
+    skill: string | null,
+    skillVersion: number | null,
     user?: string | null
 ) {
     try {
@@ -32,9 +38,25 @@ async function processConfigAsync(
         });
         const modelName = settings.model || 'deepseek-chat';
 
-        if (documentContent && !standardAnswer) {
+        const taskContext = getConfigSubjectLabel({ query, skill, skillVersion });
+        const updates: Record<string, unknown> = {};
+
+        if (configSupportsDatasetType(datasetType, 'routing')) {
+            if (!query) {
+                throw new Error('Routing dataset requires query for semantic signature extraction');
+            }
+            const routingSignature = await deriveRoutingSignature(query, user);
+            if (!routingSignature) {
+                throw new Error('Failed to derive routing semantic signature');
+            }
+
+            updates.routingIntent = routingSignature.intent;
+            updates.routingAnchors = JSON.stringify(routingSignature.anchors);
+        }
+
+        if (configSupportsDatasetType(datasetType, 'outcome') && documentContent && !standardAnswer) {
             try {
-                const prompt = generateAnswerExtractionPrompt(query, documentContent);
+                const prompt = generateAnswerExtractionPrompt(taskContext, documentContent);
                 const response = await openaiClient.chat.completions.create({
                     messages: [{ role: "user", content: prompt }],
                     model: modelName,
@@ -63,7 +85,7 @@ async function processConfigAsync(
                     throw new Error('Extracted standard answer is empty');
                 }
 
-                await db.updateConfig(configId, { standardAnswer });
+                updates.standardAnswer = standardAnswer;
 
                 console.log(`[ConfigCreate] Successfully extracted standard answer for config ${configId}`);
             } catch (e: any) {
@@ -73,40 +95,44 @@ async function processConfigAsync(
             }
         }
 
-        const prompt = generateConfigExtractionPrompt(query, standardAnswer);
+        if (configSupportsDatasetType(datasetType, 'outcome')) {
+            const prompt = generateConfigExtractionPrompt(taskContext, standardAnswer);
 
-        const response = await openaiClient.chat.completions.create({
-            messages: [{ role: "user", content: prompt }],
-            model: modelName,
-        });
+            const response = await openaiClient.chat.completions.create({
+                messages: [{ role: "user", content: prompt }],
+                model: modelName,
+            });
 
-        const content = response.choices[0].message.content;
-        if (!content) {
-            throw new Error('No content returned from LLM');
-        }
-
-        let jsonStr = content.trim();
-        const matchParse = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)\\s*```/i);
-        if (matchParse) {
-            jsonStr = matchParse[1];
-        } else {
-            const first = jsonStr.indexOf('{');
-            const last = jsonStr.lastIndexOf('}');
-            if (first !== -1 && last !== -1 && last >= first) {
-                jsonStr = jsonStr.substring(first, last + 1);
+            const content = response.choices[0].message.content;
+            if (!content) {
+                throw new Error('No content returned from LLM');
             }
+
+            let jsonStr = content.trim();
+            const matchParse = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)\\s*```/i);
+            if (matchParse) {
+                jsonStr = matchParse[1];
+            } else {
+                const first = jsonStr.indexOf('{');
+                const last = jsonStr.lastIndexOf('}');
+                if (first !== -1 && last !== -1 && last >= first) {
+                    jsonStr = jsonStr.substring(first, last + 1);
+                }
+            }
+            const extractedData = JSON.parse(jsonStr);
+            const rootCauses = extractedData.root_causes || [];
+            const keyActions = extractedData.key_actions || [];
+
+            updates.rootCauses = JSON.stringify(rootCauses);
+            updates.keyActions = JSON.stringify(keyActions);
+
+            console.log(`[ConfigCreate] Successfully extracted key points for config ${configId}`);
         }
-        const extractedData = JSON.parse(jsonStr);
-        const rootCauses = extractedData.root_causes || [];
-        const keyActions = extractedData.key_actions || [];
 
         await db.updateConfig(configId, {
-            rootCauses: JSON.stringify(rootCauses),
-            keyActions: JSON.stringify(keyActions),
+            ...updates,
             parseStatus: 'completed'
         });
-
-        console.log(`[ConfigCreate] Successfully extracted key points for config ${configId}`);
     } catch (error: any) {
         console.error(`[ConfigCreate] Failed to process config ${configId}:`, error.message);
         await db.updateConfig(configId, { parseStatus: 'failed' }).catch(() => {});
@@ -117,10 +143,11 @@ export async function POST(request: Request) {
     try {
         const contentType = request.headers.get('content-type') || '';
         
-        let query = '';
+        let query: string | null = null;
         let standardAnswer = '';
         let user: string | null = null;
         let documentContent: string | null = null;
+        let datasetType: ConfigDatasetType = 'combined';
 
         let skill: string | null = null;
         let skillVersion: number | null = null;
@@ -128,26 +155,18 @@ export async function POST(request: Request) {
 
         if (contentType.includes('multipart/form-data')) {
             const formData = await request.formData();
-            query = formData.get('query') as string || '';
+            query = normalizeConfigQuery(formData.get('query'));
             standardAnswer = formData.get('standardAnswer') as string || '';
             user = formData.get('user') as string || null;
-            skill = formData.get('skill') as string || null;
-            const skillVersionStr = formData.get('skillVersion') as string || null;
-            if (skillVersionStr) {
-                const parsed = parseInt(skillVersionStr, 10);
-                if (!isNaN(parsed) && parsed >= 1) {
-                    skillVersion = parsed;
-                }
-            }
+            datasetType = normalizeConfigDatasetType(formData.get('datasetType') as string || null);
+            skill = normalizeConfigSkillName(formData.get('skill'));
+            skillVersion = normalizeOptionalSkillVersion(formData.get('skillVersion'));
             
-            // Parse expectedSkills from JSON string
             const expectedSkillsStr = formData.get('expectedSkills') as string || null;
             if (expectedSkillsStr) {
                 try {
                     expectedSkills = JSON.parse(expectedSkillsStr);
-                    // Validate expectedSkills structure
                     if (expectedSkills && Array.isArray(expectedSkills)) {
-                        // Validate each item has required fields
                         for (const item of expectedSkills) {
                             if (!item || typeof item !== 'object') {
                                 return NextResponse.json({ error: 'expectedSkills 数组中的每个元素必须是对象' }, { status: 400 });
@@ -156,14 +175,11 @@ export async function POST(request: Request) {
                                 return NextResponse.json({ error: 'expectedSkills 中的每个技能必须包含 skill 名称' }, { status: 400 });
                             }
                         }
-                        
-                        // Normalize versions
                         expectedSkills = expectedSkills.map((item: any) => ({
                             ...item,
-                            version: item.version && item.version >= 1 ? item.version : null
+                            version: normalizeOptionalSkillVersion(item.version)
                         }));
                     } else if (expectedSkills !== null) {
-                        // If expectedSkills is not null but also not an array, it's invalid
                         return NextResponse.json({ error: 'expectedSkills 必须是 JSON 数组' }, { status: 400 });
                     }
                 } catch (e) {
@@ -186,28 +202,38 @@ export async function POST(request: Request) {
             }
         } else {
             const body = await request.json();
-            query = body.query || '';
+            query = normalizeConfigQuery(body.query);
             standardAnswer = body.standardAnswer || '';
             user = body.user || null;
             documentContent = body.documentContent || null;
-            skill = body.skill || null;
-            skillVersion = body.skillVersion && body.skillVersion >= 1 ? body.skillVersion : null;
+            datasetType = normalizeConfigDatasetType(body.datasetType);
+            skill = normalizeConfigSkillName(body.skill);
+            skillVersion = normalizeOptionalSkillVersion(body.skillVersion);
             expectedSkills = body.expectedSkills || null;
-            // Validate expectedSkills versions
             if (expectedSkills && Array.isArray(expectedSkills)) {
                 expectedSkills = expectedSkills.map((item: any) => ({
                     ...item,
-                    version: item.version && item.version >= 1 ? item.version : null
+                    version: normalizeOptionalSkillVersion(item.version)
                 }));
             }
         }
 
-        if (!query) {
-            return NextResponse.json({ error: '问题 (Query) 不能为空' }, { status: 400 });
-        }
-
-        if (!standardAnswer && !documentContent) {
-            return NextResponse.json({ error: '请提供标准答案或上传案例文档' }, { status: 400 });
+        if (datasetType === 'routing') {
+            if (!query) {
+                return NextResponse.json({ error: '路由评测数据需要填写问题 (Query)' }, { status: 400 });
+            }
+            const hasExpectedSkills = Array.isArray(expectedSkills) && expectedSkills.some(item => item?.skill?.trim());
+            const hasLegacySkill = !!skill?.trim();
+            if (!hasExpectedSkills && !hasLegacySkill) {
+                return NextResponse.json({ error: '路由评测数据需要至少配置一个预期技能' }, { status: 400 });
+            }
+        } else {
+            if (!skill?.trim()) {
+                return NextResponse.json({ error: '效果评测数据需要绑定目标 skill' }, { status: 400 });
+            }
+            if (!standardAnswer && !documentContent) {
+                return NextResponse.json({ error: '请提供标准答案或上传案例文档' }, { status: 400 });
+            }
         }
 
         const existingConfigs = await db.findConfigs({
@@ -215,38 +241,71 @@ export async function POST(request: Request) {
                 { user: user || null }
             ]
         });
-        const existing = existingConfigs.find((c: any) => c.query === query);
+        const existing = existingConfigs.find((c: any) => {
+            if (normalizeConfigDatasetType(c.datasetType) !== datasetType) {
+                return false;
+            }
+
+            if (datasetType === 'routing') {
+                return normalizeConfigQuery(c.query) === query;
+            }
+
+            return normalizeConfigSkillName(c.skill) === skill
+                && (c.skillVersion ?? null) === (skillVersion ?? null);
+        });
         if (existing) {
-            return NextResponse.json({ error: '该问题已存在于数据集中' }, { status: 409 });
+            return NextResponse.json({
+                error: datasetType === 'routing'
+                    ? '该问题已存在于当前数据集类型中'
+                    : '该目标 skill 已存在于当前效果数据集中'
+            }, { status: 409 });
         }
 
+        const parseStatus = 'parsing';
         const newConfig = await db.createConfig({
             query,
             skill: skill || '',
             skillVersion: skillVersion || null,
+            datasetType,
+            routingIntent: null,
+            routingAnchors: null,
             expectedSkills: expectedSkills ? JSON.stringify(expectedSkills) : null,
             standardAnswer: standardAnswer || '',
             rootCauses: null,
             keyActions: null,
             user: user || null,
-            parseStatus: 'parsing'
+            parseStatus
         });
 
-        const formattedConfig = {
-            id: newConfig.id,
-            query: newConfig.query,
-            skill: newConfig.skill,
-            skillVersion: newConfig.skillVersion,
+        await processConfigAsync(newConfig.id, query, standardAnswer, documentContent, datasetType, skill, skillVersion, user);
+
+        const refreshedConfig = await db.findConfigById(newConfig.id);
+        let routingAnchors: string[] = [];
+        let rootCauses: any[] = [];
+        let keyActions: any[] = [];
+
+        try {
+            if (refreshedConfig?.routingAnchors) routingAnchors = JSON.parse(refreshedConfig.routingAnchors);
+            if (refreshedConfig?.rootCauses) rootCauses = JSON.parse(refreshedConfig.rootCauses);
+            if (refreshedConfig?.keyActions) keyActions = JSON.parse(refreshedConfig.keyActions);
+        } catch (error) {
+            console.error('[ConfigCreate] Failed to parse refreshed config payload:', error);
+        }
+
+        return NextResponse.json({
+            id: refreshedConfig?.id || newConfig.id,
+            query: refreshedConfig?.query ?? newConfig.query ?? null,
+            dataset_type: datasetType,
+            skill: refreshedConfig?.skill || newConfig.skill,
+            skillVersion: refreshedConfig?.skillVersion ?? newConfig.skillVersion ?? null,
+            routing_intent: refreshedConfig?.routingIntent || null,
+            routing_anchors: routingAnchors,
             expectedSkills: expectedSkills,
-            standard_answer: standardAnswer || (documentContent ? '正在从文档中提取...' : ''),
-            root_causes: [],
-            key_actions: [],
-            parse_status: 'parsing'
-        };
-
-        processConfigAsync(newConfig.id, query, standardAnswer, documentContent, user);
-
-        return NextResponse.json(formattedConfig);
+            standard_answer: refreshedConfig?.standardAnswer || standardAnswer || '',
+            root_causes: rootCauses,
+            key_actions: keyActions,
+            parse_status: refreshedConfig?.parseStatus || parseStatus
+        });
 
     } catch (error: any) {
         console.error('Config Create Error:', error);
