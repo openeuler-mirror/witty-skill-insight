@@ -105,10 +105,18 @@ class Trace2SkillOrchestrator:
         )
         merge = HierarchicalMerge(self.llm_client, merge_config)
 
+        # Save patches before merge
+        if self.config.output_dir:
+            self._save_patches_before_merge(patch_pool)
+
         merge_result = merge.merge(patch_pool, skill_content)
         logger.info(
             f"Hierarchical merge completed: {merge_result.levels_completed} levels"
         )
+
+        # Save patches after merge
+        if self.config.output_dir:
+            self._save_patches_after_merge(merge_result)
 
         evolved_content = self._apply_patch(skill_content, merge_result.final_patch)
 
@@ -213,6 +221,44 @@ class Trace2SkillOrchestrator:
         # Apply the patch using LLM
         modified_content = self.llm_client(prompt)
         return modified_content
+
+    def _save_patches_before_merge(self, patch_pool) -> None:
+        """Save all patches before merging to JSON file."""
+        output_dir = self.config.output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        patches_data = {
+            "total_patches": patch_pool.total_count,
+            "error_patches": len(patch_pool.error_patches),
+            "success_patches": len(patch_pool.success_patches),
+            "patches": [patch.to_dict() for patch in patch_pool.patches]
+        }
+        
+        patches_path = output_dir / "patches_before_merge.json"
+        with open(patches_path, "w", encoding="utf-8") as f:
+            json.dump(patches_data, f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved {patch_pool.total_count} patches before merge to {patches_path}")
+
+    def _save_patches_after_merge(self, merge_result: MergeResult) -> None:
+        """Save merged patch after hierarchical merge to JSON file."""
+        output_dir = self.config.output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        merged_patch_data = {
+            "merged_patch": merge_result.final_patch.to_dict() if merge_result.final_patch else None,
+            "merge_metadata": {
+                "levels_completed": merge_result.levels_completed,
+                "patches_merged": merge_result.patches_merged,
+                "conflicts_detected": merge_result.conflicts_detected,
+                "unique_patterns": merge_result.unique_patterns,
+                "low_frequency_patches": merge_result.low_frequency_patches,
+            }
+        }
+        
+        patches_path = output_dir / "patches_after_merge.json"
+        with open(patches_path, "w", encoding="utf-8") as f:
+            json.dump(merged_patch_data, f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved merged patch to {patches_path}")
 
     def _save_output(
         self,

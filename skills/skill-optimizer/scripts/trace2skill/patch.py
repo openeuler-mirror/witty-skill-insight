@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import json
 import uuid
-from typing import Any, Optional
+from typing import Optional
 
 
 class PatchOperation(Enum):
@@ -134,8 +134,6 @@ class SkillPatch:
             edits=edits,
             reasoning=""
         )
-
-        patch_id=str(uuid.uuid4())[:8]
 
     def add_edit(self, edit: PatchEdit) -> None:
         self.edits.append(edit)
