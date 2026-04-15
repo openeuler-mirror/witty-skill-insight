@@ -563,7 +563,6 @@ export default function Dashboard() {
     }, [apiKey]);
 
     const [activeTab, setActiveTab] = useState<'dashboard' | 'config' | 'skill'>('dashboard');
-    const optimizerConsoleHref = getApiUrl(`/optimizer${user ? `?user=${encodeURIComponent(user)}` : ''}`);
     const [showUserModal, setShowUserModal] = useState(false); // State for User Modal
 
     // Fetch fresh API Key from DB when user modal opens to ensure accuracy
@@ -1892,24 +1891,6 @@ export default function Dashboard() {
                                 技能管理
                             </button>
                         </div>
-                        <button
-                            className="btn-secondary"
-                            style={{
-                                padding: '0.6rem 0.95rem',
-                                background: 'rgba(56, 189, 248, 0.12)',
-                                border: '1px solid rgba(56, 189, 248, 0.28)',
-                                color: '#7dd3fc',
-                                borderRadius: '0.5rem',
-                                cursor: 'pointer',
-                                fontWeight: 600,
-                                whiteSpace: 'nowrap'
-                            }}
-                            onClick={() => {
-                                window.location.href = optimizerConsoleHref;
-                            }}
-                        >
-                            进入优化控制台
-                        </button>
                     </div>
                 </div>
                 {activeTab === 'dashboard' && (
