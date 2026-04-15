@@ -52,9 +52,6 @@ class Trajectory:
     output_files: list[Path] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    @classmethod
-    
-
     def to_dict(self) -> dict:
         return {
             "task_id": self.task_id,
@@ -72,52 +69,86 @@ class Trajectory:
     def from_dict(cls, data: dict) -> "Trajectory":
         # Convert interactions to steps if steps not provided
         steps = data.get("steps", [])
-        if not steps and "interactions" in data:
+        if isinstance(steps, list) and steps and isinstance(steps[0], dict) and "step_number" in steps[0]:
+            steps = [TrajectoryStep.from_dict(s) for s in steps]
+        elif not steps and "interactions" in data:
             steps = []
-            for i, interaction in enumerate(data["interactions"]):
-                if interaction.get("role") == "assistant":
-                    # Assistant messages with tool_calls are reasoning steps
-                    reasoning = interaction.get("content", "")
-                    tool_call = ""
-                    observation = ""
-                    if "tool_calls" in interaction and interaction["tool_calls"]:
-                        # Extract tool call info
-                        tool_call = str(interaction["tool_calls"][0]) if interaction["tool_calls"] else ""
-                    steps.append(TrajectoryStep(
-                        step_number=len(steps) + 1,
-                        reasoning=reasoning,
-                        tool_call=tool_call,
-                        observation=observation
-                    ))
-                elif interaction.get("role") == "tool":
-                    # Tool messages are observations
-                    if steps:
-                        # Update the last step with observation from tool
-                        steps[-1] = TrajectoryStep(
-                            step_number=steps[-1].step_number,
-                            reasoning=steps[-1].reasoning,
-                            tool_call=steps[-1].tool_call,
-                            observation=interaction.get("content", "")
-                        )
-                    else:
-                        # Orphan tool observation, create a step for it
+            for interaction in data["interactions"]:
+                role = interaction.get("role", "")
+                content = interaction.get("content", "")
+                tool_calls = interaction.get("tool_calls") or []
+
+                if role == "assistant" and tool_calls:
+                    # Each tool call in this interaction becomes a step.
+                    # The assistant's reasoning text is attached to the first
+                    # tool call; subsequent calls share the same turn but get
+                    # an empty reasoning field to avoid duplication.
+                    for tc_idx, tc in enumerate(tool_calls):
+                        func = tc.get("function", {})
+                        tool_name = func.get("name", "")
+                        tool_args = func.get("arguments", "")
+
+                        # Build a concise tool_call description
+                        tool_call_str = f"{tool_name}({tool_args})" if tool_name else str(tc)
+
+                        # Tool output is inline in the same object
+                        observation = tc.get("output", "")
+
                         steps.append(TrajectoryStep(
                             step_number=len(steps) + 1,
-                            reasoning="",
-                            tool_call="",
-                            observation=interaction.get("content", "")
+                            reasoning=content if tc_idx == 0 else "",
+                            tool_call=tool_call_str,
+                            observation=observation,
                         ))
-        
+                elif role == "assistant" and not tool_calls:
+                    # Pure assistant text without tool calls – either
+                    # intermediate reasoning or the final answer.  We still
+                    # record it as a step so nothing is lost; the caller can
+                    # also inspect ``final_output`` for the last such block.
+                    steps.append(TrajectoryStep(
+                        step_number=len(steps) + 1,
+                        reasoning=content,
+                        tool_call="",
+                        observation="",
+                    ))
+                # role == "user" entries are intentionally skipped for steps;
+                # the query is extracted separately below.
+
+        # --- query ---------------------------------------------------------
+        query = data.get("query", "")
+        if not query and "interactions" in data:
+            for interaction in data["interactions"]:
+                if interaction.get("role") == "user":
+                    query = interaction.get("content", "")
+                    break
+
+        # --- final_output --------------------------------------------------
+        final_output = data.get("final_output", "")
+        if not final_output and "interactions" in data:
+            # Walk backwards to find the last assistant message that has no
+            # tool calls – that is the final answer presented to the user.
+            for interaction in reversed(data["interactions"]):
+                if interaction.get("role") == "assistant" and not interaction.get("tool_calls"):
+                    final_output = interaction.get("content", "")
+                    break
+
+        # --- metadata ------------------------------------------------------
+        metadata = data.get("metadata", {})
+        # Preserve trace-level fields that are useful downstream.
+        for key in ("skillName", "skillId", "model", "user"):
+            if key in data and key not in metadata:
+                metadata[key] = data[key]
+
         return cls(
-            task_id=data["task_id"],
-            query=data["query"],
+            task_id=data.get("taskId", data.get("task_id", "")),
+            query=query,
             steps=steps,
-            final_output=data.get("final_output", ""),
+            final_output=final_output,
             status=TrajectoryStatus(data.get("status", "unknown")),
             ground_truth=data.get("ground_truth"),
             input_files=[Path(p) for p in data.get("input_files", [])],
             output_files=[Path(p) for p in data.get("output_files", [])],
-            metadata=data.get("metadata", {}),
+            metadata=metadata,
         )
 
     def is_success(self) -> bool:
@@ -221,8 +252,6 @@ class TrajectorySet:
                 trajectories.append(Trajectory.from_dict(data))
 
         return cls(trajectories=trajectories)
-
-    
 
     def save_to_directory(self, trajectory_dir: Path) -> None:
         import json
