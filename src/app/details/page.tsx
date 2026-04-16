@@ -6,7 +6,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import ExecutionFlowComparison from '@/components/ExecutionFlowComparison';
 import { SkillLinks } from '@/components/SkillLink';
 import { useAuth } from '@/lib/auth-context';
-import { useTheme } from '@/lib/theme-context';
+import { useTheme, useThemeColors } from '@/lib/theme-context';
 import { apiFetch } from '@/lib/api';
 
 const Line = dynamic(() => import('recharts').then(mod => mod.Line), { ssr: false });
@@ -346,6 +346,8 @@ const RenderInteractionList = ({
     focusedStep: number | null,
     onStepClick: (index: number) => void
 }) => {
+    const { isDark } = useTheme();
+    const c = useThemeColors();
     if (!interactions || !Array.isArray(interactions) || interactions.length === 0) return null;
 
     const [sortMode, setSortMode] = useState<'default' | 'latency_desc' | 'tokens_desc'>('default');
@@ -486,7 +488,7 @@ const RenderInteractionList = ({
     }, [sortMode]);
 
     const headerStyle: React.CSSProperties = {
-        color: '#38bdf8',
+        color: c.primary,
         fontSize: '0.95rem',
         margin: 0
     };
@@ -498,14 +500,14 @@ const RenderInteractionList = ({
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 marginBottom: '0.5rem',
-                borderBottom: '1px solid #334155',
+                borderBottom: `1px solid ${c.border}`,
                 paddingBottom: '4px',
                 minHeight: '34px'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <button
                         onClick={() => setIsExpanded(!isExpanded)}
-                        style={{ background: 'transparent', border: 'none', color: '#38bdf8', cursor: 'pointer', padding: 0 }}
+                        style={{ background: 'transparent', border: 'none', color: c.primary, cursor: 'pointer', padding: 0 }}
                     >
                         {isExpanded ? '▼' : '▶'}
                     </button>
@@ -579,7 +581,7 @@ const RenderInteractionList = ({
                                         role === 'assistant' ? '#38bdf8' :
                                             role === 'opencode' ? '#ef4444' :
                                                 role === 'subagent' ? '#22c55e' :
-                                                    '#e2e8f0';
+                                                    '#e4e4e7';
 
                             const toolAccentColor = isTopLatency ? '#fb923c' : '#fbbf24';
                             const focusShadow = '0 0 0 2px rgba(96, 165, 250, 0.3)';
@@ -725,6 +727,7 @@ function DetailPage() {
     const searchParams = useSearchParams();
     const { user } = useAuth();
     const { theme, toggleTheme, isDark } = useTheme();
+    const c = useThemeColors();
     const query = searchParams.get('query') || '';
     const framework = searchParams.get('framework') || '';
 
@@ -1295,11 +1298,11 @@ function DetailPage() {
                 document.querySelectorAll('.filter-time-btn').forEach(btn => {
                     btn.onclick = () => {
                         document.querySelectorAll('.filter-time-btn').forEach(b => {
-                            b.style.background = '#1e293b';
-                            b.style.color = '#94a3b8';
+                            b.style.background = isDark ? '#18181b' : '#f4f4f5';
+                            b.style.color = isDark ? '#71717a' : '#a1a1aa';
                         });
-                        btn.style.background = '#38bdf8';
-                        btn.style.color = '#0f172a';
+                        btn.style.background = isDark ? '#3b82f6' : '#2563eb';
+                        btn.style.color = isDark ? '#fafafa' : '#ffffff';
 
                         state.timeFilter = btn.getAttribute('data-tf');
                         updateVisibility();
@@ -1324,7 +1327,7 @@ function DetailPage() {
                         else state.selectedLabels.delete(val);
 
                         if (labelTextObj) {
-                            labelTextObj.innerText = state.selectedLabels.size === 0 ? 'All Filter' : \`\${state.selectedLabels.size} Selected\`;
+                            labelTextObj.innerText = state.selectedLabels.size === 0 ? '全部筛选' : \`已选 \${state.selectedLabels.size} 个\`;
                         }
                         updateVisibility();
                     };
@@ -1346,8 +1349,8 @@ function DetailPage() {
                     homeLink.onclick = () => {
                         window.location.href = '/';
                     };
-                    homeLink.onmouseover = () => { homeLink.style.color = '#7dd3fc'; };
-                    homeLink.onmouseout = () => { homeLink.style.color = '#38bdf8'; };
+                    homeLink.onmouseover = () => { homeLink.style.color = isDark ? '#93c5fd' : '#2563eb'; };
+                    homeLink.onmouseout = () => { homeLink.style.color = isDark ? '#60a5fa' : '#2563eb'; };
                 }
 
                 console.log('Offline Mode: Charts are static snapshots.');
@@ -1368,30 +1371,30 @@ function DetailPage() {
         URL.revokeObjectURL(url);
     };
 
-    if (loading) return <div style={{ padding: '2rem', color: '#1e293b' }}>Loading...</div>;
+    if (loading) return <div style={{ padding: '2rem', color: c.fg }}>Loading...</div>;
 
     if (!expandTaskId) {
         return (
-            <div style={{ minHeight: '100vh', background: '#ffffff', color: '#1e293b', padding: '2rem' }}>
+            <div style={{ minHeight: '100vh', background: c.bg, color: c.fg, padding: '2rem' }}>
                 <div style={{
                     maxWidth: '600px',
                     margin: '4rem auto',
                     textAlign: 'center',
-                    background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
+                    background: c.bgSecondary,
+                    border: `1px solid ${c.border}`,
                     borderRadius: '8px',
                     padding: '3rem'
                 }}>
                     <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⚠️</div>
-                    <h2 style={{ color: '#d97706', marginBottom: '1rem' }}>缺少必要参数</h2>
-                    <p style={{ color: '#64748b', marginBottom: '1.5rem' }}>
-                        请通过 <code style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>expandTaskId</code> 参数访问此页面
+                    <h2 style={{ color: c.warning, marginBottom: '1rem' }}>缺少必要参数</h2>
+                    <p style={{ color: c.fgSecondary, marginBottom: '1.5rem' }}>
+                        请通过 <code style={{ background: c.bgTertiary, padding: '2px 8px', borderRadius: '4px' }}>expandTaskId</code> 参数访问此页面
                     </p>
                     <button
                         onClick={() => router.push('/')}
                         style={{
                             padding: '10px 24px',
-                            background: '#2563eb',
+                            background: c.primary,
                             color: '#ffffff',
                             border: 'none',
                             borderRadius: '6px',
@@ -1408,26 +1411,26 @@ function DetailPage() {
 
     if (!currentRecord) {
         return (
-            <div style={{ minHeight: '100vh', background: '#ffffff', color: '#1e293b', padding: '2rem' }}>
+            <div style={{ minHeight: '100vh', background: c.bg, color: c.fg, padding: '2rem' }}>
                 <div style={{
                     maxWidth: '600px',
                     margin: '4rem auto',
                     textAlign: 'center',
-                    background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
+                    background: c.bgSecondary,
+                    border: `1px solid ${c.border}`,
                     borderRadius: '8px',
                     padding: '3rem'
                 }}>
                     <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔍</div>
-                    <h2 style={{ color: '#dc2626', marginBottom: '1rem' }}>未找到记录</h2>
-                    <p style={{ color: '#64748b', marginBottom: '1.5rem' }}>
-                        未找到 ID 为 <code style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>{expandTaskId}</code> 的记录
+                    <h2 style={{ color: c.error, marginBottom: '1rem' }}>未找到记录</h2>
+                    <p style={{ color: c.fgSecondary, marginBottom: '1.5rem' }}>
+                        未找到 ID 为 <code style={{ background: c.bgTertiary, padding: '2px 8px', borderRadius: '4px' }}>{expandTaskId}</code> 的记录
                     </p>
                     <button
                         onClick={() => router.push('/')}
                         style={{
                             padding: '10px 24px',
-                            background: '#2563eb',
+                            background: c.primary,
                             color: '#ffffff',
                             border: 'none',
                             borderRadius: '6px',
@@ -1465,7 +1468,7 @@ function DetailPage() {
                         onMouseOver={(e) => e.currentTarget.style.color = 'var(--primary-hover)'}
                         onMouseOut={(e) => e.currentTarget.style.color = 'var(--primary)'}
                     >
-                        skill-insight
+                        Skill-insight
                     </span>
                     <span style={{ flexShrink: 0, color: 'var(--border-dark)' }}>|</span>
                     <span style={{ color: 'var(--foreground-secondary)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1632,7 +1635,7 @@ function DetailPage() {
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                                 <div style={codeBlock}>{currentRecord.query || '(空)'}</div>
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); startEditQuery(taskId, currentRecord.query || ''); }}
@@ -1647,7 +1650,8 @@ function DetailPage() {
                                                         alignItems: 'center',
                                                         gap: '4px',
                                                         fontSize: '0.8rem',
-                                                        whiteSpace: 'nowrap'
+                                                        whiteSpace: 'nowrap',
+                                                        alignSelf: 'flex-start'
                                                     }}
                                                 >
                                                     ✏️ 编辑
@@ -2030,7 +2034,7 @@ function DetailPage() {
                                                                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                                                                             <span style={{
                                                                                 background: evalItem.type === 'root_cause' ? '#f472b6' : '#38bdf8',
-                                                                                color: '#0f172a',
+                                                                                color: c.bg,
                                                                                 padding: '2px 8px',
                                                                                 borderRadius: '4px',
                                                                                 fontSize: '0.75rem',
@@ -2069,7 +2073,7 @@ function DetailPage() {
                                                                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                                                                             {relatedSkillIssue && (
                                                                                 <span style={{
-                                                                                    background: '#ef4444',
+                                                                                    background: c.error,
                                                                                     color: '#fff',
                                                                                     padding: '2px 6px',
                                                                                     borderRadius: '4px',
@@ -2088,7 +2092,7 @@ function DetailPage() {
                                                                         </td>
                                                                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', color: 'var(--success)', fontSize: '0.85rem' }}>
                                                                             {relatedSkillIssue?.improvement_suggestion ? (
-                                                                                <div style={{ background: 'rgba(74, 222, 128, 0.1)', padding: '4px 8px', borderRadius: '4px' }}>
+                                                                                <div style={{ background: c.successSubtle, padding: '4px 8px', borderRadius: '4px' }}>
                                                                                     {relatedSkillIssue.improvement_suggestion}
                                                                                 </div>
                                                                             ) : '-'}
@@ -2107,7 +2111,7 @@ function DetailPage() {
                                     {currentRecord.failures && currentRecord.failures.length > 0 ? (
                                         <div>
                                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                                                <h4 style={{ ...sectionHeader, color: '#f87171', borderLeft: '3px solid #f87171', paddingLeft: '8px', borderBottom: 'none', margin: 0 }}> 执行异常 </h4>
+                                                <h4 style={{ ...sectionHeader, color: c.error, borderLeft: '3px solid #f87171', paddingLeft: '8px', borderBottom: 'none', margin: 0 }}> 执行异常 </h4>
                                                 <div style={{ display: 'flex', gap: '8px' }}>
                                                     <select
                                                         value={failureFilter}
@@ -2150,7 +2154,7 @@ function DetailPage() {
                                                                 <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
                                                                     <span style={{
                                                                         background: fail.failure_type.toLowerCase().includes('error') || fail.failure_type.toLowerCase().includes('fail') ? '#f87171' : '#fbbf24',
-                                                                        color: '#0f172a',
+                                                                        color: c.bg,
                                                                         padding: '2px 8px',
                                                                         borderRadius: '4px',
                                                                         fontSize: '0.75rem',
@@ -2160,7 +2164,7 @@ function DetailPage() {
                                                                     </span>
                                                                 </td>
                                                                 <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
-                                                                    <div style={{ color: '#fca5a5', fontWeight: 500, marginBottom: '4px' }}>{fail.description}</div>
+                                                                    <div style={{ color: c.error, fontWeight: 500, marginBottom: '4px' }}>{fail.description}</div>
                                                                     {fail.context && (
                                                                         <div style={{
                                                                             fontSize: '0.8rem',
@@ -2177,7 +2181,7 @@ function DetailPage() {
                                                                         </div>
                                                                     )}
                                                                 </td>
-                                                                <td style={{ padding: '10px 12px', borderBottom: '1px solid #334155', color: '#86efac', fontSize: '0.8rem' }}>
+                                                                <td style={{ padding: '10px 12px', borderBottom: `1px solid ${c.border}`, color: c.success, fontSize: '0.8rem' }}>
                                                                     {fail.recovery || '-'}
                                                                 </td>
                                                             </tr>
@@ -2187,7 +2191,7 @@ function DetailPage() {
                                             </div>
                                         </div>
                                     ) : (
-                                        <div style={{ padding: '1rem', border: '1px dashed #334155', borderRadius: '6px', color: '#64748b', textAlign: 'center', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+                                        <div style={{ padding: '1rem', border: '1px dashed #334155', borderRadius: '6px', color: c.fgSecondary, textAlign: 'center', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
                                             No intermediate failures detected.
                                         </div>
                                     )}
@@ -2217,8 +2221,8 @@ function DetailPage() {
                         style={{
                             padding: '6px 16px',
                             background: timeFilter === tf ? '#38bdf8' : '#1e293b',
-                            color: timeFilter === tf ? '#0f172a' : '#94a3b8',
-                            border: '1px solid #334155',
+                            color: timeFilter === tf ? '#18181b' : '#a1a1aa',
+                            border: `1px solid ${c.border}`,
                             borderRadius: '4px',
                             cursor: 'pointer'
                         }}
@@ -2228,41 +2232,41 @@ function DetailPage() {
                 ))}
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginLeft: '1rem', borderLeft: '1px solid #334155', paddingLeft: '1rem' }}>
-                    <span style={{ color: '#94a3b8', fontSize: '0.9rem' }}>比较维度:</span>
-                    <div style={{ display: 'flex', background: '#1e293b', padding: '2px', borderRadius: '6px', border: '1px solid #334155' }}>
+                    <span style={{ color: c.fgMuted, fontSize: '0.9rem' }}>比较维度:</span>
+                    <div style={{ display: 'flex', background: c.bgSecondary, padding: '2px', borderRadius: '6px', border: `1px solid ${c.border}` }}>
                         <button
                             onClick={() => setComparisonDim('label')}
                             style={{
                                 padding: '4px 12px', borderRadius: '4px', fontSize: '0.85rem',
                                 background: comparisonDim === 'label' ? '#38bdf8' : 'transparent',
-                                color: comparisonDim === 'label' ? '#0f172a' : '#94a3b8',
+                                color: comparisonDim === 'label' ? '#18181b' : '#a1a1aa',
                                 border: 'none', cursor: 'pointer', transition: 'all 0.2s', fontWeight: comparisonDim === 'label' ? 'bold' : 'normal'
                             }}
-                        >标签 (Label)</button>
+                        >标签</button>
                         <button
                             onClick={() => setComparisonDim('model')}
                             style={{
                                 padding: '4px 12px', borderRadius: '4px', fontSize: '0.85rem',
                                 background: comparisonDim === 'model' ? '#38bdf8' : 'transparent',
-                                color: comparisonDim === 'model' ? '#0f172a' : '#94a3b8',
+                                color: comparisonDim === 'model' ? '#18181b' : '#a1a1aa',
                                 border: 'none', cursor: 'pointer', transition: 'all 0.2s', fontWeight: comparisonDim === 'model' ? 'bold' : 'normal'
                             }}
-                        >模型 (Model)</button>
+                        >模型</button>
                     </div>
                 </div>
 
                 {uniqueLabels.length > 0 && (
                     <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '1rem', borderLeft: '1px solid #334155', paddingLeft: '1rem' }}>
-                        <span style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Label:</span>
+                        <span style={{ color: c.fgMuted, fontSize: '0.9rem' }}>Label:</span>
 
                         <div style={{ position: 'relative' }}>
                             <button
                                 id="label-menu-trigger"
                                 onClick={() => setIsLabelMenuOpen(!isLabelMenuOpen)}
                                 style={{
-                                    background: '#1e293b',
-                                    color: '#f8fafc',
-                                    border: '1px solid #334155',
+                                    background: c.bgSecondary,
+                                    color: c.fg,
+                                    border: `1px solid ${c.border}`,
                                     borderRadius: '4px',
                                     padding: '4px 12px',
                                     cursor: 'pointer',
@@ -2274,7 +2278,7 @@ function DetailPage() {
                                     justifyContent: 'space-between'
                                 }}
                             >
-                                <span id="label-trigger-text">{selectedLabels.size === 0 ? 'All Filter' : `${selectedLabels.size} Selected`}</span>
+                                <span id="label-trigger-text">{selectedLabels.size === 0 ? '全部筛选' : `已选 ${selectedLabels.size} 个`}</span>
                                 <span style={{ fontSize: '0.7rem' }}>▼</span>
                             </button>
 
@@ -2286,8 +2290,8 @@ function DetailPage() {
                                     top: '100%',
                                     left: 0,
                                     marginTop: '4px',
-                                    background: '#1e293b',
-                                    border: '1px solid #334155',
+                                    background: c.bgSecondary,
+                                    border: `1px solid ${c.border}`,
                                     borderRadius: '4px',
                                     padding: '0.5rem',
                                     zIndex: 50,
@@ -2302,7 +2306,7 @@ function DetailPage() {
                                 <div
                                     id="filter-label-clear"
                                     onClick={() => { setSelectedLabels(new Set()); setIsLabelMenuOpen(false); }}
-                                    style={{ cursor: 'pointer', padding: '4px 8px', fontSize: '0.9rem', color: selectedLabels.size === 0 ? '#38bdf8' : '#94a3b8', borderBottom: '1px solid #334155', marginBottom: '4px' }}
+                                    style={{ cursor: 'pointer', padding: '4px 8px', fontSize: '0.9rem', color: selectedLabels.size === 0 ? '#38bdf8' : '#a1a1aa', borderBottom: `1px solid ${c.border}`, marginBottom: '4px' }}
                                 >
                                     Show All (Clear Filter)
                                 </div>
@@ -2327,7 +2331,7 @@ function DetailPage() {
                                                     setSelectedLabels(newSet);
                                                 }}
                                             />
-                                            <span style={{ color: isSelected ? '#fff' : '#cbd5e1' }}>{displayLabel}</span>
+                                            <span style={{ color: isSelected ? '#fff' : '#d4d4d8' }}>{displayLabel}</span>
                                         </label>
                                     );
                                 })}
@@ -2345,15 +2349,15 @@ function DetailPage() {
 
                 {uniqueModels.length > 0 && (
                     <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '1rem', borderLeft: '1px solid #334155', paddingLeft: '1rem' }}>
-                        <span style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Model:</span>
+                        <span style={{ color: c.fgMuted, fontSize: '0.9rem' }}>Model:</span>
 
                         <div style={{ position: 'relative' }}>
                             <button
                                 onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
                                 style={{
-                                    background: '#1e293b',
-                                    color: '#f8fafc',
-                                    border: '1px solid #334155',
+                                    background: c.bgSecondary,
+                                    color: c.fg,
+                                    border: `1px solid ${c.border}`,
                                     borderRadius: '4px',
                                     padding: '4px 12px',
                                     cursor: 'pointer',
@@ -2365,7 +2369,7 @@ function DetailPage() {
                                     justifyContent: 'space-between'
                                 }}
                             >
-                                <span>{selectedModels.size === 0 ? 'All Models' : `${selectedModels.size} Selected`}</span>
+                                <span>{selectedModels.size === 0 ? '所有模型' : `已选 ${selectedModels.size} 个`}</span>
                                 <span style={{ fontSize: '0.7rem' }}>▼</span>
                             </button>
 
@@ -2376,8 +2380,8 @@ function DetailPage() {
                                     top: '100%',
                                     left: 0,
                                     marginTop: '4px',
-                                    background: '#1e293b',
-                                    border: '1px solid #334155',
+                                    background: c.bgSecondary,
+                                    border: `1px solid ${c.border}`,
                                     borderRadius: '4px',
                                     padding: '0.5rem',
                                     zIndex: 50,
@@ -2391,7 +2395,7 @@ function DetailPage() {
                             >
                                 <div
                                     onClick={() => { setSelectedModels(new Set()); setIsModelMenuOpen(false); }}
-                                    style={{ cursor: 'pointer', padding: '4px 8px', fontSize: '0.9rem', color: selectedModels.size === 0 ? '#38bdf8' : '#94a3b8', borderBottom: '1px solid #334155', marginBottom: '4px' }}
+                                    style={{ cursor: 'pointer', padding: '4px 8px', fontSize: '0.9rem', color: selectedModels.size === 0 ? '#38bdf8' : '#a1a1aa', borderBottom: `1px solid ${c.border}`, marginBottom: '4px' }}
                                 >
                                     Show All (Clear Filter)
                                 </div>
@@ -2413,7 +2417,7 @@ function DetailPage() {
                                                     setSelectedModels(newSet);
                                                 }}
                                             />
-                                            <span style={{ color: isSelected ? '#fff' : '#cbd5e1' }}>{displayModel}</span>
+                                            <span style={{ color: isSelected ? '#fff' : '#d4d4d8' }}>{displayModel}</span>
                                         </label>
                                     );
                                 })}
@@ -2510,7 +2514,7 @@ function DetailPage() {
                 </div>
                 <div className="card" style={cardStyle}>
                     <h3 style={chartTitleStyle}>
-                        Token 消耗趋势
+                        令牌消耗趋势
                         <CustomTooltip content="输入 Prompt 与输出 Completion 的 Token 总和" />
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
@@ -2535,7 +2539,7 @@ function DetailPage() {
                 <div className="card" style={cardStyle}>
                     <h3 style={chartTitleStyle}>
                         准确率趋势 (0-1)
-                        <CustomTooltip content="基于 AI 裁判 (LLM) 对执行结果的自动评分 (1.0=通过, 0.0=失败)" />
+                        <CustomTooltip content="基于 AI 裁判对执行结果的自动评分 （1.0=通过, 0.0=失败）" />
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={filteredData}>
@@ -2618,7 +2622,7 @@ function DetailPage() {
             {(compareDimData.latency.length > 0) && (
                 <div style={{ marginBottom: '2rem' }}>
                     <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>
-                        按 {comparisonDim === 'label' ? '标签 (Label)' : '模型 (Model)'} 对比 (平均值)
+                        按 {comparisonDim === 'label' ? '标签' : '模型'} 对比（平均值）
                     </h2>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
                         <div className="card" style={cardStyle}>
@@ -2631,7 +2635,7 @@ function DetailPage() {
                                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                                     <XAxis dataKey="name" tickFormatter={(v) => String(v)} stroke="#64748b" fontSize={11} />
                                     <YAxis stroke="#64748b" fontSize={11} />
-                                    <Tooltip contentStyle={{ background: '#1e292b', borderColor: '#334155' }} />
+                                    <Tooltip contentStyle={{ background: '#1e292b', borderColor: c.border }} />
                                     <Line type="monotone" dataKey="latency" stroke="#38bdf8" dot={true} strokeWidth={2} />
                                 </LineChart>
                             </ResponsiveContainer>
@@ -2646,7 +2650,7 @@ function DetailPage() {
                                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                                     <XAxis dataKey="name" tickFormatter={(v) => String(v)} stroke="#64748b" fontSize={11} />
                                     <YAxis stroke="#64748b" fontSize={11} />
-                                    <Tooltip contentStyle={{ background: '#1e292b', borderColor: '#334155' }} />
+                                    <Tooltip contentStyle={{ background: '#1e292b', borderColor: c.border }} />
                                     <Line type="monotone" dataKey="tokens" stroke="#f472b6" dot={true} strokeWidth={2} />
                                 </LineChart>
                             </ResponsiveContainer>
@@ -2661,7 +2665,7 @@ function DetailPage() {
                                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                                     <XAxis dataKey="name" tickFormatter={(v) => String(v)} stroke="#64748b" fontSize={11} />
                                     <YAxis stroke="#64748b" fontSize={11} domain={[0, 1]} />
-                                    <Tooltip contentStyle={{ background: '#1e292b', borderColor: '#334155' }} />
+                                    <Tooltip contentStyle={{ background: '#1e292b', borderColor: c.border }} />
                                     <Line type="monotone" dataKey="answer_score" stroke="#4ade80" dot={true} strokeWidth={2} />
                                 </LineChart>
                             </ResponsiveContainer>
@@ -2676,7 +2680,7 @@ function DetailPage() {
                                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                                     <XAxis dataKey="name" tickFormatter={(v) => String(v)} stroke="#64748b" fontSize={11} />
                                     <YAxis stroke="#64748b" fontSize={11} domain={[0, 1]} />
-                                    <Tooltip contentStyle={{ background: '#1e292b', borderColor: '#334155' }} />
+                                    <Tooltip contentStyle={{ background: '#1e292b', borderColor: c.border }} />
                                     <Line type="monotone" dataKey="skill_recall_rate" stroke="#f472b6" dot={true} strokeWidth={2} />
                                 </LineChart>
                             </ResponsiveContainer>
@@ -2686,13 +2690,13 @@ function DetailPage() {
             )}
 
             {/* 同问题执行记录 */}
-            <div className="list-container">
-                <div style={{ marginBottom: '1rem' }}>
-                    <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>同问题执行记录</h2>
-                    <p style={{ fontSize: '0.9rem', color: '#94a3b8' }}>点击记录可查看详细信息</p>
+            <div style={{ marginTop: '2rem', background: c.cardBg, border: `1px solid ${c.cardBorder}`, borderRadius: '8px', overflow: 'hidden' }}>
+                <div style={{ marginBottom: '1rem', padding: '1rem 1rem 0' }}>
+                    <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: c.fg }}>同问题执行记录</h2>
+                    <p style={{ fontSize: '0.9rem', color: c.fgMuted }}>点击记录可查看详细信息</p>
                 </div>
                 {/* Headers */}
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr', padding: '1rem', borderBottom: '1px solid #334155', color: '#94a3b8', fontSize: '0.9rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr', padding: '1rem', borderBottom: `1px solid ${c.border}`, color: c.fgMuted, fontSize: '0.9rem', background: c.bgSecondary, fontWeight: 500 }}>
                     <div>时间 / ID</div>
                     <div>标签</div>
                     <div>时延</div>
@@ -2713,8 +2717,8 @@ function DetailPage() {
                             data-timestamp={new Date(item.timestamp).getTime()}
                             data-label={item.label || '__no_label__'}
                             style={{
-                                borderBottom: '1px solid #1e293b',
-                                background: isCurrentRecord ? 'rgba(56, 189, 248, 0.15)' : '#1e293b',
+                                borderBottom: `1px solid ${c.border}`,
+                                background: isCurrentRecord ? c.primarySubtle : c.bgSecondary,
                                 marginBottom: '1px',
                                 cursor: 'pointer',
                                 transition: 'background 0.2s'
@@ -2730,12 +2734,12 @@ function DetailPage() {
                             }}
                             onMouseOver={(e) => {
                                 if (!isCurrentRecord) {
-                                    e.currentTarget.style.background = '#334155';
+                                    e.currentTarget.style.background = isDark ? '#3f3f46' : '#e4e4e7';
                                 }
                             }}
                             onMouseOut={(e) => {
                                 if (!isCurrentRecord) {
-                                    e.currentTarget.style.background = '#1e293b';
+                                    e.currentTarget.style.background = isDark ? '#18181b' : '#f4f4f5';
                                 }
                             }}
                         >
@@ -2745,8 +2749,8 @@ function DetailPage() {
                                         {formatFullTime(item.timestamp)}
                                         {isCurrentRecord && (
                                             <span style={{
-                                                background: '#38bdf8',
-                                                color: '#0f172a',
+                                                background: c.primary,
+                                                color: c.bg,
                                                 padding: '2px 8px',
                                                 borderRadius: '4px',
                                                 fontSize: '0.7rem',
@@ -2756,26 +2760,26 @@ function DetailPage() {
                                             </span>
                                         )}
                                     </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{itemTaskId}</div>
+                                    <div style={{ fontSize: '0.8rem', color: c.fgSecondary }}>{itemTaskId}</div>
                                 </div>
-                                <div style={{ fontSize: '0.9rem', color: '#cbd5e1' }}>
+                                <div style={{ fontSize: '0.9rem', color: c.fgSecondary }}>
                                     {item.label || '-'}
                                 </div>
                                 <div>{item.latency ? (item.latency < 1 ? (item.latency * 1000).toFixed(0) + 'ms' : item.latency.toFixed(2) + 's') : '-'}</div>
                                 <div>{item.tokens}</div>
                                 <div style={{
                                     color: item.skill_recall_rate !== null && item.skill_recall_rate !== undefined ?
-                                           (item.skill_recall_rate === 1.0 ? '#4ade80' :
-                                            item.skill_recall_rate > 0 ? '#fbbf24' : '#f87171') : '#94a3b8',
+                                           (item.skill_recall_rate === 1.0 ? c.success :
+                                            item.skill_recall_rate > 0 ? c.warning : c.error) : c.fgMuted,
                                     fontWeight: 'bold'
                                 }}>
                                     {item.skill_recall_rate !== null && item.skill_recall_rate !== undefined ?
                                      (item.skill_recall_rate * 100).toFixed(0) + '%' : '--'}
                                 </div>
-                                <div style={{ color: item.context_window_pct != null ? (item.context_window_pct > 90 ? '#f87171' : '#4ade80') : '#94a3b8' }}>
+                                <div style={{ color: item.context_window_pct != null ? (item.context_window_pct > 90 ? c.error : c.success) : c.fgMuted }}>
                                     {item.context_window_pct != null ? `${item.context_window_pct.toFixed(1)}%` : '-'}
                                 </div>
-                                <div style={{ color: item.answer_score === null ? '#94a3b8' : ((item.answer_score || 0) > 0.8 ? '#4ade80' : '#f87171') }}>{item.answer_score === null ? '--' : item.answer_score?.toFixed(2)}</div>
+                                <div style={{ color: item.answer_score === null ? c.fgMuted : ((item.answer_score || 0) > 0.8 ? c.success : c.error) }}>{item.answer_score === null ? '--' : item.answer_score?.toFixed(2)}</div>
                             </div>
                         </div>
                     );

@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/api';
+import { useThemeColors } from '@/lib/theme-context';
 
 interface SkillData {
   id: string;
@@ -26,6 +27,7 @@ function SkillContent() {
   const skillName = searchParams.get('name');
   const user = searchParams.get('user') || undefined;
   const version = searchParams.get('version');
+  const c = useThemeColors();
 
   const [skill, setSkill] = useState<SkillData | null>(null);
   const [skillVersion, setSkillVersion] = useState<SkillVersionData | null>(null);
@@ -79,7 +81,7 @@ function SkillContent() {
 
   if (loading) {
     return (
-      <div style={{ padding: '2rem', color: '#e2e8f0' }}>
+      <div style={{ padding: '2rem', color: c.fgSecondary }}>
         <p>Loading skill...</p>
       </div>
     );
@@ -87,12 +89,12 @@ function SkillContent() {
 
   if (error || !skill) {
     return (
-      <div style={{ padding: '2rem', color: '#e2e8f0' }}>
-        <Link href="/" style={{ color: '#60a5fa', marginBottom: '1rem', display: 'inline-block' }}>
+      <div style={{ padding: '2rem', color: c.fg }}>
+        <Link href="/" style={{ color: c.link, marginBottom: '1rem', display: 'inline-block' }}>
           ← Back to Dashboard
         </Link>
-        <h1 style={{ color: '#f87171' }}>Skill Not Found</h1>
-        <p style={{ color: '#94a3b8' }}>
+        <h1 style={{ color: c.error }}>Skill Not Found</h1>
+        <p style={{ color: c.fgMuted }}>
           {error || 'The requested skill could not be found. It may have been deleted.'}
         </p>
       </div>
@@ -100,8 +102,8 @@ function SkillContent() {
   }
 
   return (
-    <div style={{ padding: '2rem', color: '#e2e8f0', maxWidth: '1200px', margin: '0 auto' }}>
-      <Link href="/" style={{ color: '#60a5fa', marginBottom: '1rem', display: 'inline-block' }}>
+    <div style={{ padding: '2rem', color: c.fg, maxWidth: '1200px', margin: '0 auto' }}>
+      <Link href="/" style={{ color: c.link, marginBottom: '1rem', display: 'inline-block' }}>
         ← Back to Dashboard
       </Link>
 
@@ -109,35 +111,36 @@ function SkillContent() {
         <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
           {skill.name}
         </h1>
-        <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
+        <p style={{ color: c.fgMuted, fontSize: '0.9rem' }}>
           Category: {skill.category || 'Other'} | Version: {version || skill.activeVersion}
         </p>
       </div>
 
       {skill.description && (
-        <div style={{ marginBottom: '2rem', padding: '1rem', background: '#1e293b', borderRadius: '8px' }}>
-          <h3 style={{ color: '#94a3b8', marginBottom: '0.5rem' }}>Description</h3>
+        <div style={{ marginBottom: '2rem', padding: '1rem', background: c.bgSecondary, borderRadius: '8px', border: `1px solid ${c.border}` }}>
+          <h3 style={{ color: c.fgSecondary, marginBottom: '0.5rem' }}>Description</h3>
           <p>{skill.description}</p>
         </div>
       )}
 
       {skillVersion?.changeLog && (
-        <div style={{ marginBottom: '2rem', padding: '1rem', background: '#1e293b', borderRadius: '8px' }}>
-          <h3 style={{ color: '#94a3b8', marginBottom: '0.5rem' }}>Change Log</h3>
+        <div style={{ marginBottom: '2rem', padding: '1rem', background: c.bgSecondary, borderRadius: '8px', border: `1px solid ${c.border}` }}>
+          <h3 style={{ color: c.fgSecondary, marginBottom: '0.5rem' }}>Change Log</h3>
           <p>{skillVersion.changeLog}</p>
         </div>
       )}
 
       {skillVersion?.content && (
         <div style={{ marginBottom: '2rem' }}>
-          <h3 style={{ color: '#94a3b8', marginBottom: '0.5rem' }}>Skill Content</h3>
+          <h3 style={{ color: c.fgSecondary, marginBottom: '0.5rem' }}>Skill Content</h3>
           <pre style={{ 
             padding: '1rem', 
-            background: '#0f172a', 
+            background: c.codeBlockBg, 
             borderRadius: '8px', 
             overflow: 'auto',
             fontSize: '0.85rem',
-            whiteSpace: 'pre-wrap'
+            whiteSpace: 'pre-wrap',
+            border: `1px solid ${c.border}`
           }}>
             {skillVersion.content}
           </pre>
@@ -148,8 +151,9 @@ function SkillContent() {
 }
 
 function LoadingFallback() {
+  const c = useThemeColors();
   return (
-    <div style={{ padding: '2rem', color: '#e2e8f0' }}>
+    <div style={{ padding: '2rem', color: c.fgSecondary }}>
       <p>Loading skill...</p>
     </div>
   );

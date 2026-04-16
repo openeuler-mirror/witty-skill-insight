@@ -2,7 +2,8 @@
 
 import { useAuth } from '@/lib/auth-context';
 import { useEffect, useRef, useState } from 'react';
-import { apiFetch } from '@/lib/api';
+import { apiFetch } from '@/lib/api'
+import { useTheme, useThemeColors } from '@/lib/theme-context';
 
 // Types matching Backend Response
 interface Skill {
@@ -35,6 +36,9 @@ interface SkillVersion {
 
 function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
   const { apiKey } = useAuth();
+    const { isDark } = useTheme();
+    const c = useThemeColors();
+
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
   const [syncProgress, setSyncProgress] = useState('');
@@ -69,11 +73,11 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <div className="upload-card">
-      <div style={{ fontSize: '3rem', marginBottom: '1rem', color: '#94a3b8' }}>🔄</div>
-      <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', color: '#1e293b' }}>
+      <div style={{ fontSize: '3rem', marginBottom: '1rem', color: c.fgMuted }}>🔄</div>
+      <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', color: c.fg }}>
         从'skill市场--我的skill'同步
       </h3>
-      <p style={{ color: '#64748b', marginBottom: '1.5rem', maxWidth: '400px', fontSize: '0.9rem', lineHeight: 1.5 }}>
+      <p style={{ color: c.fgSecondary, marginBottom: '1.5rem', maxWidth: '400px', fontSize: '0.9rem', lineHeight: 1.5 }}>
         从'skill市场--我的skill'自动拉取所有技能。
         <br />同版本号skill将被覆盖。
       </p>
@@ -91,24 +95,24 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
       </button>
       
       {syncProgress && (
-        <div style={{ marginTop: '1rem', color: '#64748b', fontSize: '0.9rem' }}>
+        <div style={{ marginTop: '1rem', color: c.fgSecondary, fontSize: '0.9rem' }}>
           {syncProgress}
         </div>
       )}
       
       {syncResult && (
-        <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f1f5f9', borderRadius: '0.5rem' }}>
+        <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#e4e4e7', borderRadius: '0.5rem' }}>
           <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>同步结果：</div>
           <div>总技能数: {syncResult.totalSkills}</div>
-          <div style={{ color: '#16a34a' }}>成功: {syncResult.successCount}</div>
-          <div style={{ color: '#dc2626' }}>失败: {syncResult.failedCount}</div>
+          <div style={{ color: c.success }}>成功: {syncResult.successCount}</div>
+          <div style={{ color: c.error }}>失败: {syncResult.failedCount}</div>
           
           {syncResult.failedCount > 0 && (
             <details style={{ marginTop: '0.5rem' }}>
-              <summary style={{ cursor: 'pointer', color: '#64748b' }}>查看失败详情</summary>
+              <summary style={{ cursor: 'pointer', color: c.fgSecondary }}>查看失败详情</summary>
               <ul style={{ marginTop: '0.5rem', paddingLeft: '1.5rem' }}>
                 {syncResult.results.filter((r: any) => !r.success).map((r: any, i: number) => (
-                  <li key={i} style={{ color: '#dc2626' }}>
+                  <li key={i} style={{ color: c.error }}>
                     {r.skillName} (v{r.version}): {r.error}
                   </li>
                 ))}
@@ -122,6 +126,8 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
 }
 
 function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
+  const { isDark } = useTheme();
+  const c = useThemeColors();
   const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
@@ -168,12 +174,12 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <div className="upload-card">
-      <div style={{ fontSize: '3rem', marginBottom: '1rem', color: '#94a3b8' }}>📂</div>
-      <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', color: '#1e293b' }}>上传 Skill</h3>
-      <p style={{ color: '#64748b', marginBottom: '1.5rem', maxWidth: '400px', fontSize: '0.9rem', lineHeight: 1.5 }}>
+      <div style={{ fontSize: '3rem', marginBottom: '1rem', color: c.fgMuted }}>📂</div>
+      <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', color: c.fg }}>上传 Skill</h3>
+      <p style={{ color: c.fgSecondary, marginBottom: '1.5rem', maxWidth: '400px', fontSize: '0.9rem', lineHeight: 1.5 }}>
         选择包含 <code>SKILL.md</code>的文件夹。
-        <br /><span style={{ color: '#d97706' }}>注意: 请上传整个文件夹</span>
-        <br /><span style={{ color: '#dc2626', fontWeight: 'bold' }}>重要: 文件夹名称不得包含中文字符。</span>
+        <br /><span style={{ color: c.warning }}>注意: 请上传整个文件夹</span>
+        <br /><span style={{ color: c.error, fontWeight: 'bold' }}>重要: 文件夹名称不得包含中文字符。</span>
       </p>
 
       <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -197,9 +203,9 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
       </div>
 
       {logs.length > 0 && (
-        <div style={{ marginTop: '2rem', width: '100%', maxWidth: '600px', textAlign: 'left', background: '#f8fafc', padding: '1rem', borderRadius: '0.5rem', maxHeight: '150px', overflowY: 'auto' }}>
+        <div style={{ marginTop: '2rem', width: '100%', maxWidth: '600px', textAlign: 'left', background: c.bgSecondary, padding: '1rem', borderRadius: '0.5rem', maxHeight: '150px', overflowY: 'auto' }}>
           {logs.map((log, i) => (
-            <div key={i} style={{ color: '#475569', fontSize: '0.8rem', fontFamily: 'monospace', marginBottom: '4px', borderBottom: '1px solid #e2e8f0', paddingBottom: '2px' }}>{log}</div>
+            <div key={i} style={{ color: c.fgSecondary, fontSize: '0.8rem', fontFamily: 'monospace', marginBottom: '4px', borderBottom: `1px solid ${c.border}`, paddingBottom: '2px' }}>{log}</div>
           ))}
         </div>
       )}
@@ -208,6 +214,8 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
 }
 
 function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: string, version: number, onClose: () => void }) {
+  const { isDark } = useTheme();
+  const c = useThemeColors();
   const { user } = useAuth();
   const [detail, setDetail] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -268,15 +276,15 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
     <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
       <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ width: '1200px', maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
         
-        <div className="modal-header-new" style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: '#1e293b' }}>Version Details (v{version})</h3>
+        <div className="modal-header-new" style={{ padding: '1rem 1.5rem', background: c.bgSecondary, borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: c.fg }}>Version Details (v{version})</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <button
               onClick={handleParseFlow}
               disabled={parsing}
               style={{
                 padding: '6px 16px',
-                background: parsing ? '#cbd5e1' : '#2563eb',
+                background: parsing ? '#d4d4d8' : '#2563eb',
                 color: parsing ? '#64748b' : '#ffffff',
                 border: 'none',
                 borderRadius: '4px',
@@ -289,7 +297,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
             </button>
             <button 
               onClick={onClose} 
-              style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '1.5rem', cursor: 'pointer', padding: '0 0.5rem', lineHeight: 1 }}
+              style={{ background: 'none', border: 'none', color: c.fgSecondary, fontSize: '1.5rem', cursor: 'pointer', padding: '0 0.5rem', lineHeight: 1 }}
             >
               &times;
             </button>
@@ -298,56 +306,56 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
         
         <div style={{ flex: 1, display: 'flex', gap: '1.5rem', padding: '1.5rem', minHeight: 0, overflowY: 'auto' }}>
           {loading ? (
-             <div style={{ textAlign: 'center', padding: '2rem', color: '#64748b', flex: 1 }}>Loading details...</div>
+             <div style={{ textAlign: 'center', padding: '2rem', color: c.fgSecondary, flex: 1 }}>Loading details...</div>
           ) : detail ? (
             <>
               <div style={{ flex: '1 1 50%', display: 'flex', flexDirection: 'column', gap: '1.5rem', minWidth: 0 }}>
-                <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ background: c.bgSecondary, padding: '1rem', borderRadius: '8px', border: `1px solid ${c.border}` }}>
                     <div>
-                        <span style={{ color: '#64748b', fontSize: '0.85rem', display: 'block', marginBottom: '4px' }}>Created At</span>
-                        <div style={{ color: '#1e293b', fontWeight: 500 }}>{new Date(detail.createdAt).toLocaleString()}</div>
+                        <span style={{ color: c.fgSecondary, fontSize: '0.85rem', display: 'block', marginBottom: '4px' }}>Created At</span>
+                        <div style={{ color: c.fg, fontWeight: 500 }}>{new Date(detail.createdAt).toLocaleString()}</div>
                     </div>
                 </div>
 
                 <div>
-                    <h4 style={{ color: '#64748b', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>变更历史</h4>
-                    <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '6px', color: '#334155', whiteSpace: 'pre-wrap', border: '1px solid #e2e8f0', fontSize: '0.9rem', lineHeight: 1.6 }}>
-                        {detail.changeLog || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>无变更历史</span>}
+                    <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>变更历史</h4>
+                    <div style={{ background: c.bgSecondary, padding: '1rem', borderRadius: '6px', color: c.fg, whiteSpace: 'pre-wrap', border: `1px solid ${c.border}`, fontSize: '0.9rem', lineHeight: 1.6 }}>
+                        {detail.changeLog || <span style={{ color: c.fgMuted, fontStyle: 'italic' }}>无变更历史</span>}
                     </div>
                 </div>
 
                 <div>
-                     <h4 style={{ color: '#64748b', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill Content (SKILL.md)</h4>
+                     <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill Content (SKILL.md)</h4>
                      <pre style={{ 
-                         background: '#f8fafc', 
+                         background: c.bgSecondary, 
                          padding: '1rem', 
                          borderRadius: '6px', 
-                         color: '#334155', 
+                         color: c.fg, 
                          overflowX: 'auto', 
                          fontFamily: 'monospace', 
                          fontSize: '0.85rem',
-                         border: '1px solid #e2e8f0',
+                         border: `1px solid ${c.border}`,
                          maxHeight: '300px',
                          whiteSpace: 'pre-wrap'
                      }}>
-                         {detail.content || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>(Empty content)</span>}
+                         {detail.content || <span style={{ color: c.fgMuted, fontStyle: 'italic' }}>(Empty content)</span>}
                      </pre>
                 </div>
 
                 <div>
-                    <h4 style={{ color: '#64748b', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Included Files</h4>
-                    <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                    <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Included Files</h4>
+                    <div style={{ background: c.bgSecondary, padding: '1rem', borderRadius: '6px', border: `1px solid ${c.border}` }}>
                         {(() => {
                             try {
                                 const files = detail.files ? JSON.parse(detail.files) : [];
-                                if (files.length === 0) return <span style={{ color: '#94a3b8', fontSize: '0.9rem', fontStyle: 'italic' }}>No additional files.</span>;
+                                if (files.length === 0) return <span style={{ color: c.fgMuted, fontSize: '0.9rem', fontStyle: 'italic' }}>No additional files.</span>;
                                 return (
-                                    <ul style={{ margin: 0, paddingLeft: '1.2rem', color: '#475569', fontSize: '0.9rem' }}>
+                                    <ul style={{ margin: 0, paddingLeft: '1.2rem', color: c.fgSecondary, fontSize: '0.9rem' }}>
                                         {files.map((f: string, i: number) => <li key={i} style={{ marginBottom: '4px' }}>{f}</li>)}
                                     </ul>
                                 );
                             } catch (e) {
-                                return <span style={{ color: '#dc2626', fontSize: '0.9rem' }}>Error parsing file list.</span>;
+                                return <span style={{ color: c.error, fontSize: '0.9rem' }}>Error parsing file list.</span>;
                             }
                         })()}
                     </div>
@@ -355,18 +363,18 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
               </div>
 
               <div style={{ flex: '1 1 50%', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                <h4 style={{ color: '#64748b', marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>预期执行流程</h4>
+                <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>预期执行流程</h4>
                 {parsedFlow ? (
                   <div style={{ 
-                    background: '#f8fafc', 
+                    background: c.bgSecondary, 
                     padding: '1rem', 
                     borderRadius: '6px', 
-                    border: '1px solid #e2e8f0', 
+                    border: `1px solid ${c.border}`, 
                     flex: 1,
                     display: 'flex',
                     flexDirection: 'column'
                   }}>
-                    <div style={{ marginBottom: '0.5rem', fontSize: '0.8rem', color: '#94a3b8', flexShrink: 0 }}>
+                    <div style={{ marginBottom: '0.5rem', fontSize: '0.8rem', color: c.fgMuted, flexShrink: 0 }}>
                       解析时间: {new Date(parsedFlow.parsedAt).toLocaleString()}
                     </div>
                     <div style={{ flex: 1, overflow: 'auto' }}>
@@ -375,15 +383,15 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                   </div>
                 ) : (
                   <div style={{ 
-                    background: '#f8fafc', 
+                    background: c.bgSecondary, 
                     padding: '2rem', 
                     borderRadius: '6px', 
-                    border: '1px solid #e2e8f0', 
+                    border: `1px solid ${c.border}`, 
                     flex: 1, 
                     display: 'flex', 
                     alignItems: 'center', 
                     justifyContent: 'center', 
-                    color: '#94a3b8'
+                    color: c.fgMuted
                   }}>
                     点击「解析流程」按钮生成预期执行流程图
                   </div>
@@ -391,7 +399,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
               </div>
             </>
           ) : (
-            <div style={{ color: '#dc2626', textAlign: 'center', padding: '2rem', flex: 1 }}>Failed to load details.</div>
+            <div style={{ color: c.error, textAlign: 'center', padding: '2rem', flex: 1 }}>Failed to load details.</div>
           )}
         </div>
       </div>
@@ -400,6 +408,8 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
 }
 
 function MermaidFlowChart({ code }: { code: string }) {
+  const { isDark } = useTheme();
+  const c = useThemeColors();
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string>('');
 
@@ -424,7 +434,7 @@ function MermaidFlowChart({ code }: { code: string }) {
   }, [code]);
 
   if (error) {
-    return <div style={{ color: '#dc2626' }}>{error}</div>;
+    return <div style={{ color: c.error }}>{error}</div>;
   }
 
   return (
@@ -441,6 +451,8 @@ function MermaidFlowChart({ code }: { code: string }) {
 }
 
 function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClose: () => void, onUpdate: () => void }) {
+  const { isDark } = useTheme();
+  const c = useThemeColors();
   const { user } = useAuth();
   const [versions, setVersions] = useState<SkillVersion[]>([]);
   const [currentActiveVersion, setCurrentActiveVersion] = useState(skill.activeVersion);
@@ -576,10 +588,10 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
         {/* Header */}
         <div className="modal-header-new">
           <div>
-            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: '#1e293b' }}>{skill.name}</h3>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', fontSize: '0.875rem', color: '#64748b' }}>
-              <span>当前使用 (Active):</span>
-              <span style={{ color: '#16a34a', fontFamily: 'monospace', fontWeight: 'bold', background: 'rgba(22, 163, 74, 0.1)', padding: '0 6px', borderRadius: '4px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: c.fg }}>{skill.name}</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', fontSize: '0.875rem', color: c.fgSecondary }}>
+              <span>当前使用：</span>
+              <span style={{ color: c.success, fontFamily: 'monospace', fontWeight: 'bold', background: c.successSubtle, padding: '0 6px', borderRadius: '4px' }}>
                 v{versions.find(v => v.version === currentActiveVersion)?.semanticVersion || currentActiveVersion}
               </span>
             </div>
@@ -594,7 +606,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
             </button>
             <button
               onClick={handleClose}
-              style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '1.5rem', cursor: 'pointer', padding: '0 0.5rem' }}
+              style={{ background: 'none', border: 'none', color: c.fgSecondary, fontSize: '1.5rem', cursor: 'pointer', padding: '0 0.5rem' }}
             >
               &times;
             </button>
@@ -635,7 +647,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                           <span style={{
                             fontSize: '0.7rem',
                             backgroundColor: 'rgba(22, 163, 74, 0.15)',
-                            color: '#16a34a',
+                            color: c.success,
                             padding: '2px 6px',
                             borderRadius: '4px',
                             fontWeight: 'bold',
@@ -645,11 +657,11 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                           </span>
                         )}
                       </div>
-                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{new Date(v.createdAt).toLocaleDateString()}</span>
+                      <span style={{ fontSize: '0.75rem', color: c.fgMuted }}>{new Date(v.createdAt).toLocaleDateString()}</span>
                     </td>
                     <td>
-                      <p style={{ margin: 0, color: '#334155', whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.9rem' }}>
-                        {v.changeLog || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>无变更历史</span>}
+                      <p style={{ margin: 0, color: c.fg, whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.9rem' }}>
+                        {v.changeLog || <span style={{ color: c.fgMuted, fontStyle: 'italic' }}>无变更历史</span>}
                       </p>
                     </td>
                     <td style={{ textAlign: 'right', minWidth: '280px' }}>
@@ -658,10 +670,10 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                             onClick={() => setViewingVersion(v.version)}
                             className="btn-sm"
                             style={{ 
-                              background: '#f1f5f9', 
-                              border: '1px solid #cbd5e1', 
+                              background: c.bgTertiary, 
+                              border: `1px solid ${c.borderDark}`, 
                               padding: '6px 12px',
-                              color: '#475569',
+                              color: c.fgSecondary,
                               whiteSpace: 'nowrap',
                               fontSize: '0.85rem',
                               minWidth: '60px'
@@ -676,25 +688,25 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                                 onClick={() => handleActivate(v.version)}
                                 className="btn-sm"
                                 style={{ 
-                                  background: '#dbeafe', 
-                                  border: '1px solid #3b82f6', 
+                                  background: c.primarySubtle, 
+                                  border: `1px solid ${c.primary}`, 
                                   padding: '6px 12px',
-                                  color: '#1d4ed8',
+                                  color: c.primary,
                                   whiteSpace: 'nowrap',
                                   fontSize: '0.85rem',
                                   minWidth: '85px'
                                 }}
                               >
-                                激活 (set active)
+                                激活
                               </button>
                               <button
                                 onClick={() => handleDeleteVersion(v.version)}
                                 className="btn-sm"
                                 style={{ 
-                                  background: '#fee2e2', 
-                                  border: '1px solid #f87171', 
+                                  background: c.errorSubtle, 
+                                  border: `1px solid ${c.error}`, 
                                   padding: '6px 12px', 
-                                  color: '#dc2626',
+                                  color: c.error,
                                   whiteSpace: 'nowrap',
                                   fontSize: '0.85rem',
                                   minWidth: '65px'
@@ -708,13 +720,13 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                               padding: '6px 12px', 
                               fontSize: '0.85rem', 
                               fontFamily: 'monospace', 
-                              color: '#16a34a', 
+                              color: c.success, 
                               display: 'flex', 
                               alignItems: 'center', 
                               gap: '6px',
                               whiteSpace: 'nowrap'
                             }}>
-                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#16a34a' }}></span>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: c.success }}></span>
                               当前
                             </span>
                           )}
@@ -728,7 +740,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
 
 
           {versions.length === 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: '#94a3b8' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: c.fgMuted }}>
               <div style={{ fontSize: '2rem', marginBottom: '1rem', opacity: 0.5 }}>📂</div>
               <p>没有历史版本</p>
             </div>
@@ -749,6 +761,8 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
 
 
 function SkillCatalog({ refresh }: { refresh: number }) {
+  const { isDark } = useTheme();
+  const c = useThemeColors();
   const { user } = useAuth();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -832,7 +846,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
 
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '5rem' }}>
-      <div className="loading-spinner" style={{ width: '2rem', height: '2rem', border: '2px solid #e2e8f0', borderTopColor: '#2563eb', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+      <div className="loading-spinner" style={{ width: '2rem', height: '2rem', border: `2px solid ${c.border}`, borderTopColor: '#2563eb', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
       <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
     </div>
   );
@@ -844,19 +858,19 @@ function SkillCatalog({ refresh }: { refresh: number }) {
         display: 'flex',
         gap: '2rem',
         marginBottom: '2rem',
-        background: '#f8fafc',
+        background: c.bgSecondary,
         padding: '1.5rem',
         borderRadius: '0.75rem',
-        border: '1px solid #e2e8f0'
+        border: `1px solid ${c.border}`
       }}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: '0.875rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill 总数</span>
-          <span style={{ fontSize: '2.5rem', fontWeight: 700, color: '#1e293b', lineHeight: 1 }}>{totalSkills}</span>
+          <span style={{ fontSize: '0.875rem', color: c.fgSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill 总数</span>
+          <span style={{ fontSize: '2.5rem', fontWeight: 700, color: c.fg, lineHeight: 1 }}>{totalSkills}</span>
         </div>
-        <div style={{ width: '1px', background: '#e2e8f0' }}></div>
+        <div style={{ width: '1px', background: '#e4e4e7' }}></div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: '0.875rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>已上传 Skill</span>
-          <span style={{ fontSize: '2.5rem', fontWeight: 700, color: '#16a34a', lineHeight: 1 }}>{uploadedSkills}</span>
+          <span style={{ fontSize: '0.875rem', color: c.fgSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>已上传 Skill</span>
+          <span style={{ fontSize: '2.5rem', fontWeight: 700, color: c.success, lineHeight: 1 }}>{uploadedSkills}</span>
         </div>
       </div>
 
@@ -884,7 +898,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
             {/* Body */}
             <div className="skill-body">
               <div className="skill-description">
-                {skill.description || <span style={{ fontStyle: 'italic', color: '#94a3b8' }}>No description provided for this skill.</span>}
+                {skill.description || <span style={{ fontStyle: 'italic', color: c.fgMuted }}>No description provided for this skill.</span>}
               </div>
 
               <div className="skill-tags">
@@ -893,7 +907,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
                     #{tag}
                   </span>
                 ))}
-                {(skill.tags?.length || 0) > 3 && <span className="skill-tag" style={{ background: 'transparent', border: 'none', color: '#94a3b8' }}>+{skill.tags!.length - 3}</span>}
+                {(skill.tags?.length || 0) > 3 && <span className="skill-tag" style={{ background: 'transparent', border: 'none', color: c.fgMuted }}>+{skill.tags!.length - 3}</span>}
               </div>
             </div>
 
@@ -906,7 +920,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
                 title={skill.isUploaded ? "Withdraw Skill (Stop Sync)" : "Upload Skill (Enable Sync)"}
                 style={{
                   background: skill.isUploaded ? 'rgba(22, 163, 74, 0.1)' : 'transparent',
-                  border: `1px solid ${skill.isUploaded ? '#16a34a' : '#cbd5e1'}`,
+                  border: `1px solid ${skill.isUploaded ? '#16a34a' : '#d4d4d8'}`,
                   color: skill.isUploaded ? '#16a34a' : '#64748b',
                   padding: '0.4rem',
                   borderRadius: '4px',
@@ -942,8 +956,8 @@ function SkillCatalog({ refresh }: { refresh: number }) {
         {skills.length === 0 && (
           <div className="upload-card" style={{ gridColumn: '1 / -1', background: 'transparent', borderStyle: 'dashed' }}>
             <div style={{ fontSize: '3rem', marginBottom: '1rem', opacity: 0.3 }}>📦</div>
-            <p style={{ color: '#64748b', fontSize: '1.2rem' }}>无 skill</p>
-            <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginTop: '0.5rem' }}>上传 skill</p>
+            <p style={{ color: c.fgSecondary, fontSize: '1.2rem' }}>无 skill</p>
+            <p style={{ color: c.fgMuted, fontSize: '0.9rem', marginTop: '0.5rem' }}>上传 skill</p>
           </div>
         )}
       </div>
