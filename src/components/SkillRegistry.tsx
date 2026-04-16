@@ -78,7 +78,7 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
         从'skill市场--我的skill'同步
       </h3>
       <p style={{ color: c.fgSecondary, marginBottom: '1.5rem', maxWidth: '400px', fontSize: '0.9rem', lineHeight: 1.5 }}>
-        从'skill市场--我的skill'自动拉取所有技能并同步到本地。
+        从'skill市场--我的skill'自动拉取所有技能。
         <br />同版本号skill将被覆盖。
       </p>
       

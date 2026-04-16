@@ -53,3 +53,21 @@ export interface EnterpriseDeleteResponse {
   message: string;
   data?: any;
 }
+
+export interface EnterpriseSkillInfoResponse {
+  code: number;
+  message: string;
+  data: {
+    id: number;
+    name: string;
+    version: string;
+    description: string;
+    createTime: string;
+    updateTime: string;
+    creator: string;
+    creatorName: string | null;
+    status: string;
+    skillType: string;
+    fileName: string;
+  };
+}

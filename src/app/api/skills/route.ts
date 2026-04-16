@@ -3,7 +3,7 @@ import { db, prisma } from '@/lib/prisma';
 import fs from 'fs';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
-import { deleteEnterpriseSkill } from '@/lib/skill-sync-service';
+import { deleteEnterpriseSkill, fetchEnterpriseSkillInfo } from '@/lib/skill-sync-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -109,7 +109,7 @@ export async function DELETE(request: NextRequest) {
         return NextResponse.json({ error: 'Unauthorized delete' }, { status: 403 });
     }
     
-    // 企业模式：先删除对应的企业skill
+    // 企业模式：先删除对应的企业skill（带版本检查）
     if (process.env.ORGANIZATION_MODE === 'true') {
       try {
         const incomingCookie = request.headers.get('cookie') || undefined;
@@ -119,8 +119,26 @@ export async function DELETE(request: NextRequest) {
         const versions = skill.versions || [];
         for (const version of versions) {
           if (version.enterpriseSkillId) {
-            console.log('[Delete-Skill] 删除企业skill ID:', version.enterpriseSkillId);
-            await deleteEnterpriseSkill(version.enterpriseSkillId, incomingCookie);
+            console.log('[Delete-Skill] 检查企业skill ID:', version.enterpriseSkillId);
+            
+            // 查询企业skill的版本号
+            const enterpriseVersion = await fetchEnterpriseSkillInfo(
+              version.enterpriseSkillId,
+              incomingCookie
+            );
+            
+            // 本地skill的版本号
+            const localVersion = version.semanticVersion;
+            
+            console.log('[Delete-Skill] 本地版本:', localVersion, '企业版本:', enterpriseVersion);
+            
+            // 版本一致性检查
+            if (localVersion === enterpriseVersion) {
+              console.log('[Delete-Skill] 版本一致，删除企业skill');
+              await deleteEnterpriseSkill(version.enterpriseSkillId, incomingCookie);
+            } else {
+              console.log('[Delete-Skill] 版本不一致，跳过删除（企业已有新版本）');
+            }
           }
         }
       } catch (error: any) {

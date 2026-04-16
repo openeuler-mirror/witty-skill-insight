@@ -2,7 +2,7 @@ import AdmZip from 'adm-zip';
 import fs from 'fs';
 import path from 'path';
 import { db } from '@/lib/prisma';
-import { EnterpriseSkill, EnterpriseSkillListResponse, EnterpriseDownloadResponse, SyncResult, SkillSyncResult, EnterpriseDeleteResponse } from './skill-sync-types';
+import { EnterpriseSkill, EnterpriseSkillListResponse, EnterpriseDownloadResponse, SyncResult, SkillSyncResult, EnterpriseDeleteResponse, EnterpriseSkillInfoResponse } from './skill-sync-types';
 
 async function fetchEnterpriseSkillList(cookie?: string): Promise<EnterpriseSkill[]> {
   const listUrl = process.env.ORG_SKILL_LIST_URL;
@@ -310,4 +310,39 @@ export async function deleteEnterpriseSkill(
   }
   
   console.log('[Enterprise-Delete] 企业skill删除成功');
+}
+
+export async function fetchEnterpriseSkillInfo(
+  enterpriseSkillId: number,
+  cookie?: string
+): Promise<string> {
+  const infoUrlBase = process.env.ORG_SKILL_INFO_URL;
+  if (!infoUrlBase) {
+    throw new Error('ORG_SKILL_INFO_URL 环境变量未配置');
+  }
+
+  const infoUrl = infoUrlBase.replace('{id}', enterpriseSkillId.toString());
+  console.log('[Enterprise-Info] 查询企业skill信息:', enterpriseSkillId);
+  console.log('[Enterprise-Info] 查询URL:', infoUrl);
+  console.log('[Enterprise-Info] Cookie:', cookie ? '存在' : '不存在');
+  
+  const response = await fetch(infoUrl, {
+    method: 'GET',
+    headers: {
+      'Accept': '*/*',
+      ...(cookie ? { Cookie: cookie } : {})
+    }
+  });
+  
+  console.log('[Enterprise-Info] 响应状态:', response.status, response.statusText);
+  
+  const data: EnterpriseSkillInfoResponse = await response.json();
+  console.log('[Enterprise-Info] 响应数据:', JSON.stringify(data, null, 2));
+  console.log('[Enterprise-Info] 企业skill版本:', data.data.version);
+  
+  if (data.code !== 200) {
+    throw new Error(`查询企业skill信息失败: ${data.message}`);
+  }
+  
+  return data.data.version;
 }
