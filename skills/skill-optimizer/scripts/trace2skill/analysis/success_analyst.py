@@ -37,7 +37,6 @@ You MUST output your analysis in the following JSON format. Do not include any a
     "reasoning": "string explaining your success pattern analysis",
     "edits": [
         {
-        "file": "path/to/file.md",
         "operation": "insert|replace|delete",
         "target": "optional string to search for in the file",
         "target_start_line": optional integer start line (1-indexed),

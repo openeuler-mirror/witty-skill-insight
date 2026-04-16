@@ -973,14 +973,10 @@ def main():
 
         llm_client = RealLLMClient()
 
-        session_dir = Path(datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
-        session_dir = output_path / session_dir
-        session_dir.mkdir(parents=True, exist_ok=True)
-
         config = Trace2SkillConfig(
             trajectory_dir=trajectory_path,
             skill_path=input_path,
-            output_dir=session_dir
+            output_dir=output_path
         )
         result = run_trace2skill(llm_client=llm_client, config=config)
 
