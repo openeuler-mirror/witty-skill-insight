@@ -1,7 +1,7 @@
 import { canAccessSkill, resolveUser } from '@/lib/auth';
 import { db } from '@/lib/prisma';
 import { NextRequest, NextResponse } from 'next/server';
-import { deleteEnterpriseSkill } from '@/lib/skill-sync-service';
+import { deleteEnterpriseSkill, fetchEnterpriseSkillInfo } from '@/lib/skill-sync-service';
 
 export async function DELETE(
     request: NextRequest,
@@ -31,27 +31,45 @@ export async function DELETE(
         }
 
         if (skill.versions && skill.versions.length === 1) {
-            return NextResponse.json({ 
-                error: 'Cannot delete the last version. Delete the skill instead.' 
+            return NextResponse.json({
+                error: 'Cannot delete the last version. Delete the skill instead.'
             }, { status: 400 });
         }
-        
-        // 企业模式：先删除对应的企业skill
+
+        // 企业模式：先删除对应的企业skill（带版本检查）
         if (process.env.ORGANIZATION_MODE === 'true') {
           try {
             const incomingCookie = request.headers.get('cookie') || undefined;
             console.log('[Delete-Version] 企业模式，开始删除企业skill');
-            
+
             if (versionToDelete.enterpriseSkillId) {
-              console.log('[Delete-Version] 删除企业skill ID:', versionToDelete.enterpriseSkillId);
-              await deleteEnterpriseSkill(versionToDelete.enterpriseSkillId, incomingCookie);
+              console.log('[Delete-Version] 检查企业skill ID:', versionToDelete.enterpriseSkillId);
+
+              // 查询企业skill的版本号
+              const enterpriseVersion = await fetchEnterpriseSkillInfo(
+                versionToDelete.enterpriseSkillId,
+                incomingCookie
+              );
+
+              // 本地skill的版本号
+              const localVersion = versionToDelete.semanticVersion;
+
+              console.log('[Delete-Version] 本地版本:', localVersion, '企业版本:', enterpriseVersion);
+
+              // 版本一致性检查
+              if (localVersion === enterpriseVersion) {
+                console.log('[Delete-Version] 版本一致，删除企业skill');
+                await deleteEnterpriseSkill(versionToDelete.enterpriseSkillId, incomingCookie);
+              } else {
+                console.log('[Delete-Version] 版本不一致，跳过删除（企业已有新版本）');
+              }
             }
           } catch (error: any) {
             console.error('[Delete-Version] 企业删除失败，继续删除本地版本:', error);
             console.error('[Delete-Version] 错误信息:', error.message);
           }
         }
-        
+
         await db.deleteSkillVersion(id, version);
 
         if (skill.activeVersion === version) {
@@ -63,8 +81,8 @@ export async function DELETE(
             }
         }
 
-        return NextResponse.json({ 
-            success: true, 
+        return NextResponse.json({
+            success: true,
             message: `Version ${version} deleted successfully`,
             previousActiveVersion: skill.activeVersion
         });

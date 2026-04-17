@@ -2,7 +2,11 @@
 import { db } from '@/lib/prisma';
 import { getProxyConfig } from '@/lib/proxy-config';
 import { getActiveConfig } from '@/lib/server-config';
-import { generateAnswerExtractionPrompt, generateConfigExtractionPrompt } from '@/prompts/config-extraction-prompt';
+import {
+    generateAnswerExtractionPrompt,
+    generateKeyActionExtractionPrompt,
+    generateRootCauseExtractionPrompt,
+} from '@/prompts/config-extraction-prompt';
 import { configSupportsDatasetType, normalizeConfigDatasetType, type ConfigDatasetType } from '@/lib/config-dataset';
 import { getConfigSubjectLabel, normalizeConfigQuery, normalizeConfigSkillName, normalizeOptionalSkillVersion } from '@/lib/config-target';
 import { deriveRoutingSignature } from '@/lib/routing-signature';
@@ -11,6 +15,105 @@ import { OpenAI } from "openai";
 const pdfParse = require('pdf-parse/lib/pdf-parse.js');
 
 export const dynamic = 'force-dynamic';
+
+function parseJsonPayload<T>(raw: string): T {
+    let jsonStr = raw.trim();
+    const fenced = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenced) {
+        jsonStr = fenced[1];
+    } else {
+        const first = jsonStr.indexOf('{');
+        const last = jsonStr.lastIndexOf('}');
+        if (first !== -1 && last !== -1 && last >= first) {
+            jsonStr = jsonStr.substring(first, last + 1);
+        }
+    }
+    return JSON.parse(jsonStr) as T;
+}
+
+function normalizeCriteriaItems(items?: { content?: string; weight?: number }[]) {
+    return Array.isArray(items)
+        ? items
+            .filter(item => typeof item?.content === 'string' && item.content.trim())
+            .map(item => ({
+                content: item.content!.trim(),
+                weight: typeof item?.weight === 'number' ? item.weight : 1,
+            }))
+        : [];
+}
+
+async function resolveSkillDefinition(
+    skillName: string | null,
+    skillVersion: number | null,
+    user?: string | null,
+) {
+    const normalizedSkill = normalizeConfigSkillName(skillName);
+    if (!normalizedSkill) return null;
+
+    const skills = await db.findSkills({
+        OR: [
+            { user: user || null },
+            { user: null },
+        ],
+    });
+
+    const matchedSkill = skills
+        .filter((item: any) => normalizeConfigSkillName(item.name) === normalizedSkill)
+        .sort((a: any, b: any) => {
+            const aExactUser = Number((a.user || null) === (user || null));
+            const bExactUser = Number((b.user || null) === (user || null));
+            return bExactUser - aExactUser;
+        })[0];
+
+    if (!matchedSkill || !Array.isArray(matchedSkill.versions) || matchedSkill.versions.length === 0) {
+        return null;
+    }
+
+    const versionRecord = skillVersion != null
+        ? matchedSkill.versions.find((item: any) => item.version === skillVersion)
+        : matchedSkill.versions.find((item: any) => item.version === (matchedSkill.activeVersion ?? null)) || matchedSkill.versions[0];
+
+    if (!versionRecord?.content) {
+        return null;
+    }
+
+    return {
+        skill: matchedSkill,
+        version: versionRecord.version ?? skillVersion ?? null,
+        content: versionRecord.content as string,
+    };
+}
+
+async function findReusableKeyActions(
+    skillName: string | null,
+    skillVersion: number | null,
+    user?: string | null,
+    excludeConfigId?: string,
+) {
+    const normalizedSkill = normalizeConfigSkillName(skillName);
+    if (!normalizedSkill) return [];
+
+    const configs = await db.findConfigs({
+        OR: [
+            { user: user || null },
+            { user: null },
+        ],
+    });
+
+    const matched = configs
+        .filter((config: any) => config.id !== excludeConfigId)
+        .filter((config: any) => normalizeConfigDatasetType(config.datasetType) === 'outcome')
+        .filter((config: any) => normalizeConfigSkillName(config.skill) === normalizedSkill)
+        .filter((config: any) => (config.skillVersion ?? null) === (skillVersion ?? null))
+        .map((config: any) => ({
+            query: normalizeConfigQuery(config.query),
+            keyActions: normalizeCriteriaItems(config.keyActions ? JSON.parse(config.keyActions) : []),
+        }))
+        .filter(item => item.keyActions.length > 0)
+        .sort((a, b) => Number(a.query !== null) - Number(b.query !== null));
+
+    return matched[0]?.keyActions || [];
+}
 
 async function processConfigAsync(
     configId: string, 
@@ -96,37 +199,46 @@ async function processConfigAsync(
         }
 
         if (configSupportsDatasetType(datasetType, 'outcome')) {
-            const prompt = generateConfigExtractionPrompt(taskContext, standardAnswer);
+            if (standardAnswer.trim()) {
+                const rootCausePrompt = generateRootCauseExtractionPrompt(taskContext, standardAnswer);
+                const response = await openaiClient.chat.completions.create({
+                    messages: [{ role: "user", content: rootCausePrompt }],
+                    model: modelName,
+                });
 
-            const response = await openaiClient.chat.completions.create({
-                messages: [{ role: "user", content: prompt }],
-                model: modelName,
-            });
+                const content = response.choices[0].message.content;
+                if (!content) {
+                    throw new Error('No content returned from LLM for key point extraction');
+                }
 
-            const content = response.choices[0].message.content;
-            if (!content) {
-                throw new Error('No content returned from LLM');
+                const extractedData = parseJsonPayload<{ root_causes?: { content?: string; weight?: number }[] }>(content);
+                updates.rootCauses = JSON.stringify(normalizeCriteriaItems(extractedData.root_causes));
             }
 
-            let jsonStr = content.trim();
-            const matchParse = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)\\s*```/i);
-            if (matchParse) {
-                jsonStr = matchParse[1];
-            } else {
-                const first = jsonStr.indexOf('{');
-                const last = jsonStr.lastIndexOf('}');
-                if (first !== -1 && last !== -1 && last >= first) {
-                    jsonStr = jsonStr.substring(first, last + 1);
+            let keyActions = await findReusableKeyActions(skill, skillVersion, user, configId);
+            if (keyActions.length === 0) {
+                const skillDefinition = await resolveSkillDefinition(skill, skillVersion, user);
+                if (skillDefinition) {
+                    const skillLabel = `${normalizeConfigSkillName(skill)}${skillDefinition.version != null ? ` v${skillDefinition.version}` : ''}`;
+                    const keyActionPrompt = generateKeyActionExtractionPrompt(skillLabel, skillDefinition.content);
+                    const response = await openaiClient.chat.completions.create({
+                        messages: [{ role: "user", content: keyActionPrompt }],
+                        model: modelName,
+                    });
+
+                    const content = response.choices[0].message.content;
+                    if (!content) {
+                        throw new Error('No content returned from LLM for key action extraction');
+                    }
+
+                    const extractedData = parseJsonPayload<{ key_actions?: { content?: string; weight?: number }[] }>(content);
+                    keyActions = normalizeCriteriaItems(extractedData.key_actions);
                 }
             }
-            const extractedData = JSON.parse(jsonStr);
-            const rootCauses = extractedData.root_causes || [];
-            const keyActions = extractedData.key_actions || [];
 
-            updates.rootCauses = JSON.stringify(rootCauses);
             updates.keyActions = JSON.stringify(keyActions);
 
-            console.log(`[ConfigCreate] Successfully extracted key points for config ${configId}`);
+            console.log(`[ConfigCreate] Successfully extracted outcome criteria for config ${configId}`);
         }
 
         await db.updateConfig(configId, {
@@ -251,13 +363,16 @@ export async function POST(request: Request) {
             }
 
             return normalizeConfigSkillName(c.skill) === skill
-                && (c.skillVersion ?? null) === (skillVersion ?? null);
+                && (c.skillVersion ?? null) === (skillVersion ?? null)
+                && normalizeConfigQuery(c.query) === query;
         });
         if (existing) {
             return NextResponse.json({
                 error: datasetType === 'routing'
                     ? '该问题已存在于当前数据集类型中'
-                    : '该目标 skill 已存在于当前效果数据集中'
+                    : query
+                        ? '该目标 skill 的当前业务场景已存在于效果数据集中'
+                        : '该目标 skill 的通用效果数据已存在于当前效果数据集中'
             }, { status: 409 });
         }
 
@@ -265,7 +380,7 @@ export async function POST(request: Request) {
         const newConfig = await db.createConfig({
             query,
             skill: skill || '',
-            skillVersion: skillVersion || null,
+            skillVersion: skillVersion ?? null,
             datasetType,
             routingIntent: null,
             routingAnchors: null,

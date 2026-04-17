@@ -352,10 +352,11 @@ function resolveOutcomeTarget(
 
 export function findBestOutcomeConfig(
     configs: ConfigItem[],
-    record: Pick<ExecutionRecord, 'skill' | 'skill_version' | 'invokedSkills' | 'skills'>
+    record: Pick<ExecutionRecord, 'query' | 'skill' | 'skill_version' | 'invokedSkills' | 'skills'>
 ): ConfigItem | undefined {
     const target = resolveOutcomeTarget(record);
     if (!target) return undefined;
+    const normalizedQuery = normalizeConfigQuery(record.query);
 
     const matchingConfigs = configs
         .filter(config => configSupportsDatasetType(config.dataset_type, 'outcome'))
@@ -363,6 +364,13 @@ export function findBestOutcomeConfig(
         .filter(config => {
             const configVersion = config.skillVersion ?? null;
             return configVersion === null || configVersion === target.version;
+        })
+        .filter(config => {
+            const scenarioQuery = normalizeConfigQuery(config.query);
+            if (!scenarioQuery) {
+                return true;
+            }
+            return scenarioQuery === normalizedQuery;
         });
 
     if (matchingConfigs.length === 0) {
@@ -374,6 +382,18 @@ export function findBestOutcomeConfig(
         const currentExactVersion = (current.skillVersion ?? null) !== null && current.skillVersion === target.version;
         if (bestExactVersion !== currentExactVersion) {
             return currentExactVersion ? current : best;
+        }
+
+        const bestExactScenario = normalizeConfigQuery(best.query) === normalizedQuery;
+        const currentExactScenario = normalizeConfigQuery(current.query) === normalizedQuery;
+        if (bestExactScenario !== currentExactScenario) {
+            return currentExactScenario ? current : best;
+        }
+
+        const bestIsCanonical = !normalizeConfigQuery(best.query);
+        const currentIsCanonical = !normalizeConfigQuery(current.query);
+        if (bestIsCanonical !== currentIsCanonical) {
+            return currentIsCanonical ? current : best;
         }
 
         const bestPriority = getDatasetTypePriority(best.dataset_type, 'outcome');

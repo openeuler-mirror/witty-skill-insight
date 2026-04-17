@@ -1,7 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { OpenAI } from 'openai';
-import { generateConfigExtractionPrompt } from '@/prompts/config-extraction-prompt';
+import {
+  generateKeyActionExtractionPrompt,
+  generateRootCauseExtractionPrompt,
+} from '@/prompts/config-extraction-prompt';
 import {
   generateOutcomeBenchmarkPrompt,
   generateRoutingBenchmarkPrompt,
@@ -232,15 +235,22 @@ async function generateOutcomeCriteria(
   query: string | null,
   skillName: string,
   skillVersion: number | null,
+  skillContent: string,
   standardAnswer: string,
 ) {
   const taskContext = getConfigSubjectLabel({ query, skill: skillName, skillVersion });
-  const prompt = generateConfigExtractionPrompt(taskContext, standardAnswer);
-  const raw = await completeJsonPrompt(client, model, prompt);
-  const parsed = parseJsonPayload<{
+  const rootCausePrompt = generateRootCauseExtractionPrompt(taskContext, standardAnswer);
+  const rootCauseRaw = await completeJsonPrompt(client, model, rootCausePrompt);
+  const rootCauseParsed = parseJsonPayload<{
     root_causes?: { content: string; weight?: number }[];
+  }>(rootCauseRaw);
+
+  const skillLabel = `${skillName}${skillVersion != null ? ` v${skillVersion}` : ''}`;
+  const keyActionPrompt = generateKeyActionExtractionPrompt(skillLabel, skillContent);
+  const keyActionRaw = await completeJsonPrompt(client, model, keyActionPrompt);
+  const keyActionParsed = parseJsonPayload<{
     key_actions?: { content: string; weight?: number }[];
-  }>(raw);
+  }>(keyActionRaw);
 
   const normalizeItems = (items?: { content: string; weight?: number }[]) =>
     Array.isArray(items)
@@ -253,8 +263,8 @@ async function generateOutcomeCriteria(
       : [];
 
   return {
-    rootCauses: normalizeItems(parsed.root_causes),
-    keyActions: normalizeItems(parsed.key_actions),
+    rootCauses: normalizeItems(rootCauseParsed.root_causes),
+    keyActions: normalizeItems(keyActionParsed.key_actions),
   };
 }
 
@@ -388,6 +398,7 @@ export async function generateBenchmarksForSkill(
       outcomeDraft.sourceScenario,
       skillName,
       targetVersionNumber,
+      targetVersion.content,
       outcomeDraft.standardAnswer,
     );
 

@@ -70,3 +70,4 @@ bun.lock
 
 # Agent development configuration
 .agentdev/
+_local_legacy/

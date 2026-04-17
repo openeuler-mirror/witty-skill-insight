@@ -6,6 +6,36 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+function normalizeOutcomeKeyActions(configs: any[]) {
+  const grouped = new Map<string, any[]>();
+
+  for (const item of configs) {
+    if (normalizeConfigDatasetType(item.dataset_type || item.datasetType) !== 'outcome') continue;
+    const skill = normalizeConfigSkillName(item.skill);
+    if (!skill) continue;
+    const version = normalizeOptionalSkillVersion(item.skillVersion);
+    const groupKey = `${skill}::${version ?? 'any'}`;
+    const items = grouped.get(groupKey) || [];
+    items.push(item);
+    grouped.set(groupKey, items);
+  }
+
+  for (const items of grouped.values()) {
+    const canonical = items
+      .slice()
+      .sort((a, b) => Number(Boolean(normalizeConfigQuery(a.query))) - Number(Boolean(normalizeConfigQuery(b.query))))
+      .find(item => Array.isArray(item.key_actions) && item.key_actions.length > 0);
+
+    if (!canonical || !Array.isArray(canonical.key_actions) || canonical.key_actions.length === 0) continue;
+
+    for (const item of items) {
+      item.key_actions = canonical.key_actions;
+    }
+  }
+
+  return configs;
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -20,11 +50,13 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { configs: newConfig, user } = await request.json();
+    const { configs: incomingConfig, user } = await request.json();
     
-    if (!Array.isArray(newConfig)) {
+    if (!Array.isArray(incomingConfig)) {
        return NextResponse.json({ error: 'Invalid config format, expected array' }, { status: 400 });
     }
+
+    const newConfig = normalizeOutcomeKeyActions(incomingConfig);
 
     if (!user) {
         return NextResponse.json({ error: 'User is required for scoped config' }, { status: 400 });

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiFetch } from '@/lib/api';
+import { apiFetch } from '@/lib/api'
+import { useTheme, useThemeColors } from '@/lib/theme-context';
 
 interface ExecutionFlowComparisonProps {
   executionId: string;
@@ -43,9 +44,9 @@ interface MatchData {
   usedSkillVersion?: number;
 }
 
-export default function ExecutionFlowComparison({ 
-  executionId, 
-  skillId, 
+export default function ExecutionFlowComparison({
+  executionId,
+  skillId,
   user,
   onStepClick
 }: ExecutionFlowComparisonProps) {
@@ -55,6 +56,9 @@ export default function ExecutionFlowComparison({
   const [error, setError] = useState<string>('');
   const [analysisExpanded, setAnalysisExpanded] = useState(true);
   const [componentExpanded, setComponentExpanded] = useState(false);
+    const { isDark } = useTheme();
+    const c = useThemeColors();
+
 
   const actualSkillId = skillId && skillId.trim() ? skillId : null;
 
@@ -73,16 +77,16 @@ export default function ExecutionFlowComparison({
     setAnalyzing(true);
     setError('');
     setAnalyzeMode('dynamic');
-    
+
     try {
       const res = await apiFetch(`/api/executions/${executionId}/analyze-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user, mode: 'dynamic' })
       });
-      
+
       const result = await res.json();
-      
+
       if (result.success) {
         setMatchData({
           analyzed: true,
@@ -111,16 +115,16 @@ export default function ExecutionFlowComparison({
     setAnalyzing(true);
     setError('');
     setAnalyzeMode('compare');
-    
+
     try {
       const res = await apiFetch(`/api/executions/${executionId}/analyze-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user, mode: 'compare' })
       });
-      
+
       const result = await res.json();
-      
+
       if (result.success) {
         const problemSteps = result.match?.problemSteps || [];
         setMatchData({
@@ -149,16 +153,16 @@ export default function ExecutionFlowComparison({
   };
 
   return (
-    <div style={{ 
-      background: '#1e293b', 
-      borderRadius: '8px', 
-      border: '1px solid #334155',
+    <div style={{
+      background: c.bgSecondary,
+      borderRadius: '8px',
+      border: `1px solid ${c.border}`,
       marginBottom: '2rem',
       overflow: 'hidden'
     }}>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
         alignItems: 'center',
         padding: '1rem 1.5rem',
         borderBottom: componentExpanded ? '1px solid #334155' : 'none',
@@ -166,19 +170,19 @@ export default function ExecutionFlowComparison({
       }}
       onClick={() => setComponentExpanded(!componentExpanded)}
       >
-        <h4 style={{ color: '#38bdf8', margin: 0, fontSize: '0.95rem' }}>
+        <h4 style={{ color: c.primary, margin: 0, fontSize: '0.95rem' }}>
           📊 执行流程分析
         </h4>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <span style={{ color: '#94a3b8', fontSize: '0.8rem', marginRight: '0.5rem' }}>
+          <span style={{ color: c.fgMuted, fontSize: '0.8rem', marginRight: '0.5rem' }}>
             {componentExpanded ? '收起' : '展开'}
           </span>
           <button
             style={{
-              background: '#334155',
+              background: c.border,
               border: 'none',
               borderRadius: '4px',
-              color: '#94a3b8',
+              color: c.fgMuted,
               padding: '4px 8px',
               cursor: 'pointer',
               fontSize: '0.8rem'
@@ -191,9 +195,9 @@ export default function ExecutionFlowComparison({
 
       {componentExpanded && (
         <div style={{ padding: '1.5rem' }}>
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'flex-end', 
+          <div style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
             alignItems: 'center',
             marginBottom: '1rem'
           }}>
@@ -204,7 +208,7 @@ export default function ExecutionFlowComparison({
                 style={{
                   padding: '6px 16px',
                   background: analyzing && analyzeMode === 'dynamic' ? '#334155' : '#22c55e',
-                  color: analyzing && analyzeMode === 'dynamic' ? '#94a3b8' : '#0f172a',
+                  color: analyzing && analyzeMode === 'dynamic' ? '#a1a1aa' : '#18181b',
                   border: 'none',
                   borderRadius: '4px',
                   cursor: analyzing ? 'not-allowed' : 'pointer',
@@ -220,7 +224,7 @@ export default function ExecutionFlowComparison({
                 style={{
                   padding: '6px 16px',
                   background: analyzing && analyzeMode === 'compare' ? '#334155' : '#38bdf8',
-                  color: analyzing && analyzeMode === 'compare' ? '#94a3b8' : '#0f172a',
+                  color: analyzing && analyzeMode === 'compare' ? '#a1a1aa' : '#18181b',
                   border: 'none',
                   borderRadius: '4px',
                   cursor: analyzing ? 'not-allowed' : 'pointer',
@@ -234,11 +238,11 @@ export default function ExecutionFlowComparison({
           </div>
 
           {error && (
-            <div style={{ 
-              padding: '0.75rem', 
-              background: 'rgba(248, 113, 113, 0.1)', 
-              borderRadius: '4px', 
-              color: '#f87171',
+            <div style={{
+              padding: '0.75rem',
+              background: c.errorSubtle,
+              borderRadius: '4px',
+              color: c.error,
               marginBottom: '1rem',
               fontSize: '0.9rem'
             }}>
@@ -250,14 +254,14 @@ export default function ExecutionFlowComparison({
             <div>
               {matchData.mode === 'compare' && matchData.dynamicMermaid ? (
                 <div style={{ marginBottom: '1rem' }}>
-                  <h5 style={{ color: '#94a3b8', margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>
+                  <h5 style={{ color: c.fgMuted, margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>
                     执行流程对比 {matchData.usedSkillName && `(${matchData.usedSkillName} v${matchData.usedSkillVersion})`}
                   </h5>
-                  <div style={{ 
-                    background: '#0f172a', 
-                    padding: '1rem', 
-                    borderRadius: '6px', 
-                    border: '1px solid #334155',
+                  <div style={{
+                    background: c.bg,
+                    padding: '1rem',
+                    borderRadius: '6px',
+                    border: `1px solid ${c.border}`,
                     minHeight: '250px',
                     overflowX: 'auto',
                     overflowY: 'auto'
@@ -267,14 +271,14 @@ export default function ExecutionFlowComparison({
                 </div>
               ) : (
                 <div style={{ marginBottom: '1rem' }}>
-                  <h5 style={{ color: '#94a3b8', margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>
+                  <h5 style={{ color: c.fgMuted, margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>
                     执行轨迹
                   </h5>
-                  <div style={{ 
-                    background: '#0f172a', 
-                    padding: '1rem', 
-                    borderRadius: '6px', 
-                    border: '1px solid #334155',
+                  <div style={{
+                    background: c.bg,
+                    padding: '1rem',
+                    borderRadius: '6px',
+                    border: `1px solid ${c.border}`,
                     minHeight: '180px',
                     overflowX: 'auto',
                     overflowY: 'auto'
@@ -290,29 +294,29 @@ export default function ExecutionFlowComparison({
                   try {
                     summary = JSON.parse(matchData.matchJson)?.summary;
                   } catch {}
-                  
+
                   if (!summary) return null;
-                  
+
                   return (
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '1.5rem', 
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '1.5rem',
                       padding: '0.75rem',
-                      background: '#0f172a',
+                      background: c.bg,
                       borderRadius: '6px',
                       marginBottom: '1rem'
                     }}>
                       <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.85rem' }}>
-                        <span style={{ color: '#4ade80' }}>✅ 符合预期：{summary.matchedSteps || 0}</span>
-                        <span style={{ color: '#fbbf24' }}>⚠️ 部分偏离：{summary.partialSteps || 0}</span>
-                        <span style={{ color: '#f87171' }}>❌ 非预期调用：{summary.unexpectedSteps || 0}</span>
-                        <span style={{ color: '#94a3b8' }}>⭕ 跳过：{summary.skippedSteps || 0}</span>
+                        <span style={{ color: c.success }}>✅ 符合预期：{summary.matchedSteps || 0}</span>
+                        <span style={{ color: c.warning }}>⚠️ 部分偏离：{summary.partialSteps || 0}</span>
+                        <span style={{ color: c.error }}>❌ 非预期调用：{summary.unexpectedSteps || 0}</span>
+                        <span style={{ color: c.fgMuted }}>⭕ 跳过：{summary.skippedSteps || 0}</span>
                       </div>
-                      <div style={{ marginLeft: 'auto', fontSize: '0.8rem', color: '#64748b' }}>
+                      <div style={{ marginLeft: 'auto', fontSize: '0.8rem', color: c.fgSecondary }}>
                         对话轮数: {matchData.interactionCount}
                         {matchData.hasUpdate && (
-                          <span style={{ color: '#fbbf24', marginLeft: '0.5rem' }}>
+                          <span style={{ color: c.warning, marginLeft: '0.5rem' }}>
                             (有更新)
                           </span>
                         )}
@@ -324,25 +328,25 @@ export default function ExecutionFlowComparison({
 
               {matchData.mode === 'compare' && matchData.analysisText && (
                 <div style={{ marginBottom: '1rem' }}>
-                  <div 
-                    style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
                       alignItems: 'center',
                       cursor: 'pointer',
                       marginBottom: '0.5rem'
                     }}
                     onClick={() => setAnalysisExpanded(!analysisExpanded)}
                   >
-                    <h5 style={{ color: '#94a3b8', margin: 0, fontSize: '0.85rem' }}>
+                    <h5 style={{ color: c.fgMuted, margin: 0, fontSize: '0.85rem' }}>
                       问题步骤分析
                     </h5>
                     <button
                       style={{
-                        background: '#334155',
+                        background: c.border,
                         border: 'none',
                         borderRadius: '4px',
-                        color: '#94a3b8',
+                        color: c.fgMuted,
                         padding: '4px 8px',
                         cursor: 'pointer',
                         fontSize: '0.8rem'
@@ -358,69 +362,69 @@ export default function ExecutionFlowComparison({
                         problemSteps = JSON.parse(matchData.analysisText);
                       } catch {
                         return (
-                          <div style={{ 
-                            background: '#0f172a', 
-                            padding: '1rem', 
-                            borderRadius: '6px', 
-                            border: '1px solid #334155',
-                            color: '#64748b',
+                          <div style={{
+                            background: c.bg,
+                            padding: '1rem',
+                            borderRadius: '6px',
+                            border: `1px solid ${c.border}`,
+                            color: c.fgSecondary,
                             fontSize: '0.9rem'
                           }}>
                             暂无问题步骤
                           </div>
                         );
                       }
-                      
+
                       if (!Array.isArray(problemSteps) || problemSteps.length === 0) {
                         return (
-                          <div style={{ 
-                            background: '#0f172a', 
-                            padding: '1rem', 
-                            borderRadius: '6px', 
-                            border: '1px solid #334155',
-                            color: '#4ade80',
+                          <div style={{
+                            background: c.bg,
+                            padding: '1rem',
+                            borderRadius: '6px',
+                            border: `1px solid ${c.border}`,
+                            color: c.success,
                             fontSize: '0.9rem'
                           }}>
                             ✅ 执行流程完全符合预期，无问题步骤
                           </div>
                         );
                       }
-                      
+
                       const statusLabel: Record<string, { text: string; color: string }> = {
-                        'partial': { text: '部分偏离', color: '#fbbf24' },
-                        'unexpected': { text: '非预期调用', color: '#f87171' },
-                        'skipped': { text: '跳过', color: '#94a3b8' }
+                        'partial': { text: '部分偏离', color: c.warning },
+                        'unexpected': { text: '非预期调用', color: c.error },
+                        'skipped': { text: '跳过', color: c.fgMuted }
                       };
-                      
+
                       return (
-                        <div style={{ 
-                          background: '#0f172a', 
-                          borderRadius: '6px', 
-                          border: '1px solid #334155',
+                        <div style={{
+                          background: c.bg,
+                          borderRadius: '6px',
+                          border: `1px solid ${c.border}`,
                           overflow: 'hidden'
                         }}>
-                          <table style={{ 
-                            width: '100%', 
+                          <table style={{
+                            width: '100%',
                             borderCollapse: 'collapse',
                             fontSize: '0.9rem'
                           }}>
                             <thead>
-                              <tr style={{ background: '#1e293b' }}>
-                                <th style={{ padding: '0.75rem', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155', width: '80px' }}>对话轮数</th>
-                                <th style={{ padding: '0.75rem', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155', width: '120px' }}>步骤名称</th>
-                                <th style={{ padding: '0.75rem', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155', width: '110px' }}>状态</th>
-                                <th style={{ padding: '0.75rem', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155' }}>问题描述</th>
-                                <th style={{ padding: '0.75rem', textAlign: 'left', color: '#94a3b8', borderBottom: '1px solid #334155' }}>改进建议</th>
+                              <tr style={{ background: c.bgSecondary }}>
+                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}`, width: '80px' }}>对话轮数</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}`, width: '120px' }}>步骤名称</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}`, width: '110px' }}>状态</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}` }}>问题描述</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}` }}>改进建议</th>
                               </tr>
                             </thead>
                             <tbody>
                               {problemSteps.map((step, index) => (
-                                <tr key={index} style={{ background: index % 2 === 0 ? '#0f172a' : '#111827' }}>
-                                  <td 
-                                    style={{ 
-                                      padding: '0.75rem', 
-                                      color: onStepClick ? '#38bdf8' : '#e2e8f0', 
-                                      borderBottom: '1px solid #334155',
+                                <tr key={index} style={{ background: index % 2 === 0 ? '#18181b' : '#111827' }}>
+                                  <td
+                                    style={{
+                                      padding: '0.75rem',
+                                      color: onStepClick ? '#38bdf8' : '#e4e4e7',
+                                      borderBottom: `1px solid ${c.border}`,
                                       cursor: onStepClick ? 'pointer' : 'default',
                                       textDecoration: onStepClick ? 'underline' : 'none'
                                     }}
@@ -428,20 +432,20 @@ export default function ExecutionFlowComparison({
                                   >
                                     #{step.stepIndex}
                                   </td>
-                                  <td style={{ padding: '0.75rem', color: '#e2e8f0', borderBottom: '1px solid #334155' }}>{step.stepName}</td>
-                                  <td style={{ padding: '0.75rem', borderBottom: '1px solid #334155' }}>
-                                    <span style={{ 
-                                      padding: '2px 8px', 
-                                      borderRadius: '4px', 
-                                      background: `${statusLabel[step.status]?.color || '#94a3b8'}20`,
-                                      color: statusLabel[step.status]?.color || '#94a3b8',
+                                  <td style={{ padding: '0.75rem', color: c.fg, borderBottom: `1px solid ${c.border}` }}>{step.stepName}</td>
+                                  <td style={{ padding: '0.75rem', borderBottom: `1px solid ${c.border}` }}>
+                                    <span style={{
+                                      padding: '2px 8px',
+                                      borderRadius: '4px',
+                                      background: `${statusLabel[step.status]?.color || '#a1a1aa'}20`,
+                                      color: statusLabel[step.status]?.color || '#a1a1aa',
                                       fontSize: '0.8rem'
                                     }}>
                                       {statusLabel[step.status]?.text || step.status}
                                     </span>
                                   </td>
-                                  <td style={{ padding: '0.75rem', color: '#e2e8f0', borderBottom: '1px solid #334155' }}>{step.problem}</td>
-                                  <td style={{ padding: '0.75rem', color: '#38bdf8', borderBottom: '1px solid #334155' }}>{step.suggestion}</td>
+                                  <td style={{ padding: '0.75rem', color: c.fg, borderBottom: `1px solid ${c.border}` }}>{step.problem}</td>
+                                  <td style={{ padding: '0.75rem', color: c.primary, borderBottom: `1px solid ${c.border}` }}>{step.suggestion}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -454,8 +458,8 @@ export default function ExecutionFlowComparison({
               )}
             </div>
           ) : (
-            <div style={{ 
-              color: '#64748b', 
+            <div style={{
+              color: c.fgSecondary,
               fontSize: '0.9rem',
               textAlign: 'center',
               padding: '2rem'
@@ -475,6 +479,8 @@ export default function ExecutionFlowComparison({
 }
 
 function MermaidRenderer({ code }: { code: string }) {
+  const { isDark } = useTheme();
+  const c = useThemeColors();
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string>('');
 
@@ -482,10 +488,10 @@ function MermaidRenderer({ code }: { code: string }) {
     const renderMermaid = async () => {
       try {
         const mermaid = (await import('mermaid')).default;
-        mermaid.initialize({ 
-          startOnLoad: false, 
+        mermaid.initialize({
+          startOnLoad: false,
           theme: 'dark',
-          flowchart: { 
+          flowchart: {
             useMaxWidth: false,
             curve: 'basis'
           },
@@ -505,23 +511,23 @@ function MermaidRenderer({ code }: { code: string }) {
   }, [code]);
 
   if (error) {
-    return <div style={{ color: '#f87171' }}>{error}</div>;
+    return <div style={{ color: c.error }}>{error}</div>;
   }
 
   if (!svg) {
-    return <div style={{ color: '#64748b' }}>加载中...</div>;
+    return <div style={{ color: c.fgSecondary }}>加载中...</div>;
   }
 
   return (
-    <div 
-      style={{ 
-        width: '100%', 
-        display: 'flex', 
+    <div
+      style={{
+        width: '100%',
+        display: 'flex',
         justifyContent: 'flex-start',
         alignItems: 'flex-start',
         minWidth: 'max-content'
       }}
-      dangerouslySetInnerHTML={{ __html: svg }} 
+      dangerouslySetInnerHTML={{ __html: svg }}
     />
   );
 }

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { SkillLinks } from './SkillLink';
-import { useTheme } from '@/lib/theme-context';
+import { useTheme, useThemeColors } from '@/lib/theme-context';
 import { apiFetch, getApiUrl } from '@/lib/api';
 import {
     configSupportsDatasetType,
@@ -160,7 +160,8 @@ interface AvgComparison {
     [key: string]: string | number | null;
 }
 
-const COLORS = ['#2563eb', '#db2777', '#16a34a', '#d97706', '#7c3aed', '#dc2626'];
+const CHART_COLORS = ['#2563eb', '#7c3aed', '#16a34a', '#d97706', '#db2777', '#dc2626'];
+const CHART_COLORS_DARK = ['#3b82f6', '#818cf8', '#22c55e', '#f59e0b', '#f472b6', '#ef4444'];
 const basePath = process.env.NEXT_PUBLIC_URL_PREFIX || '';
 
 // --- Helpers ---
@@ -214,7 +215,7 @@ const getMetricLabel = (metric: BestWorstMetric): string => {
     switch (metric) {
         case 'latency': return '时延';
         case 'accuracy': return '准确率';
-        case 'tokens': return 'Token';
+        case 'tokens': return '令牌数';
         case 'cost': return '成本';
         case 'recall': return '召回率';
     }
@@ -234,14 +235,14 @@ const isMetricLowerBetter = (metric: BestWorstMetric): boolean => {
     return metric === 'latency' || metric === 'tokens' || metric === 'cost';
 };
 
-const formatDiff = (diff: number | null, lowerBetter: boolean): React.ReactNode => {
+const formatDiff = (diff: number | null, lowerBetter: boolean, isDark: boolean = false): React.ReactNode => {
     if (diff === null) return null;
     if (Math.abs(diff) < 0.05) {
-        return <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '4px' }}>—</span>;
+        return <span style={{ fontSize: '0.75rem', color: isDark ? '#71717a' : '#a1a1aa', marginLeft: '4px' }}>—</span>;
     }
     const isPositive = diff > 0;
     const isGood = lowerBetter ? !isPositive : isPositive;
-    const color = isGood ? '#4ade80' : '#f87171';
+    const color = isGood ? (isDark ? '#22c55e' : '#16a34a') : (isDark ? '#ef4444' : '#dc2626');
     const arrow = isPositive ? '↑' : '↓';
     return <span style={{ fontSize: '0.75rem', color, marginLeft: '4px' }}>{arrow}{Math.abs(diff).toFixed(1)}%</span>;
 };
@@ -271,9 +272,9 @@ const getConfigDisplayTitle = (config: ConfigItem, sectionType: 'routing' | 'out
             return semanticIntent;
         }
         const query = normalizeConfigQuery(config.query);
-        return query ? truncateCardText(query) : 'Untitled routing benchmark';
+        return query ? truncateCardText(query) : '未命名 Skill 召回率基准';
     }
-    return formatSkillTargetLabel(config.skill, config.skillVersion ?? null) || 'Unbound outcome benchmark';
+    return formatSkillTargetLabel(config.skill, config.skillVersion ?? null) || '未绑定 Skill 执行效果基准';
 };
 
 const getOutcomeTargetMeta = (config: ConfigItem) => {
@@ -291,7 +292,7 @@ const getRoutingSourceQueryMeta = (config: ConfigItem) => {
 const getRoutingEvaluationMeta = (routing?: RoutingEvaluation) => {
     if (!routing || routing.status === 'missing') {
         return {
-            label: 'No routing dataset',
+            label: '未配置 Skill 召回率数据集',
             accent: '#94a3b8',
             background: 'rgba(148, 163, 184, 0.12)',
             border: 'rgba(148, 163, 184, 0.35)',
@@ -300,7 +301,7 @@ const getRoutingEvaluationMeta = (routing?: RoutingEvaluation) => {
 
     if ((routing.recall_rate ?? 0) >= 1) {
         return {
-            label: 'Route hit',
+            label: '完全命中',
             accent: '#4ade80',
             background: 'rgba(74, 222, 128, 0.12)',
             border: 'rgba(74, 222, 128, 0.35)',
@@ -309,7 +310,7 @@ const getRoutingEvaluationMeta = (routing?: RoutingEvaluation) => {
 
     if (routing.is_correct) {
         return {
-            label: 'Partial hit',
+            label: '部分命中',
             accent: '#fbbf24',
             background: 'rgba(251, 191, 36, 0.12)',
             border: 'rgba(251, 191, 36, 0.35)',
@@ -317,7 +318,7 @@ const getRoutingEvaluationMeta = (routing?: RoutingEvaluation) => {
     }
 
     return {
-        label: 'Route miss',
+        label: '未命中',
         accent: '#f87171',
         background: 'rgba(248, 113, 113, 0.12)',
         border: 'rgba(248, 113, 113, 0.35)',
@@ -327,7 +328,7 @@ const getRoutingEvaluationMeta = (routing?: RoutingEvaluation) => {
 const getOutcomeEvaluationMeta = (outcome?: OutcomeEvaluation) => {
     if (!outcome || outcome.status === 'missing') {
         return {
-            label: 'No outcome dataset',
+            label: '未配置 Skill 执行效果数据集',
             accent: '#94a3b8',
             background: 'rgba(148, 163, 184, 0.12)',
             border: 'rgba(148, 163, 184, 0.35)',
@@ -336,7 +337,7 @@ const getOutcomeEvaluationMeta = (outcome?: OutcomeEvaluation) => {
 
     if (outcome.status === 'pending') {
         return {
-            label: 'Pending',
+            label: '评测中',
             accent: '#38bdf8',
             background: 'rgba(56, 189, 248, 0.12)',
             border: 'rgba(56, 189, 248, 0.35)',
@@ -345,7 +346,7 @@ const getOutcomeEvaluationMeta = (outcome?: OutcomeEvaluation) => {
 
     if ((outcome.score ?? 0) > 0.8) {
         return {
-            label: 'Outcome pass',
+            label: '达标',
             accent: '#4ade80',
             background: 'rgba(74, 222, 128, 0.12)',
             border: 'rgba(74, 222, 128, 0.35)',
@@ -353,7 +354,7 @@ const getOutcomeEvaluationMeta = (outcome?: OutcomeEvaluation) => {
     }
 
     return {
-        label: 'Outcome needs work',
+        label: '待改进',
         accent: '#f87171',
         background: 'rgba(248, 113, 113, 0.12)',
         border: 'rgba(248, 113, 113, 0.35)',
@@ -363,29 +364,29 @@ const getOutcomeEvaluationMeta = (outcome?: OutcomeEvaluation) => {
 const getRoutingSkillStatusMeta = (status?: RoutingSkillBreakdown['status'] | 'missing_dataset') => {
     switch (status) {
         case 'matched':
-            return { label: 'Matched', color: '#4ade80', background: 'rgba(74, 222, 128, 0.12)', border: 'rgba(74, 222, 128, 0.35)' };
+            return { label: '命中', color: '#4ade80', background: 'rgba(74, 222, 128, 0.12)', border: 'rgba(74, 222, 128, 0.35)' };
         case 'missed':
-            return { label: 'Missed', color: '#f87171', background: 'rgba(248, 113, 113, 0.12)', border: 'rgba(248, 113, 113, 0.35)' };
+            return { label: '漏召回', color: '#f87171', background: 'rgba(248, 113, 113, 0.12)', border: 'rgba(248, 113, 113, 0.35)' };
         case 'unexpected':
-            return { label: 'Unexpected', color: '#fbbf24', background: 'rgba(251, 191, 36, 0.12)', border: 'rgba(251, 191, 36, 0.35)' };
+            return { label: '误召回', color: '#fbbf24', background: 'rgba(251, 191, 36, 0.12)', border: 'rgba(251, 191, 36, 0.35)' };
         case 'missing_dataset':
-            return { label: 'No routing dataset', color: '#94a3b8', background: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.35)' };
+            return { label: '未配置 Skill 召回率数据集', color: '#94a3b8', background: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.35)' };
         default:
-            return { label: 'Context only', color: '#94a3b8', background: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.35)' };
+            return { label: '仅上下文涉及', color: '#94a3b8', background: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.35)' };
     }
 };
 
 const calculateCPSR = (records: Execution[]): number | null => {
     const recordsWithCost = records.filter(d => d.cost != null);
     if (recordsWithCost.length === 0) return null;
-    
+
     const totalRuns = recordsWithCost.length;
     const successfulRuns = recordsWithCost.filter(d => d.is_answer_correct).length;
     if (successfulRuns === 0) return null;
-    
+
     const successRate = successfulRuns / totalRuns;
     const avgCost = recordsWithCost.reduce((sum, d) => sum + (d.cost || 0), 0) / totalRuns;
-    
+
     return avgCost / successRate;
 };
 
@@ -450,7 +451,7 @@ const calculateSkillLift = (records: Execution[], skillLabel: string): SkillLift
             passNoSkill,
             evaluatedSkillCount,
             evaluatedBaselineCount,
-            reason: '当前数据不足以完成 Skill Lift 计算。'
+            reason: '当前数据不足以完成 技能提升计算。'
         };
     }
 
@@ -489,6 +490,7 @@ const formatDateTime = (ts: string | Date) => {
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const CustomTooltip = ({ content }: { content: React.ReactNode }) => {
+    const tc = useThemeColors();
     const [visible, setVisible] = useState(false);
     const triggerRef = useRef<HTMLSpanElement>(null);
     const [coords, setCoords] = useState({ top: 0, left: 0 });
@@ -520,9 +522,9 @@ const CustomTooltip = ({ content }: { content: React.ReactNode }) => {
                     top: coords.top - 8,
                     left: coords.left,
                     transform: 'translate(-50%, -100%)',
-                    background: '#ffffff',
-                    border: '1px solid #e2e8f0',
-                    color: '#334155',
+                    background: tc.bg,
+                    border: `1px solid ${tc.border}`,
+                    color: tc.fg,
                     padding: '6px 10px',
                     borderRadius: '4px',
                     whiteSpace: 'pre-wrap',
@@ -533,7 +535,6 @@ const CustomTooltip = ({ content }: { content: React.ReactNode }) => {
                     pointerEvents: 'none'
                 }}>
                     {content}
-                    {/* Arrow */}
                     <div style={{
                         position: 'absolute',
                         top: '100%',
@@ -543,7 +544,7 @@ const CustomTooltip = ({ content }: { content: React.ReactNode }) => {
                         height: 0,
                         borderLeft: '4px solid transparent',
                         borderRight: '4px solid transparent',
-                        borderTop: '4px solid #e2e8f0'
+                        borderTop: `4px solid ${tc.border}`
                     }} />
                 </div>,
                 document.body
@@ -563,6 +564,7 @@ export default function Dashboard() {
     const { user, apiKey } = useAuth();
     const [isOrgMode, setIsOrgMode] = useState(false);
     const { theme, toggleTheme, isDark } = useTheme();
+    const c = useThemeColors();
     const [localApiKey, setLocalApiKey] = useState<string | null>(null);
 
     const {
@@ -583,7 +585,7 @@ export default function Dashboard() {
                 guideState.completedSteps,
                 guideState.skippedSteps
             );
-            
+
             // Generate setup commands for welcome step
             const stepsWithCommands = filtered.map(step => {
                 if (step.id === 'welcome' && apiKey && typeof window !== 'undefined') {
@@ -591,10 +593,10 @@ export default function Dashboard() {
                     const protocol = window.location.protocol;
                     const baseUrl = `${protocol}//${host}`;
                     const setupUrl = getApiUrl('/api/setup');
-                    
+
                     const linuxCommand = `curl -sSf "${baseUrl}${setupUrl}" | bash`;
                     const windowsCommand = `irm "${baseUrl}${setupUrl}" | iex`;
-                    
+
                     return {
                         ...step,
                         setupCommands: {
@@ -606,7 +608,7 @@ export default function Dashboard() {
                 }
                 return step;
             });
-            
+
             setGuideSteps(stepsWithCommands);
         }
     }, [guideState, apiKey]);
@@ -624,7 +626,7 @@ export default function Dashboard() {
     const [activeTab, setActiveTab] = useState<'dashboard' | 'config' | 'skill'>('dashboard');
     const [showUserModal, setShowUserModal] = useState(false); // State for User Modal
 
-    // Fetch fresh API Key from DB when user modal opens to ensure accuracy
+    // Fetch fresh 密钥 from DB when user modal opens to ensure accuracy
     useEffect(() => {
         if (showUserModal && user) {
             apiFetch('/api/auth/apikey', {
@@ -649,7 +651,7 @@ export default function Dashboard() {
 
     // Config States
     const [configs, setConfigs] = useState<ConfigItem[]>([]);
-    const [availableSkills, setAvailableSkills] = useState<SkillOption[]>([]); 
+    const [availableSkills, setAvailableSkills] = useState<SkillOption[]>([]);
 
 
     // Rejudge State
@@ -670,7 +672,7 @@ export default function Dashboard() {
     // Drill-down Filters
     const [selectedFramework, setSelectedFramework] = useState<string>('');
     const [selectedQuery, setSelectedQuery] = useState<string>('');
-    const [selectedLabel, setSelectedLabel] = useState<string>(''); 
+    const [selectedLabel, setSelectedLabel] = useState<string>('');
 
     // Comparison Options
     const [comparisonGroupByLabel, setComparisonGroupByLabel] = useState(false);
@@ -777,7 +779,7 @@ export default function Dashboard() {
             if (res.ok) {
                 setAllConfigs(newConfigs);
                 setActiveConfigId(newActiveId);
-                setEditingConfigId(null); 
+                setEditingConfigId(null);
                 setSettingsStatus({ type: 'success', msg: 'Saved!' });
                 setTimeout(() => setSettingsStatus(null), 1500);
             } else {
@@ -873,10 +875,10 @@ export default function Dashboard() {
             // Witty_public special case: if user is 'public', map to 'witty_public'
             // OR if user wants to see public data, maybe we should have a toggle?
             // The prompt says "why I cannot see my date when login as public".
-            // Previously we migrated data to 'witty_public'. 
+            // Previously we migrated data to 'witty_public'.
             // So if user logs in as 'public', they are actually 'public' user, but data is in 'witty_public'.
             // Let's assume the user meant they logged in as 'public' but expected to see the 'witty_public' data.
-            // Or maybe they logged in as 'witty_public'? 
+            // Or maybe they logged in as 'witty_public'?
             // If they logged in as 'witty_public', filtering by 'witty_public' works.
             // If they logged in as 'public', filtering by 'public' returns nothing.
             // Let's aliasing 'public' -> 'witty_public' for view convenience if that was the intention.
@@ -1016,7 +1018,7 @@ export default function Dashboard() {
         if (!id) return;
         if (!confirm('确定要重新评估这条记录吗?')) return;
 
-        console.log('Rejudging ID:', id); 
+        console.log('Rejudging ID:', id);
         setRejudgingIds(prev => {
             const next = new Set(prev);
             next.add(id);
@@ -1174,7 +1176,7 @@ export default function Dashboard() {
             query: datasetType === 'routing' ? '' : null,
             skill: '',
             skillVersion: null,
-            expectedSkills: datasetType === 'routing' ? [{ skill: '', version: 0 }] : [],
+            expectedSkills: datasetType === 'routing' ? [{ skill: '', version: null }] : [],
             standard_answer: '',
             root_causes: [],
             key_actions: [],
@@ -1243,14 +1245,14 @@ export default function Dashboard() {
     const isOutcomeEditor = modalEditingType === 'outcome' || modalEditingType === 'combined';
     const configModalTitle = editingConfig.id
         ? (modalEditingType === 'routing'
-            ? '路由数据项详情'
+            ? 'Skill 召回率数据项详情'
             : modalEditingType === 'outcome'
-                ? '效果数据项详情'
+                ? 'Skill 执行效果数据项详情'
                 : '兼容旧数据详情')
         : (modalEditingType === 'routing'
-            ? '新增路由数据项'
+            ? '新增 Skill 召回率数据项'
             : modalEditingType === 'outcome'
-                ? '新增效果数据项'
+                ? '新增 Skill 执行效果数据项'
                 : '新增数据项');
 
     const saveConfig = async () => {
@@ -1277,12 +1279,15 @@ export default function Dashboard() {
                 }
 
                 return normalizeConfigSkillName(c.skill) === trimmedSkill
-                    && normalizeOptionalSkillVersion(c.skillVersion) === normalizedSkillVersion;
+                    && normalizeOptionalSkillVersion(c.skillVersion) === normalizedSkillVersion
+                    && normalizeConfigQuery(c.query) === trimmedQuery;
             });
             if (isDuplicate) {
                 return alert(editingDatasetType === 'routing'
                     ? '该问题已存在于当前数据集类型中，请修改后再保存'
-                    : '该目标 skill 已存在于当前效果数据集中，请修改后再保存');
+                    : trimmedQuery
+                        ? '该目标 skill 的当前业务场景已存在于效果数据集中，请修改后再保存'
+                        : '该目标 skill 的通用效果数据已存在于当前效果数据集中，请修改后再保存');
             }
         }
 
@@ -1473,17 +1478,17 @@ export default function Dashboard() {
                     const badgeText = datasetType === 'combined'
                         ? '兼容旧数据'
                         : datasetType === 'routing'
-                            ? 'Routing only'
-                            : 'Outcome only';
+                            ? '仅用于 Skill 召回率'
+                            : '仅用于 Skill 执行效果';
                     const normalizedExpectedSkills = normalizeExpectedSkills(c.expectedSkills);
                     const summaryText = sectionType === 'routing'
                         ? (
                             hasRoutingExpectations(c)
-                                ? `Expected skills: ${(normalizedExpectedSkills.length > 0
+                                ? `预期 Skill：${(normalizedExpectedSkills.length > 0
                                     ? normalizedExpectedSkills
                                     : (c.skill ? [{ skill: c.skill, version: c.skillVersion ?? null }] : [])
                                 ).map(item => `${item.skill}${item.version !== null && item.version !== undefined ? ` (v${item.version})` : ''}`).join(', ')}`
-                                : 'No expected skill configured'
+                                : '未配置预期 Skill'
                         )
                         : (
                             hasOutcomeExpectations(c)
@@ -1539,17 +1544,17 @@ export default function Dashboard() {
                                 </div>
                                 {sectionType === 'routing' && routingSourceQuery && (
                                     <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
-                                        Source query: {routingSourceQuery}
+                                        来源问题：{routingSourceQuery}
                                     </div>
                                 )}
                                 {sectionType === 'routing' && c.routing_anchors && c.routing_anchors.length > 0 && (
                                     <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
-                                        Semantic anchors: {c.routing_anchors.join(', ')}
+                                        语义锚点：{c.routing_anchors.join(', ')}
                                     </div>
                                 )}
                                 {sectionType === 'outcome' && outcomeTargetMeta && (
                                     <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
-                                        Source scenario: {outcomeTargetMeta}
+                                        业务场景：{outcomeTargetMeta}
                                     </div>
                                 )}
                             </div>
@@ -1838,36 +1843,36 @@ export default function Dashboard() {
         // First, identify queries that have expected skill info (check both legacy skill and new expectedSkills)
         const queriesWithExpectedSkill = new Set(
             configs
-                .filter(c => 
+                .filter(c =>
                     (c.skill && c.skill.trim() !== '') ||
                     (c.expectedSkills && c.expectedSkills.some((e: any) => e.skill && e.skill.trim() !== ''))
                 )
                 .map(c => normalizeConfigQuery(c.query))
                 .filter((query): query is string => Boolean(query))
         );
-        
+
         // Filter execution records to only include queries with expected skill info
-        const dataWithExpectedSkill = filteredData.filter(d => 
+        const dataWithExpectedSkill = filteredData.filter(d =>
             d.query && queriesWithExpectedSkill.has(d.query.trim())
         );
         // Further filter to only records with skill recall rate calculated
-        const dataWithRecallRate = dataWithExpectedSkill.filter(d => 
+        const dataWithRecallRate = dataWithExpectedSkill.filter(d =>
             d.skill_recall_rate !== null && d.skill_recall_rate !== undefined
         );
-        
-        const globalSkillRecallRate = dataWithRecallRate.length > 0 
-            ? dataWithRecallRate.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / dataWithRecallRate.length * 100 
+
+        const globalSkillRecallRate = dataWithRecallRate.length > 0
+            ? dataWithRecallRate.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / dataWithRecallRate.length * 100
             : 0;
-        
+
         // Calculate query-level skill recall rate (only for records with expected skills)
         const relevantWithExpectedSkill = relevant.filter(d => d.skill_recall_rate !== null && d.skill_recall_rate !== undefined);
-        const querySkillRecallRate = relevantWithExpectedSkill.length > 0 
-            ? relevantWithExpectedSkill.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / relevantWithExpectedSkill.length * 100 
+        const querySkillRecallRate = relevantWithExpectedSkill.length > 0
+            ? relevantWithExpectedSkill.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / relevantWithExpectedSkill.length * 100
             : 0;
-        
+
         const withCost = relevant.filter(d => d.cost != null);
         const avgCost = withCost.length ? withCost.reduce((sum, d) => sum + (d.cost || 0), 0) / withCost.length : null;
-        
+
         // Calculate CPSR
         const cpsr = calculateCPSR(relevant);
 
@@ -1964,7 +1969,7 @@ export default function Dashboard() {
                         />
                         <Legend />
                         {frameworks.map((fw, i) => (
-                            <Bar key={fw} dataKey={`${fw}_${dataKey}`} name={fw} fill={COLORS[i % COLORS.length]} radius={[4, 4, 0, 0]} />
+                            <Bar key={fw} dataKey={`${fw}_${dataKey}`} name={fw} fill={(isDark ? CHART_COLORS_DARK : CHART_COLORS)[i % (isDark ? CHART_COLORS_DARK : CHART_COLORS).length]} radius={[4, 4, 0, 0]} />
                         ))}
                     </BarChart>
                 </ResponsiveContainer>
@@ -1980,7 +1985,7 @@ export default function Dashboard() {
             <header className="header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <h1 className="title" style={{ marginBottom: 0 }}>Skill-Insight</h1>
+                        <h1 className="title" style={{ marginBottom: 0 }}>Skill-insight</h1>
                         <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)', letterSpacing: '1px' }}>智能体技能评估、分析与优化</span>
                     </div>
 
@@ -2032,8 +2037,8 @@ export default function Dashboard() {
                                     style={{ background: 'transparent', color: 'var(--foreground-secondary)', border: 'none', maxWidth: '140px', outline: 'none', cursor: 'pointer' }}
                                 >
                                     <option value="none">未配置模型</option>
-                                    {allConfigs.map(c => (
-                                        <option key={c.id} value={c.id}>{c.name}</option>
+                                    {allConfigs.map(cfg => (
+                                        <option key={cfg.id} value={cfg.id}>{cfg.name}</option>
                                     ))}
                                 </select>
                                 <div style={{ width: '1px', height: '14px', background: 'var(--border)', margin: '0 4px' }}></div>
@@ -2068,7 +2073,7 @@ export default function Dashboard() {
                 <div style={{
                     position: 'fixed',
                     top: 0, left: 0, right: 0, bottom: 0,
-                    background: 'rgba(0,0,0,0.7)',
+                    background: c.overlayBg,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -2082,8 +2087,8 @@ export default function Dashboard() {
                         {!editingConfigId && (
                             <>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
-                                    <h3 style={{ margin: 0, color: '#1e293b' }}>管理模型配置</h3>
-                                    <button onClick={() => setShowSettingsModal(false)} style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+                                    <h3 style={{ margin: 0, color: c.fg }}>管理模型配置</h3>
+                                    <button onClick={() => setShowSettingsModal(false)} style={{ background: 'transparent', border: 'none', color: c.fgSecondary, fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
                                 </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '1.5rem' }}>
@@ -2095,16 +2100,16 @@ export default function Dashboard() {
                                                 justifyContent: 'space-between',
                                                 alignItems: 'center',
                                                 padding: '10px',
-                                                background: activeConfigId === config.id ? 'rgba(37, 99, 235, 0.1)' : '#f8fafc',
-                                                border: activeConfigId === config.id ? '1px solid #2563eb' : '1px solid #e2e8f0',
+                                                background: activeConfigId === config.id ? 'rgba(37, 99, 235, 0.1)' : '#f4f4f5',
+                                                border: activeConfigId === config.id ? '1px solid #2563eb' : '1px solid #e4e4e7',
                                                 borderRadius: '6px'
                                             }}>
                                                 <div>
                                                     <div style={{ fontWeight: 'bold', color: activeConfigId === config.id ? '#2563eb' : '#1e293b' }}>
                                                         {config.name} {activeConfigId === config.id && '(Active)'}
-                                                        {isDefault && <span style={{ marginLeft: '8px', fontSize: '0.8rem', color: '#64748b' }}>📋 Default (Read-only)</span>}
+                                                        {isDefault && <span style={{ marginLeft: '8px', fontSize: '0.8rem', color: c.fgSecondary }}>📋 Default (Read-only)</span>}
                                                     </div>
-                                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                                    <div style={{ fontSize: '0.8rem', color: c.fgSecondary }}>
                                                         {config.provider} • {config.model}
                                                     </div>
                                                 </div>
@@ -2134,7 +2139,7 @@ export default function Dashboard() {
                                                             </button>
                                                             <button
                                                                 className="btn-secondary"
-                                                                style={{ padding: '4px 8px', fontSize: '0.8rem', color: '#dc2626', borderColor: '#f87171' }}
+                                                                style={{ padding: '4px 8px', fontSize: '0.8rem', color: c.error, borderColor: c.error }}
                                                                 onClick={() => deleteEvalConfig(config.id)}
                                                             >
                                                                 Del
@@ -2172,10 +2177,10 @@ export default function Dashboard() {
                         {editingConfigId && (
                             <>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
-                                    <h3 style={{ margin: 0, color: '#1e293b' }}>{editingConfigId === 'new' ? '新配置' : '编辑'}</h3>
+                                    <h3 style={{ margin: 0, color: c.fg }}>{editingConfigId === 'new' ? '新配置' : '编辑'}</h3>
                                     <button
                                         onClick={() => setEditingConfigId(null)}
-                                        style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: '0.9rem', cursor: 'pointer' }}
+                                        style={{ background: 'transparent', border: 'none', color: c.fgSecondary, fontSize: '0.9rem', cursor: 'pointer' }}
                                     >
                                         Back to List
                                     </button>
@@ -2203,7 +2208,7 @@ export default function Dashboard() {
                                         value={tempConfig.name || ''}
                                         onChange={e => setTempConfig({ ...tempConfig, name: e.target.value })}
                                         disabled={isDefaultConfig(editingConfigId)}
-                                        style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
+                                        style={{ width: '100%', padding: '10px', background: c.bg, border: `1px solid ${c.borderDark}`, color: c.fg, borderRadius: '4px' }}
                                     />
                                 </div>
 
@@ -2230,7 +2235,7 @@ export default function Dashboard() {
                                             setTempConfig({ ...tempConfig, ...updates });
                                         }}
                                         disabled={isDefaultConfig(editingConfigId)}
-                                        style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
+                                        style={{ width: '100%', padding: '10px', background: c.bg, border: `1px solid ${c.borderDark}`, color: c.fg, borderRadius: '4px' }}
                                     >
                                         <option value="deepseek">DeepSeek (Official)</option>
                                         <option value="siliconflow">SiliconFlow (DeepSeek V3 High Speed)</option>
@@ -2251,19 +2256,19 @@ export default function Dashboard() {
                                             setTempConfig({ ...tempConfig, baseUrl: val });
                                         }}
                                         disabled={isDefaultConfig(editingConfigId)}
-                                        style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
+                                        style={{ width: '100%', padding: '10px', background: c.bg, border: `1px solid ${c.borderDark}`, color: c.fg, borderRadius: '4px' }}
                                     />
                                 </div>
 
                                 <div className="form-group">
-                                    <label>API Key</label>
+                                    <label>密钥</label>
                                     <input
                                         type="password"
                                         placeholder="sk-..."
                                         value={tempConfig.apiKey || ''}
                                         onChange={e => setTempConfig({ ...tempConfig, apiKey: e.target.value })}
                                         disabled={isDefaultConfig(editingConfigId)}
-                                        style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
+                                        style={{ width: '100%', padding: '10px', background: c.bg, border: `1px solid ${c.borderDark}`, color: c.fg, borderRadius: '4px' }}
                                     />
                                 </div>
 
@@ -2274,7 +2279,7 @@ export default function Dashboard() {
                                         value={tempConfig.model || ''}
                                         onChange={e => setTempConfig({ ...tempConfig, model: e.target.value })}
                                         disabled={isDefaultConfig(editingConfigId)}
-                                        style={{ width: '100%', padding: '10px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#1e293b', borderRadius: '4px' }}
+                                        style={{ width: '100%', padding: '10px', background: c.bg, border: `1px solid ${c.borderDark}`, color: c.fg, borderRadius: '4px' }}
                                     />
                                 </div>
 
@@ -2311,14 +2316,14 @@ export default function Dashboard() {
                             // Filter for queries with expected skill info (check both legacy skill and new expectedSkills)
                             const queriesWithExpectedSkill = new Set(
                                 configs
-                                    .filter(c => 
+                                    .filter(c =>
                                         (c.skill && c.skill.trim() !== '') ||
                                         (c.expectedSkills && c.expectedSkills.some((e: any) => e.skill && e.skill.trim() !== ''))
                                     )
                                     .map(c => normalizeConfigQuery(c.query))
                                     .filter((query): query is string => Boolean(query))
                             );
-                            const fwDataWithExpectedSkill = fwData.filter(d => 
+                            const fwDataWithExpectedSkill = fwData.filter(d =>
                                 d.query && queriesWithExpectedSkill.has(d.query.trim())
                             );
                             const avgLat = fwData.length ? (fwData.reduce((s, x) => s + x.latency, 0) / fwData.length) : 0;
@@ -2329,8 +2334,8 @@ export default function Dashboard() {
                             const skillRecallRate = fwDataWithExpectedSkill.length ? fwDataWithExpectedSkill.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / fwDataWithExpectedSkill.length * 100 : 0;
 
                             return (
-                                <div className="card" key={fw} style={{ borderLeft: `4px solid ${COLORS[idx % COLORS.length]}` }}>
-                                    <div className="card-title" style={{ color: COLORS[idx % COLORS.length] }}>{fw}</div>
+                                <div className="card" key={fw} style={{ borderLeft: `4px solid ${(isDark ? CHART_COLORS_DARK : CHART_COLORS)[idx % (isDark ? CHART_COLORS_DARK : CHART_COLORS).length]}` }}>
+                                    <div className="card-title" style={{ color: (isDark ? CHART_COLORS_DARK : CHART_COLORS)[idx % (isDark ? CHART_COLORS_DARK : CHART_COLORS).length], fontSize: '0.9375rem', fontWeight: 600 }}>{fw}</div>
                                     <div className="stat-value">{fwData.length} <small style={{ fontSize: '1rem', color: 'var(--foreground-muted)' }}>执行数</small></div>
                                     <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.2rem' }}>
                                         {/* Latency */}
@@ -2369,7 +2374,7 @@ export default function Dashboard() {
                     <h2 className="section-title">对比分析</h2>
                     <div className="analysis-controls">
                         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                            {['latest_10', 'all', 'single'].map(m => (
+                            {['single', 'latest_10', 'all'].map(m => (
                                 <label key={m} style={{ cursor: 'pointer', color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                     <input type="radio" checked={comparisonMode === m} onChange={() => setComparisonMode(m as any)} />
                                     {m === 'latest_10' ? '最新10问' : m === 'all' ? '所有' : '单问题'}
@@ -2459,17 +2464,17 @@ export default function Dashboard() {
                             {comparisonData.map((group: any) => (
                                 <div key={group.label} style={{ marginBottom: '2rem' }}>
                                     <h3 style={{ color: 'var(--foreground)', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
-                                        Tag: <span style={{ color: '#2563eb' }}>{group.label}</span>
+                                        Tag: <span style={{ color: c.primary }}>{group.label}</span>
                                     </h3>
                                     <div className="analysis-grid">
                                         <ChartLayout title="平均时延" unit="m" dataKey="lat" data={group.data} frameworks={comparisonSeries} yFormatter={(v) => (v / 60000).toFixed(2) + 'm'} />
-                                        <ChartLayout title="平均消耗 (Tokens)" dataKey="tok" data={group.data} frameworks={comparisonSeries} yFormatter={formatTokens} />
+                                        <ChartLayout title="平均消耗" dataKey="tok" data={group.data} frameworks={comparisonSeries} yFormatter={formatTokens} />
                                         <ChartLayout title="平均准确率" dataKey="score" unit="" data={group.data} frameworks={comparisonSeries} />
                                             <ChartLayout title="平均技能召回率" dataKey="recall" unit="%" data={group.data} frameworks={comparisonSeries} yFormatter={(v) => Number(v).toFixed(1) + '%'} />
                                     </div>
                                 </div>
                             ))}
-                            {comparisonData.length === 0 && <div className="card" style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>无数据</div>}
+                            {comparisonData.length === 0 && <div className="card" style={{ textAlign: 'center', padding: '2rem', color: c.fgSecondary }}>无数据</div>}
                         </div>
                     ) : (
                         // Default View
@@ -2484,7 +2489,7 @@ export default function Dashboard() {
                                     yFormatter={(v) => (v / 60000).toFixed(2) + 'm'}
                                 />
                                 <ChartLayout
-                                    title={<span>平均消耗 (Tokens) <CustomTooltip content="基于选中查询的所有执行结果计算出的平均 Token 消耗总额" /></span>}
+                                    title={<span>平均消耗 <CustomTooltip content="基于选中查询的所有执行结果计算出的平均令牌消耗总额" /></span>}
                                     dataKey="tok"
                                     unit=""
                                     data={comparisonData}
@@ -2508,13 +2513,13 @@ export default function Dashboard() {
                                 />
                             </div>
                         ) : (
-                            <div className="card" style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>无数据</div>
+                            <div className="card" style={{ textAlign: 'center', padding: '2rem', color: c.fgSecondary }}>无数据</div>
                         )
                     )}
 
 
                     {/* 3. Single Query Drill-down */}
-                    <h2 className="section-title">单问题详情 (Drill-down)</h2>
+                    <h2 className="section-title">单问题详情</h2>
                     <div className="analysis-controls">
                         <select value={selectedFramework} onChange={e => setSelectedFramework(e.target.value)}>
                             <option value="">选择框架</option>
@@ -2551,7 +2556,7 @@ export default function Dashboard() {
                             {drillDownGroupByLabel && (
                                 <div className="dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
                                     <div className="dropdown-trigger" style={{ background: 'var(--dropdown-bg)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--dropdown-border)', minWidth: '150px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--foreground)' }}>
-                                        {selectedDrillDownLabels.length === 0 ? '所有标签 (All Labels)' : `已选 ${selectedDrillDownLabels.length} 个`}
+                                        {selectedDrillDownLabels.length === 0 ? '所有标签' : `已选 ${selectedDrillDownLabels.length} 个`}
                                         <span style={{ fontSize: '0.8rem', marginLeft: '8px' }}>▼</span>
                                     </div>
                                     <div className="dropdown-content" style={{
@@ -2565,7 +2570,7 @@ export default function Dashboard() {
                                             <input type="checkbox"
                                                 checked={selectedDrillDownLabels.length === 0}
                                                 onChange={() => setSelectedDrillDownLabels([])}
-                                            /> <span style={{ marginLeft: '4px' }}>所有标签 (All)</span>
+                                            /> <span style={{ marginLeft: '4px' }}>所有标签</span>
                                         </label>
                                         <hr style={{ borderColor: 'var(--border)', margin: '4px 0' }} />
                                         {drillDownAvailableLabels.map(l => (
@@ -2589,7 +2594,7 @@ export default function Dashboard() {
                             {drillDownGroupByModel && (
                                 <div className="dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
                                     <div className="dropdown-trigger" style={{ background: 'var(--dropdown-bg)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--dropdown-border)', minWidth: '150px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--foreground)' }}>
-                                        {selectedDrillDownModels.length === 0 ? '所有模型 (All Models)' : `已选 ${selectedDrillDownModels.length} 个`}
+                                        {selectedDrillDownModels.length === 0 ? '所有模型' : `已选 ${selectedDrillDownModels.length} 个`}
                                         <span style={{ fontSize: '0.8rem', marginLeft: '8px' }}>▼</span>
                                     </div>
                                     <div className="dropdown-content" style={{
@@ -2603,7 +2608,7 @@ export default function Dashboard() {
                                             <input type="checkbox"
                                                 checked={selectedDrillDownModels.length === 0}
                                                 onChange={() => setSelectedDrillDownModels([])}
-                                            /> <span style={{ marginLeft: '4px' }}>所有模型 (All)</span>
+                                            /> <span style={{ marginLeft: '4px' }}>所有模型</span>
                                         </label>
                                         <hr style={{ borderColor: 'var(--border)', margin: '4px 0' }} />
                                         {drillDownAvailableModels.map(m => (
@@ -2650,7 +2655,7 @@ export default function Dashboard() {
                                     if (selectedFramework) relevant = relevant.filter(d => d.framework === selectedFramework);
 
                                     if (relevant.length === 0) return null;
-                                    
+
                                     // Calc Stats
                                     const counts = relevant.length;
                                     const avgLat = relevant.reduce((sum, d) => sum + d.latency, 0) / counts;
@@ -2671,7 +2676,7 @@ export default function Dashboard() {
                                     })[0] : null;
                                     const groupWithCost = relevant.filter(d => d.cost != null);
                                     const groupAvgCost = groupWithCost.length ? groupWithCost.reduce((sum, d) => sum + (d.cost || 0), 0) / groupWithCost.length : null;
-                                    
+
                                     // Calculate CPSR for grouped view
                                     const groupCpsr = calculateCPSR(relevant);
 
@@ -2688,19 +2693,19 @@ export default function Dashboard() {
                                     return (
                                         <div key={val} style={{ marginBottom: '2rem' }}>
                                             <div style={{ marginBottom: '0.5rem' }}>
-                                                <h3 style={{ margin: 0, color: '#38bdf8', fontSize: '1.1rem' }}>
-                                                    {drillDownGroupByLabel ? '标签 (Label): ' : '模型 (Model): '} {val}
+                                                <h3 style={{ margin: 0, color: c.primary, fontSize: '1.1rem' }}>
+                                                    {drillDownGroupByLabel ? '标签：' : '模型：'} {val}
                                                 </h3>
                                             </div>
-                                            <div className="grid"style={{display: 'grid', 
-                                                                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                                            <div className="grid"style={{display: 'grid',
+                                                                        gridTemplateColumns: 'repeat(4, 1fr)',
                                                                         gap: '1rem',
                                                                         }}>
                                                 {/* Stats Card */}
                                                 <div className="card" style={{ gridColumn: 'span 2' }}>
                                                     <div className="card-title">
                                                         平均表现
-                                                        <span style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 'normal', marginLeft: '8px' }}>
+                                                        <span style={{ fontSize: '0.85rem', color: c.fgMuted, fontWeight: 'normal', marginLeft: '8px' }}>
                                                             (基于 {counts} 条记录)
                                                         </span>
                                                     </div>
@@ -2719,7 +2724,7 @@ export default function Dashboard() {
                                                         </div>
                                                         <div>
                                                             <div className="text-sm text-slate-400">平均成本 <CustomTooltip content="根据默认定价或自定义（custom-models.json）定价估算得出。" /></div>
-                                                            <div className="text-xl font-bold" style={groupAvgCost == null ? { color: '#64748b' } : {}}>{groupAvgCost != null ? formatCost(groupAvgCost) : 'N/A'}</div>
+                                                            <div className="text-xl font-bold" style={groupAvgCost == null ? { color: c.fgSecondary } : {}}>{groupAvgCost != null ? formatCost(groupAvgCost) : 'N/A'}</div>
                                                         </div>
                                                         <div>
                                                             <div className="text-sm text-slate-400">CPSR <CustomTooltip content={"单次成功解决成本：每次任务成功解决的平均开销。\n计算公式：（总成本）÷（成功解决的运行次数）"} /></div>
@@ -2732,51 +2737,55 @@ export default function Dashboard() {
                                                 <>
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
-                                                        <div className="card-title text-green-400" style={{ fontSize: '0.85rem' }}>最好表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Min' : 'Max'} {getMetricLabel(bestWorstMetric)})</div>
+                                                        <div className="card-title text-green-400" style={{ fontSize: '0.85rem' }}>最好表现（{isMetricLowerBetter(bestWorstMetric) ? '最小' : '最大'} {getMetricLabel(bestWorstMetric)}）</div>
                                                         <div className="text-xl font-bold">{getMetricFormattedValue(best, bestWorstMetric)}</div>
                                                         <div className="text-sm text-slate-400 mt-2" style={{ fontSize: '0.75rem' }}>
                                                             Token: {formatTokens(best.tokens)} | Score: {best.answer_score?.toFixed(2) || '-'} <br />
                                                             Cost: {formatCost(best.cost) || '-'} | Latency: {formatLatency(best.latency)}
                                                         </div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
+                                                    <div style={{ fontSize: '0.75rem', color: c.primary, cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
                                                         const url = `${basePath}/details?framework=${encodeURIComponent(best.framework)}&expandTaskId=${best.task_id || best.upload_id}`;
                                                         window.open(url, '_blank');
                                                     }}>查看 &gt;</div>
                                                 </div>
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
-                                                        <div className="card-title text-red-400" style={{ fontSize: '0.85rem' }}>最差表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Max' : 'Min'} {getMetricLabel(bestWorstMetric)})</div>
+                                                        <div className="card-title text-red-400" style={{ fontSize: '0.85rem' }}>最差表现（{isMetricLowerBetter(bestWorstMetric) ? '最大' : '最小'} {getMetricLabel(bestWorstMetric)}）</div>
                                                         <div className="text-xl font-bold">{getMetricFormattedValue(worst, bestWorstMetric)}</div>
                                                         <div className="text-sm text-slate-400 mt-2" style={{ fontSize: '0.75rem' }}>
                                                             Token: {formatTokens(worst.tokens)} | Score: {worst.answer_score?.toFixed(2) || '-'} <br />
                                                             Cost: {formatCost(worst.cost) || '-'} | Latency: {formatLatency(worst.latency)}
                                                         </div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.75rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(worst.framework)}&query=${encodeURIComponent(worst.query)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>查看 &gt;</div>
+                                                    <div style={{ fontSize: '0.75rem', color: c.primary, cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(worst.framework)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>查看 &gt;</div>
                                                 </div>
                                                 </>
-                                                ) : null}
+                                                ) : (
+                                                <div className="card" style={{ textAlign: 'center', padding: '1rem', color: c.fgMuted, fontSize: '0.85rem' }}>
+                                                    该指标暂无有效数据
+                                                </div>
+                                                )}
                                                 {/*Skill Lift*/}
                                                 {drillDownGroupByLabel && skillLiftMetrics !== null && (
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
                                                         <div className="card-title text-purple-400" style={{ fontSize: '0.85rem' }}>
-                                                            技能提升 (Skill Lift)
+                                                            技能提升
                                                             <CustomTooltip content={"表示启用当前 Skill 标签后，相对 without-skill 基线带来的成功率提升。\n计算公式：(skill_success_rate - no_skill_success_rate) / (1 - no_skill_success_rate)\n其中：skill_success_rate 为当前标签下已评测记录的成功率；no_skill_success_rate 为 without-skill 基线下已评测记录的成功率。\n仅在同时存在已评测的当前标签数据和 without-skill 基线数据时才计算。"} />
                                                         </div>
                                                         <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
                                                             <div style={{ marginBottom: '0.5rem' }}>
-                                                                <div style={{ 
-                                                                    fontSize: '1.2rem', 
+                                                                <div style={{
+                                                                    fontSize: '1.2rem',
                                                                     fontWeight: 'bold',
                                                                     color: skillLiftMetrics.valuePct == null
-                                                                        ? '#94a3b8'
+                                                                        ? '#a1a1aa'
                                                                         : skillLiftMetrics.valuePct > 0
                                                                             ? '#4ade80'
                                                                             : skillLiftMetrics.valuePct < 0
                                                                                 ? '#f87171'
-                                                                                : '#94a3b8'
+                                                                                : '#a1a1aa'
                                                                 }}>
                                                                     {skillLiftMetrics.valuePct == null
                                                                         ? 'N/A'
@@ -2785,12 +2794,12 @@ export default function Dashboard() {
                                                             </div>
                                                         </div>
                                                     </div>
-                                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                                        <div style={{ fontSize: '0.75rem', color: c.fgSecondary }}>
                                                         当前标签成功率：{skillLiftMetrics.passSkill == null ? 'N/A' : `${(skillLiftMetrics.passSkill * 100).toFixed(1)}%`}
                                                         <br />
                                                         基线成功率：{skillLiftMetrics.passNoSkill == null ? 'N/A' : `${(skillLiftMetrics.passNoSkill * 100).toFixed(1)}%`}
                                                     </div>
-                                                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.5rem', textAlign: 'left', whiteSpace: 'pre-wrap' }}>
+                                                        <div style={{ fontSize: '0.75rem', color: c.fgSecondary, marginTop: '0.5rem', textAlign: 'left', whiteSpace: 'pre-wrap' }}>
                                                         {skillLiftMetrics.reason || '基于 without-skill 基线计算。'}
                                                         </div>
                                                 </div>
@@ -2807,34 +2816,34 @@ export default function Dashboard() {
                                 <div className="card" style={{ gridColumn: 'span 2' }}>
                                     <div className="card-title">
                                         平均表现
-                                        <span style={{ fontSize: '0.9rem', color: '#94a3b8', fontWeight: 'normal', marginLeft: '8px' }}>
+                                        <span style={{ fontSize: '0.9rem', color: c.fgMuted, fontWeight: 'normal', marginLeft: '8px' }}>
                                             (基于 {singleQueryStats.count} 条记录)
                                         </span>
                                     </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', textAlign: 'center' }}>
                                         <div>
-                                            <div className="text-sm text-slate-400">平均时延</div>
-                                            <div className="text-xl font-bold">{formatLatency(singleQueryStats.avgLatency)}</div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>平均时延</div>
+                                            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: c.fg }}>{formatLatency(singleQueryStats.avgLatency)}</div>
                                         </div>
                                         <div>
-                                            <div className="text-sm text-slate-400">平均 Token</div>
-                                            <div className="text-xl font-bold">{formatTokens(singleQueryStats.avgTokens)}</div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>平均 Token</div>
+                                            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: c.fg }}>{formatTokens(singleQueryStats.avgTokens)}</div>
                                         </div>
                                         <div>
-                                            <div className="text-sm text-slate-400">平均技能召回率</div>
-                                            <div className="text-xl font-bold" style={{ color: '#f1f5f9' }}>{singleQueryStats.querySkillRecallRate?.toFixed(2)}%</div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>平均技能召回率</div>
+                                            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: c.fg }}>{singleQueryStats.querySkillRecallRate?.toFixed(2)}%</div>
                                         </div>
                                         <div>
-                                            <div className="text-sm text-slate-400">平均准确率</div>
-                                            <div className="text-xl font-bold" style={{ color: singleQueryStats.avgAnsScore > 0.8 ? '#4ade80' : '#fbbf24' }}>{singleQueryStats.avgAnsScore.toFixed(2)}</div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>平均准确率</div>
+                                            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: singleQueryStats.avgAnsScore > 0.8 ? c.success : c.warning }}>{singleQueryStats.avgAnsScore.toFixed(2)}</div>
                                         </div>
                                         <div>
-                                            <div className="text-sm text-slate-400">平均成本 <CustomTooltip content="根据默认定价或自定义（custom-models.json）定价估算得出。" /></div>
-                                            <div className="text-xl font-bold" style={singleQueryStats.avgCost == null ? { color: '#64748b' } : {}}>{singleQueryStats.avgCost != null ? formatCost(singleQueryStats.avgCost) : 'N/A'}</div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>平均成本 <CustomTooltip content="根据默认定价或自定义（custom-models.json）定价估算得出。" /></div>
+                                            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: c.fg, ...singleQueryStats.avgCost == null ? { color: c.fgSecondary } : {} }}>{singleQueryStats.avgCost != null ? formatCost(singleQueryStats.avgCost) : 'N/A'}</div>
                                         </div>
                                         <div>
-                                            <div className="text-sm text-slate-400">CPSR<CustomTooltip content={"单次成功解决成本：每次任务成功解决的平均开销。\n计算公式：（总成本）÷（成功解决的运行次数）"} /></div>
-                                            <div className="text-xl font-bold" style={{ color: singleQueryStats.cpsr != null ? '#38bdf8' : '#64748b' }}>{singleQueryStats.cpsr != null ? formatCost(singleQueryStats.cpsr) : 'N/A'}</div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>CPSR<CustomTooltip content={"单次成功解决成本：每次任务成功解决的平均开销。\n计算公式：（总成本）÷（成功解决的运行次数）"} /></div>
+                                            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: singleQueryStats.cpsr != null ? c.primary : c.fgSecondary }}>{singleQueryStats.cpsr != null ? formatCost(singleQueryStats.cpsr) : 'N/A'}</div>
                                         </div>
                                     </div>
 
@@ -2848,25 +2857,27 @@ export default function Dashboard() {
                                 <>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
-                                        <div className="card-title text-green-400">最好表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Min' : 'Max'} {getMetricLabel(bestWorstMetric)})</div>
+                                        <div className="card-title text-green-400">最好表现（{isMetricLowerBetter(bestWorstMetric) ? '最小' : '最大'} {getMetricLabel(bestWorstMetric)}）</div>
                                         <div className="text-2xl font-bold">{getMetricFormattedValue(bestRecord, bestWorstMetric)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
                                             Token: {formatTokens(bestRecord.tokens)} | Cost: {formatCost(bestRecord.cost) || '-'} | Latency: {formatLatency(bestRecord.latency)} <br />
                                             Time: {formatDateTime(bestRecord.timestamp)}
                                         </div>
                                     </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(bestRecord.framework)}&query=${encodeURIComponent(bestRecord.query)}&expandTaskId=${bestRecord.task_id || bestRecord.upload_id}`, '_blank')}>查看 &gt;</div>
+                                    <div style={{ fontSize: '0.8rem', color: c.primary, cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
+                                        window.open(`${basePath}/details?framework=${encodeURIComponent(bestRecord.framework)}&expandTaskId=${bestRecord.task_id || bestRecord.upload_id}`, '_blank');
+                                    }}>查看 &gt;</div>
                                 </div>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
-                                        <div className="card-title text-red-400">最差表现 ({isMetricLowerBetter(bestWorstMetric) ? 'Max' : 'Min'} {getMetricLabel(bestWorstMetric)})</div>
+                                        <div className="card-title text-red-400">最差表现（{isMetricLowerBetter(bestWorstMetric) ? '最大' : '最小'} {getMetricLabel(bestWorstMetric)}）</div>
                                         <div className="text-2xl font-bold">{getMetricFormattedValue(worstRecord, bestWorstMetric)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
                                             Token: {formatTokens(worstRecord.tokens)} | Cost: {formatCost(worstRecord.cost) || '-'} | Latency: {formatLatency(worstRecord.latency)} <br />
                                             Time: {formatDateTime(worstRecord.timestamp)}
                                         </div>
                                     </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#38bdf8', cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
+                                    <div style={{ fontSize: '0.8rem', color: c.primary, cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
                                         const url = `${basePath}/details?framework=${encodeURIComponent(worstRecord.framework)}&expandTaskId=${worstRecord.task_id || worstRecord.upload_id}`;
                                         window.open(url, '_blank');
                                     }}>查看 &gt;</div>
@@ -2874,10 +2885,14 @@ export default function Dashboard() {
                                 </>
                                     );
                                 })()
-                                ) : null}
+                                ) : (
+                                <div className="card" style={{ textAlign: 'center', padding: '2rem', color: c.fgMuted }}>
+                                    该指标暂无有效数据
+                                </div>
+                                )}
                             </div>
                         ) : (
-                            <div className="card" style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                            <div className="card" style={{ textAlign: 'center', padding: '2rem', color: c.fgMuted }}>
                                 {selectedQuery ? '该组合下暂无数据' : '请选择一个问题进行分析'}
                             </div>
                         )
@@ -2889,17 +2904,17 @@ export default function Dashboard() {
                     {/* Table Filters */}
                     <div className="analysis-controls" style={{ marginBottom: '1rem' }}>
                         <select value={tableFramework} onChange={e => setTableFramework(e.target.value)} style={{ fontSize: '0.9rem' }}>
-                            <option value="">所有框架 (All Frameworks)</option>
+                            <option value="">所有框架</option>
                             {allFrameworks.map(f => <option key={f} value={f}>{f}</option>)}
                         </select>
 
                         <select value={tableLabel} onChange={e => setTableLabel(e.target.value)} style={{ fontSize: '0.9rem' }}>
-                            <option value="">所有标签 (All Labels)</option>
+                            <option value="">所有标签</option>
                             {allLabels.map(l => <option key={l} value={l}>{l}</option>)}
                         </select>
 
                         <select value={tableModel} onChange={e => setTableModel(e.target.value)} style={{ fontSize: '0.9rem' }}>
-                            <option value="">所有模型 (All Models)</option>
+                            <option value="">所有模型</option>
                             {allModels.map(m => <option key={m} value={m}>{m}</option>)}
                         </select>
 
@@ -2916,21 +2931,20 @@ export default function Dashboard() {
                         </span>
                     </div>
 
-                    <div className="card table-container">
+                    <div className="card table-container" style={{ overflowX: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead style={{ textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)' }}>
                                 <tr>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}>时间</th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}>框架</th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}>用户输入</th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>时延 <CustomTooltip content="从请求发出到收到最终完整回复的总耗时" /></span></th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>Token <CustomTooltip content="输入 Prompt 与输出 Completion 的 Token 总和" /></span></th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>准确率 <CustomTooltip content={<div>基于LLM评估Agent真实运行结果与期望答案的差异，给出0-1分值，1表示完全正确。<br />"--"表示评估失败，可能是由于模型未配置（请在首页左上角的设置中配置 LLM）或者数据项未配置。</div>} /></span></th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}><span>预估花费 <CustomTooltip content="根据默认定价或自定义（custom-models.json）定价估算得出" /></span></th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}>模型</th>
-
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}>标签</th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap' }}>操作</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '130px' }}>时间</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '90px' }}>框架</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', maxWidth: '200px' }}>用户输入</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '100px' }}><span>时延 <CustomTooltip content="从请求发出到收到最终完整回复的总耗时" /></span></th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '80px' }}><span>Token <CustomTooltip content="输入 Prompt 与输出 Completion 的 Token 总和" /></span></th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '80px' }}><span>准确率 <CustomTooltip content={<div>基于LLM评估Agent真实运行结果与期望答案的差异，给出0-1分值，1表示完全正确。<br />"--"表示评估失败，可能是由于模型未配置（请在首页左上角的设置中配置 LLM）或者数据项未配置。</div>} /></span></th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '90px' }}><span>预估花费 <CustomTooltip content="根据默认定价或自定义（custom-models.json）定价估算得出" /></span></th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '100px' }}>模型</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '90px' }}>标签</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '120px' }}>操作</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2941,18 +2955,18 @@ export default function Dashboard() {
                                         <tr key={i} style={{ borderBottom: '1px solid var(--table-row-border)' }}>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{formatDateTime(row.timestamp)}</td>
                                             <td className="p-2" style={{ whiteSpace: 'nowrap' }}>{row.framework}</td>
-                                            <td className="p-2" title={row.query}>{row.query.length > 30 ? row.query.substring(0, 30) + '...' : row.query}</td>
-                                            <td className="p-2" style={{ whiteSpace: 'nowrap' }}>{formatLatency(row.latency)}{vDiff && formatDiff(vDiff.latencyDiff, true)}</td>
+                                            <td className="p-2" title={row.query} style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.query.length > 40 ? row.query.substring(0, 40) + '...' : row.query}</td>
+                                            <td className="p-2" style={{ whiteSpace: 'nowrap' }}>{formatLatency(row.latency)}{vDiff && formatDiff(vDiff.latencyDiff, true, isDark)}</td>
                                             <td className="p-2" style={{ whiteSpace: 'nowrap' }} title={
                                                 row.reasoning_tokens
                                                     ? `Output: ${formatTokens(row.output_tokens || 0)} (Reasoning: ${formatTokens(row.reasoning_tokens)}, Response: ${formatTokens((row.output_tokens || 0) - row.reasoning_tokens)})` + (row.input_tokens ? `\nInput: ${formatTokens(row.input_tokens)}` : '')
                                                     : (row.input_tokens || row.output_tokens) ? `Input: ${formatTokens(row.input_tokens || 0)}, Output: ${formatTokens(row.output_tokens || 0)}` : undefined
-                                            }>{formatTokens(row.tokens)}{vDiff && formatDiff(vDiff.tokenDiff, true)}</td>
+                                            }>{formatTokens(row.tokens)}{vDiff && formatDiff(vDiff.tokenDiff, true, isDark)}</td>
                                             <td className="p-2" style={{ whiteSpace: 'nowrap' }}>
                                                 <span style={{ color: row.answer_score === null ? 'var(--foreground-muted)' : ((row.answer_score || 0) > 0.8 ? 'var(--success)' : 'var(--error)'), fontWeight: 'bold' }}>
                                                     {row.answer_score === null ? '--' : (row.answer_score || 0).toFixed(2)}
                                                 </span>
-                                                {vDiff && formatDiff(vDiff.accuracyDiff, false)}
+                                                {vDiff && formatDiff(vDiff.accuracyDiff, false, isDark)}
                                             </td>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }} title={
                                                 row.cost != null && row.cost_pricing
@@ -2966,7 +2980,7 @@ export default function Dashboard() {
                                                     ? formatCost(row.cost)
                                                     : (row.tokens ? <span style={{ color: 'var(--foreground-muted)' }}>N/A</span> : '-')
                                                 }
-                                                {vDiff && formatDiff(vDiff.costDiff, true)}
+                                                {vDiff && formatDiff(vDiff.costDiff, true, isDark)}
                                             </td>
                                             <td className="p-2" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{row.model || '-'}</td>
 
@@ -3023,7 +3037,7 @@ export default function Dashboard() {
                                                                 <span style={{
                                                                     width: '12px',
                                                                     height: '12px',
-                                                                    border: '2px solid #0f172a',
+                                                                    border: '2px solid #18181b',
                                                                     borderTopColor: 'transparent',
                                                                     borderRadius: '50%',
                                                                     animation: 'spin 1s linear infinite',
@@ -3035,7 +3049,7 @@ export default function Dashboard() {
                                                             '重评'
                                                         )}
                                                     </button>
-                                                    <button onClick={() => handleDelete(row)} className="btn-sm" style={{ background: '#ef4444' }}>
+                                                    <button onClick={() => handleDelete(row)} className="btn-sm" style={{ background: c.error }}>
                                                         删
                                                     </button>
                                                 </div>
@@ -3053,30 +3067,30 @@ export default function Dashboard() {
                                 className="btn-sm"
                                 disabled={tablePage === 1}
                                 onClick={() => setTablePage(p => Math.max(1, p - 1))}
-                                style={{ background: tablePage === 1 ? '#334155' : '#38bdf8', color: tablePage === 1 ? '#94a3b8' : '#0f172a', cursor: tablePage === 1 ? 'not-allowed' : 'pointer' }}
+                                style={{ background: tablePage === 1 ? '#334155' : '#38bdf8', color: tablePage === 1 ? '#a1a1aa' : '#18181b', cursor: tablePage === 1 ? 'not-allowed' : 'pointer' }}
                             >
                                 &lt; Prev
                             </button>
-                            <span style={{ color: '#94a3b8' }}>
+                            <span style={{ color: c.fgMuted }}>
                                 Page {tablePage} of {totalTablePages}
                             </span>
                             <button
                                 className="btn-sm"
                                 disabled={tablePage === totalTablePages}
                                 onClick={() => setTablePage(p => Math.min(totalTablePages, p + 1))}
-                                style={{ background: tablePage === totalTablePages ? '#334155' : '#38bdf8', color: tablePage === totalTablePages ? '#94a3b8' : '#0f172a', cursor: tablePage === totalTablePages ? 'not-allowed' : 'pointer' }}
+                                style={{ background: tablePage === totalTablePages ? '#334155' : '#38bdf8', color: tablePage === totalTablePages ? '#a1a1aa' : '#18181b', cursor: tablePage === totalTablePages ? 'not-allowed' : 'pointer' }}
                             >
                                 Next &gt;
                             </button>
                         </div>
                     )}
-                    
+
                     <div style={{ marginTop: '2rem', marginBottom: '0.5rem', height: '1px', background: 'linear-gradient(to right, transparent, rgba(56, 189, 248, 0.5), transparent)' }}></div>
-                    
+
                     {/* Promotion Section */}
                     <div style={{ marginTop: '0.5rem', padding: '0.5rem', textAlign: 'center' }}>
-                        <p style={{ margin: 0, fontSize: '0.9rem', color: '#94a3b8', lineHeight: 1.6 }}>
-                            <a href="https://atomgit.com/openeuler/witty-skill-insight" target="_blank" rel="noopener noreferrer" style={{ color: '#94a3b8', textDecoration: 'underline', textUnderlineOffset: '3px' }}>
+                        <p style={{ margin: 0, fontSize: '0.9rem', color: c.fgMuted, lineHeight: 1.6 }}>
+                            <a href="https://atomgit.com/openeuler/witty-skill-insight" target="_blank" rel="noopener noreferrer" style={{ color: c.fgMuted, textDecoration: 'underline', textUnderlineOffset: '3px' }}>
                                 你的 ⭐ Star 是前进动力，📢 Issue 使产品更稳，🚀 PR 让功能更强。
                             </a>
                         </p>
@@ -3090,10 +3104,9 @@ export default function Dashboard() {
                     <div style={{ marginBottom: '1rem' }}>
                         <h2 className="section-title" style={{ marginBottom: '0.35rem' }}>数据集管理</h2>
                         <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.9rem', lineHeight: 1.7 }}>
-                            将路由命中评测与执行效果评测拆成两条独立数据链路。新建数据时建议分别维护，历史混合数据会以“兼容旧数据”的形式保留。
+                            将 Skill 召回率评测与 Skill 执行效果评测拆成两条独立数据链路。新建数据时建议分别维护，历史混合数据会以“兼容旧数据”的形式保留。
                         </p>
                     </div>
-
                     <div
                         style={{
                             display: 'grid',
@@ -3104,21 +3117,21 @@ export default function Dashboard() {
                     >
                         {renderConfigSection(
                             'routing',
-                            '路由命中数据集',
-                            '只定义 query 应该命中哪些 skill / version，用于计算 is_skill_correct 与 skill_recall_rate。',
+                            'Skill 召回率数据集',
+                            '只定义某个问题应该命中哪些 Skill / 版本，用于计算 is_skill_correct 与 skill_recall_rate。',
                             routingConfigs,
                             '#38bdf8',
-                            '+ 新增路由数据项',
-                            '暂无路由评测数据，添加后即可开始评估 skill 命中情况。'
+                            '+ 新增 Skill 召回率数据项',
+                            '暂无 Skill 召回率评测数据，添加后即可开始评估 Skill 是否被正确召回。'
                         )}
                         {renderConfigSection(
                             'outcome',
-                            '执行效果数据集',
-                            '只定义标准答案、关键观点与关键动作，用于评估最终回答质量与执行效果。',
+                            'Skill 执行效果数据集',
+                            '围绕某个 Skill 定义标准答案、关键观点与关键动作，用于评估命中该 Skill 后的最终回答质量与执行效果。',
                             outcomeConfigs,
                             '#a78bfa',
-                            '+ 新增效果数据项',
-                            '暂无效果评测数据，添加后即可开始评估回答质量与执行动作。'
+                            '+ 新增 Skill 执行效果数据项',
+                            '暂无 Skill 执行效果数据，添加后即可开始评估该 Skill 的回答质量与执行动作。'
                         )}
                     </div>
                 </div>
@@ -3137,28 +3150,28 @@ export default function Dashboard() {
                     <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ maxHeight: '90vh', overflowY: 'auto', maxWidth: '900px', width: '66vw', minWidth: '500px', flexDirection: 'column' }}>
                         <h3>{configModalTitle}</h3>
 
-                        <div style={{ marginBottom: '1rem', padding: '12px 14px', borderRadius: '10px', background: 'rgba(15, 23, 42, 0.75)', border: '1px solid #334155', color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.7 }}>
-                            {modalEditingType === 'routing' && '该数据项只参与 skill 路由命中评测。这里只看语义意图与 expected skills，不看标准答案、关键观点或执行动作。'}
-                            {modalEditingType === 'outcome' && '该数据项只参与最终答案质量与执行动作评测，不参与 skill 路由命中判断。'}
-                            {modalEditingType === 'combined' && '这是历史兼容的混合数据项，同时包含路由与效果评测信息。后续建议逐步拆成两条独立数据。'}
+                        <div style={{ marginBottom: '1rem', padding: '12px 14px', borderRadius: '10px', background: c.bgTertiary, border: `1px solid ${c.border}`, color: c.fgMuted, fontSize: '0.85rem', lineHeight: 1.7 }}>
+                            {modalEditingType === 'routing' && '该数据项只参与 Skill 召回率评测。这里只看语义意图与预期 Skill，不看标准答案、关键观点或执行动作。'}
+                            {modalEditingType === 'outcome' && '该数据项只参与 Skill 执行效果评测。这里关注命中该 Skill 后的最终回答质量、关键观点与关键动作，不参与 Skill 路由命中判断。'}
+                            {modalEditingType === 'combined' && '这是历史兼容的混合数据项，同时包含 Skill 召回率与执行效果评测信息。后续建议逐步拆成两条独立数据。'}
                         </div>
 
                         {isRoutingEditor && !editingConfig.id && (
                             <div className="form-group">
-                                <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>问题 (Query) <span style={{ color: '#ef4444' }}>*</span></label>
+                                <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>问题（Query）<span style={{ color: c.error }}>*</span></label>
                                 <textarea
                                     value={editingConfig.query || ''}
                                     onChange={e => setEditingConfig({ ...editingConfig, query: e.target.value })}
-                                    placeholder="请输入需要评估的问题..."
-                                    style={{ width: '100%', padding: '10px', minHeight: '60px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                    placeholder="请输入需要评估 Skill 召回率的问题..."
+                                    style={{ width: '100%', padding: '10px', minHeight: '60px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
                                 />
                             </div>
                         )}
 
                         {isRoutingEditor && (
                             <div className="form-group" style={{ marginTop: '1rem' }}>
-                                <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>
-                                    预期技能 (Expected Skills) <span style={{ color: '#ef4444' }}>*</span>
+                                <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>
+                                    预期 Skill <span style={{ color: c.error }}>*</span>
                                 </label>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                     {(editingConfig.expectedSkills || []).map((item, index) => (
@@ -3171,23 +3184,23 @@ export default function Dashboard() {
                                                     newSkills[index] = { ...newSkills[index], skill: e.target.value };
                                                     setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
                                                 }}
-                                                placeholder="技能名称"
-                                                style={{ flex: 2, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                                placeholder="Skill 名称"
+                                                style={{ flex: 2, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
                                             />
                                             <input
                                                 type="number"
-                                                value={item.version ?? 0}
+                                                value={item.version ?? ''}
                                                 onChange={e => {
                                                     const value = e.target.value;
                                                     const newSkills = [...(editingConfig.expectedSkills || [])];
                                                     newSkills[index] = {
                                                         ...newSkills[index],
-                                                        version: value === '' ? 0 : Math.max(0, parseInt(value, 10) || 0)
+                                                        version: value === '' ? null : Math.max(0, parseInt(value, 10) || 0)
                                                     };
                                                     setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
                                                 }}
-                                                placeholder="版本 (默认: 0)"
-                                                style={{ flex: 1, padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                                placeholder="版本号（留空表示任意版本）"
+                                                style={{ flex: 1, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
                                             />
                                             <button
                                                 type="button"
@@ -3195,7 +3208,7 @@ export default function Dashboard() {
                                                     const newSkills = (editingConfig.expectedSkills || []).filter((_, i) => i !== index);
                                                     setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
                                                 }}
-                                                style={{ padding: '10px', background: '#3b1c1c', color: '#ef4444', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                                                style={{ padding: '10px', background: c.errorSubtle, color: c.error, border: 'none', borderRadius: '6px', cursor: 'pointer' }}
                                             >
                                                 ✕
                                             </button>
@@ -3204,39 +3217,42 @@ export default function Dashboard() {
                                     <button
                                         type="button"
                                         onClick={() => {
-                                            const newSkills = [...(editingConfig.expectedSkills || []), { skill: '', version: 0 }];
+                                            const newSkills = [...(editingConfig.expectedSkills || []), { skill: '', version: null }];
                                             setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
                                         }}
-                                        style={{ padding: '8px', background: '#1e3a5f', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
+                                        style={{ padding: '8px', background: c.primarySubtle, color: c.primary, border: `1px dashed ${c.primary}`, borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
                                     >
-                                        + 添加预期技能
+                                        + 添加预期 Skill
                                     </button>
+                                </div>
+                                <div style={{ marginTop: '8px', color: c.fgSecondary, fontSize: '0.8rem' }}>
+                                    Skill 版本请填写实际版本号，例如 `0` 表示 `v0`；留空表示任意版本均可命中。
                                 </div>
                             </div>
                         )}
 
                         {isRoutingEditor && editingConfig.id && (
                             <>
-                                <div style={{ marginTop: '1rem', padding: '12px 16px', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.7 }}>
-                                    <div><strong style={{ color: '#e2e8f0' }}>Semantic Intent:</strong> {editingConfig.routing_intent || 'Pending extraction'}</div>
+                                <div style={{ marginTop: '1rem', padding: '12px 16px', background: c.primarySubtle, border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: c.fgMuted, fontSize: '0.85rem', lineHeight: 1.7 }}>
+                                    <div><strong style={{ color: c.fg }}>语义意图：</strong> {editingConfig.routing_intent || '待提取'}</div>
                                     <div style={{ marginTop: '6px' }}>
-                                        <strong style={{ color: '#e2e8f0' }}>Semantic Anchors:</strong> {(editingConfig.routing_anchors && editingConfig.routing_anchors.length > 0)
+                                        <strong style={{ color: c.fg }}>语义锚点：</strong> {(editingConfig.routing_anchors && editingConfig.routing_anchors.length > 0)
                                             ? editingConfig.routing_anchors.join(', ')
-                                            : 'Pending extraction'}
+                                            : '待提取'}
                                     </div>
                                 </div>
 
                                 <div className="form-group" style={{ marginTop: '1rem' }}>
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>Source Query</label>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>来源问题</label>
                                     <div
                                         style={{
                                             width: '100%',
                                             padding: '10px 12px',
                                             maxHeight: '120px',
                                             overflowY: 'auto',
-                                            background: 'rgba(15, 23, 42, 0.72)',
-                                            border: '1px solid #334155',
-                                            color: '#94a3b8',
+                                            background: c.bg,
+                                            border: `1px solid ${c.border}`,
+                                            color: c.fgMuted,
                                             borderRadius: '6px',
                                             fontSize: '0.88rem',
                                             lineHeight: 1.65,
@@ -3251,8 +3267,8 @@ export default function Dashboard() {
                         {isOutcomeEditor && (
                             <>
                                 <div className="form-group" style={{ marginTop: '1rem' }}>
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>
-                                        目标 Skill {!editingConfig.id && <span style={{ color: '#ef4444' }}>*</span>}
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>
+                                        目标 Skill {!editingConfig.id && <span style={{ color: c.error }}>*</span>}
                                     </label>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) 160px', gap: '8px' }}>
                                         <input
@@ -3261,28 +3277,43 @@ export default function Dashboard() {
                                             value={editingConfig.skill || ''}
                                             onChange={e => setEditingConfig({ ...editingConfig, skill: e.target.value })}
                                             placeholder="请输入或选择目标 skill"
-                                            style={{ width: '100%', padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                            style={{ width: '100%', padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
                                         />
                                         <input
                                             type="number"
                                             min={0}
-                                            value={editingConfig.skillVersion ?? 0}
+                                            value={editingConfig.skillVersion ?? ''}
                                             onChange={e => setEditingConfig({
                                                 ...editingConfig,
-                                                skillVersion: e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0),
+                                                skillVersion: e.target.value === '' ? null : Math.max(0, parseInt(e.target.value, 10) || 0),
                                             })}
-                                            placeholder="版本 (0=任意)"
-                                            style={{ width: '100%', padding: '10px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.95rem' }}
+                                            placeholder="版本号（留空表示任意版本）"
+                                            style={{ width: '100%', padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
                                         />
                                     </div>
-                                    <div style={{ marginTop: '8px', color: '#64748b', fontSize: '0.8rem' }}>
-                                        将执行效果基准绑定到 skill；版本填 `0` 表示对该 skill 的任意版本生效。
+                                    <div style={{ marginTop: '8px', color: c.fgSecondary, fontSize: '0.8rem' }}>
+                                        将执行效果基准绑定到目标 Skill；留空表示适用于任意版本，填写 `0` 则表示只适用于 `v0`。
                                     </div>
                                     <datalist id="outcome-skill-options">
                                         {availableSkills.map(skill => (
                                             <option key={skill.id} value={skill.name} />
                                         ))}
                                     </datalist>
+                                </div>
+
+                                <div className="form-group" style={{ marginTop: '1rem' }}>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>
+                                        业务场景 / 来源问题 <span style={{ color: c.fgSecondary, fontWeight: 400 }}>（可选）</span>
+                                    </label>
+                                    <textarea
+                                        value={editingConfig.query || ''}
+                                        onChange={e => setEditingConfig({ ...editingConfig, query: e.target.value })}
+                                        placeholder="可填写该 Skill 对应的具体业务问题；留空则表示该效果数据为通用基准。"
+                                        style={{ width: '100%', padding: '10px', minHeight: '70px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.9rem' }}
+                                    />
+                                    <div style={{ marginTop: '8px', color: c.fgSecondary, fontSize: '0.8rem' }}>
+                                        业务场景用于区分同一 Skill 在不同问题下的关键观点；不填写时，将作为该 Skill 的通用执行效果基准。
+                                    </div>
                                 </div>
 
                                 <div className="form-group" style={{ marginTop: '1rem' }}>
@@ -3328,19 +3359,19 @@ export default function Dashboard() {
                                         <textarea
                                             value={editingConfig.standard_answer || ''}
                                             onChange={e => setEditingConfig({ ...editingConfig, standard_answer: e.target.value })}
-                                            placeholder="请填写该 skill 的标准执行效果或标准答案..."
-                                            style={{ width: '100%', padding: '10px', minHeight: '150px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '6px', fontSize: '0.9rem' }}
+                                            placeholder="请填写该 Skill 在当前业务场景下的标准答案、标准产出或标准交付结果..."
+                                            style={{ width: '100%', padding: '10px', minHeight: '150px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.9rem' }}
                                         />
                                     ) : (
-                                        <div
-                                            style={{
-                                                border: '2px dashed #334155',
-                                                borderRadius: '8px',
-                                                padding: '2rem',
-                                                textAlign: 'center',
-                                                background: '#0f172a',
-                                                cursor: 'pointer',
-                                            }}
+                                        <div style={{
+                                            border: `2px dashed ${c.border}`,
+                                            borderRadius: '8px',
+                                            padding: '2rem',
+                                            textAlign: 'center',
+                                            background: c.bg,
+                                            cursor: 'pointer',
+                                            transition: 'border-color 0.2s'
+                                        }}
                                             onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#38bdf8'; }}
                                             onDragLeave={e => { e.currentTarget.style.borderColor = '#334155'; }}
                                             onDrop={e => {
@@ -3363,16 +3394,16 @@ export default function Dashboard() {
                                             {configDocumentFile ? (
                                                 <div>
                                                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📄</div>
-                                                    <div style={{ color: '#4ade80', fontWeight: 500 }}>{configDocumentFile.name}</div>
-                                                    <div style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: '4px' }}>
+                                                    <div style={{ color: c.success, fontWeight: 500 }}>{configDocumentFile.name}</div>
+                                                    <div style={{ color: c.fgMuted, fontSize: '0.8rem', marginTop: '4px' }}>
                                                         {(configDocumentFile.size / 1024).toFixed(1)} KB · 点击更换文件
                                                     </div>
                                                 </div>
                                             ) : (
                                                 <div>
                                                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📁</div>
-                                                    <div style={{ color: '#94a3b8' }}>点击或拖拽上传案例文档</div>
-                                                    <div style={{ color: '#64748b', fontSize: '0.8rem', marginTop: '4px' }}>
+                                                    <div style={{ color: c.fgMuted }}>点击或拖拽上传案例文档</div>
+                                                    <div style={{ color: c.fgSecondary, fontSize: '0.8rem', marginTop: '4px' }}>
                                                         支持 .txt, .md, .pdf 格式
                                                     </div>
                                                 </div>
@@ -3382,9 +3413,12 @@ export default function Dashboard() {
                                 </div>
 
                                 {!editingConfig.id && (
-                                    <div style={{ marginTop: '1rem', padding: '12px 16px', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: '#94a3b8', fontSize: '0.85rem' }}>
+                                    <div style={{ marginTop: '1rem', padding: '12px 16px', background: c.primarySubtle, border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: c.fgMuted, fontSize: '0.85rem', lineHeight: 1.7 }}>
                                         <p style={{ margin: 0 }}>
-                                            保存后，系统会基于标准答案自动提取关键观点和关键动作，用于后续效果评测。
+                                            保存后，系统会根据用户提供的标准答案或案例文档提取<strong style={{ color: c.fg }}>关键观点</strong>。关键观点与具体业务问题相关，属于可选项。
+                                        </p>
+                                        <p style={{ margin: '8px 0 0 0' }}>
+                                            同时，系统会根据目标 Skill 的流程约束提取并复用<strong style={{ color: c.fg }}>关键动作</strong>。同一 Skill / 版本应共享同一套关键动作，不随业务场景变化。
                                         </p>
                                     </div>
                                 )}
@@ -3394,28 +3428,28 @@ export default function Dashboard() {
                                         <details style={{ marginBottom: '1rem' }}>
                                     <summary style={{
                                         cursor: 'pointer',
-                                        color: '#94a3b8',
+                                        color: c.fgMuted,
                                         fontSize: '0.9rem',
                                         padding: '10px 12px',
                                         userSelect: 'none',
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: '8px',
-                                        background: 'rgba(30, 41, 59, 0.5)',
+                                        background: c.bgTertiary,
                                         borderRadius: '6px',
-                                        border: '1px solid #334155',
+                                        border: `1px solid ${c.border}`,
                                         listStyle: 'none',
                                         transition: 'background 0.2s'
                                     }}>
-                                        <span className="details-arrow" style={{ fontSize: '0.7rem', color: '#64748b', transition: 'transform 0.2s', display: 'inline-block' }}>▶</span>
-                                        <span style={{ fontWeight: 500 }}>关键观点 (Expected Key Points)</span>
-                                        <span style={{ fontSize: '0.8rem', color: '#64748b', marginLeft: 'auto' }}>
+                                        <span className="details-arrow" style={{ fontSize: '0.7rem', color: c.fgSecondary, transition: 'transform 0.2s', display: 'inline-block' }}>▶</span>
+                                        <span style={{ fontWeight: 500 }}>关键观点（可按场景配置）</span>
+                                        <span style={{ fontSize: '0.8rem', color: c.fgSecondary, marginLeft: 'auto' }}>
                                             {(editingConfig.root_causes || []).length} 项 · 点击展开
                                         </span>
                                     </summary>
-                                    <div style={{ background: '#0f172a', padding: '10px', borderRadius: '4px', border: '1px solid #334155', marginTop: '8px' }}>
-                                        <div style={{ color: '#64748b', fontSize: '0.8rem', marginBottom: '10px', padding: '6px 8px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '4px' }}>
-                                            来源：从标准答案中自动提取 · 作用：评估 Agent 回答是否包含了所有关键信息
+                                    <div style={{ background: c.bg, padding: '10px', borderRadius: '4px', border: `1px solid ${c.border}`, marginTop: '8px' }}>
+                                        <div style={{ color: c.fgSecondary, fontSize: '0.8rem', marginBottom: '10px', padding: '6px 8px', background: c.bgTertiary, borderRadius: '4px' }}>
+                                            来源：从用户提供的标准答案或业务材料中提取 · 作用：评估 Agent 回答是否覆盖当前场景的关键信息
                                         </div>
                                         {(editingConfig.root_causes || []).map((item, idx) => (
                                             <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
@@ -3427,7 +3461,7 @@ export default function Dashboard() {
                                                         newItems[idx].content = e.target.value;
                                                         setEditingConfig({ ...editingConfig, root_causes: newItems });
                                                     }}
-                                                    style={{ flex: 1, padding: '6px' }}
+                                                    style={{ flex: 1, padding: '6px', color: c.fg, background: c.inputBg, border: `1px solid ${c.inputBorder}` }}
                                                 />
                                                 <input
                                                     type="number"
@@ -3438,14 +3472,14 @@ export default function Dashboard() {
                                                         newItems[idx].weight = Number(e.target.value);
                                                         setEditingConfig({ ...editingConfig, root_causes: newItems });
                                                     }}
-                                                    style={{ width: '80px', padding: '6px' }}
+                                                    style={{ width: '80px', padding: '6px', color: c.fg, background: c.inputBg, border: `1px solid ${c.inputBorder}` }}
                                                 />
                                                 <button
                                                     onClick={() => {
                                                         const newItems = (editingConfig.root_causes || []).filter((_, i) => i !== idx);
                                                         setEditingConfig({ ...editingConfig, root_causes: newItems });
                                                     }}
-                                                    style={{ color: '#ef4444', padding: '0 8px', background: 'none', border: 'none', cursor: 'pointer' }}
+                                                    style={{ color: c.error, padding: '0 8px', background: 'none', border: 'none', cursor: 'pointer' }}
                                                 >
                                                     ✕
                                                 </button>
@@ -3453,7 +3487,7 @@ export default function Dashboard() {
                                         ))}
                                         <button
                                             className="btn-sm"
-                                            style={{ background: '#334155', marginTop: '5px' }}
+                                            style={{ background: c.bgTertiary, color: c.fgSecondary, marginTop: '5px', border: `1px solid ${c.border}` }}
                                             onClick={() => setEditingConfig({
                                                 ...editingConfig,
                                                 root_causes: [...(editingConfig.root_causes || []), { content: '', weight: 1 }]
@@ -3467,28 +3501,28 @@ export default function Dashboard() {
                                 <details style={{ marginBottom: '1rem' }}>
                                     <summary style={{
                                         cursor: 'pointer',
-                                        color: '#94a3b8',
+                                        color: c.fgMuted,
                                         fontSize: '0.9rem',
                                         padding: '10px 12px',
                                         userSelect: 'none',
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: '8px',
-                                        background: 'rgba(30, 41, 59, 0.5)',
+                                        background: c.bgTertiary,
                                         borderRadius: '6px',
-                                        border: '1px solid #334155',
+                                        border: `1px solid ${c.border}`,
                                         listStyle: 'none',
                                         transition: 'background 0.2s'
                                     }}>
-                                        <span className="details-arrow" style={{ fontSize: '0.7rem', color: '#64748b', transition: 'transform 0.2s', display: 'inline-block' }}>▶</span>
-                                        <span style={{ fontWeight: 500 }}>关键动作 (Expected Key Actions)</span>
-                                        <span style={{ fontSize: '0.8rem', color: '#64748b', marginLeft: 'auto' }}>
+                                        <span className="details-arrow" style={{ fontSize: '0.7rem', color: c.fgSecondary, transition: 'transform 0.2s', display: 'inline-block' }}>▶</span>
+                                        <span style={{ fontWeight: 500 }}>关键动作（同一 Skill 版本共用）</span>
+                                        <span style={{ fontSize: '0.8rem', color: c.fgSecondary, marginLeft: 'auto' }}>
                                             {(editingConfig.key_actions || []).length} 项 · 点击展开
                                         </span>
                                     </summary>
-                                    <div style={{ background: '#0f172a', padding: '10px', borderRadius: '4px', border: '1px solid #334155', marginTop: '8px' }}>
-                                        <div style={{ color: '#64748b', fontSize: '0.8rem', marginBottom: '10px', padding: '6px 8px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '4px' }}>
-                                            来源：从标准答案中自动提取 · 作用：评估 Agent 是否执行了所有必要的操作步骤
+                                    <div style={{ background: c.bg, padding: '10px', borderRadius: '4px', border: `1px solid ${c.border}`, marginTop: '8px' }}>
+                                        <div style={{ color: c.fgSecondary, fontSize: '0.8rem', marginBottom: '10px', padding: '6px 8px', background: c.bgTertiary, borderRadius: '4px' }}>
+                                            来源：从目标 Skill 的流程约束中提取并复用 · 作用：评估 Agent 是否执行了该 Skill 必需的关键步骤
                                         </div>
                                         {(editingConfig.key_actions || []).map((item, idx) => (
                                             <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
@@ -3500,7 +3534,7 @@ export default function Dashboard() {
                                                         newItems[idx].content = e.target.value;
                                                         setEditingConfig({ ...editingConfig, key_actions: newItems });
                                                     }}
-                                                    style={{ flex: 1, padding: '6px' }}
+                                                    style={{ flex: 1, padding: '6px', color: c.fg, background: c.inputBg, border: `1px solid ${c.inputBorder}` }}
                                                 />
                                                 <input
                                                     type="number"
@@ -3511,14 +3545,14 @@ export default function Dashboard() {
                                                         newItems[idx].weight = Number(e.target.value);
                                                         setEditingConfig({ ...editingConfig, key_actions: newItems });
                                                     }}
-                                                    style={{ width: '80px', padding: '6px' }}
+                                                    style={{ width: '80px', padding: '6px', color: c.fg, background: c.inputBg, border: `1px solid ${c.inputBorder}` }}
                                                 />
                                                 <button
                                                     onClick={() => {
                                                         const newItems = (editingConfig.key_actions || []).filter((_, i) => i !== idx);
                                                         setEditingConfig({ ...editingConfig, key_actions: newItems });
                                                     }}
-                                                    style={{ color: '#ef4444', padding: '0 8px', background: 'none', border: 'none', cursor: 'pointer' }}
+                                                    style={{ color: c.error, padding: '0 8px', background: 'none', border: 'none', cursor: 'pointer' }}
                                                 >
                                                     ✕
                                                 </button>
@@ -3526,7 +3560,7 @@ export default function Dashboard() {
                                         ))}
                                         <button
                                             className="btn-sm"
-                                            style={{ background: '#334155', marginTop: '5px' }}
+                                            style={{ background: c.bgTertiary, color: c.fgSecondary, marginTop: '5px', border: `1px solid ${c.border}` }}
                                             onClick={() => setEditingConfig({
                                                 ...editingConfig,
                                                 key_actions: [...(editingConfig.key_actions || []), { content: '', weight: 1 }]
@@ -3541,14 +3575,14 @@ export default function Dashboard() {
                             </>
                         )}
 
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '1.5rem', paddingTop: '1rem', borderTop: `1px solid ${c.border}` }}>
                             <button
                                 onClick={() => { setIsEditModalOpen(false); setConfigModalPerspective(null); setIsSavingConfig(false); }}
                                 style={{
                                     padding: '8px 24px',
-                                    background: '#1e293b',
-                                    color: '#94a3b8',
-                                    border: '1px solid #334155',
+                                    background: c.bgSecondary,
+                                    color: c.fgMuted,
+                                    border: `1px solid ${c.border}`,
                                     borderRadius: '6px',
                                     cursor: 'pointer',
                                     fontSize: '0.9rem',
@@ -3564,7 +3598,7 @@ export default function Dashboard() {
                                 style={{
                                     padding: '8px 28px',
                                     background: isSavingConfig ? '#1e3a5f' : '#38bdf8',
-                                    color: isSavingConfig ? '#64748b' : '#0f172a',
+                                    color: isSavingConfig ? '#64748b' : '#18181b',
                                     border: 'none',
                                     borderRadius: '6px',
                                     cursor: isSavingConfig ? 'not-allowed' : 'pointer',
@@ -3584,7 +3618,7 @@ export default function Dashboard() {
             {/* 2. Record Detail Modal */}
             {selectedRecord && (
                 <div className="modal-overlay" onClick={() => setSelectedRecord(null)}>
-                    <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ width: '800px', maxWidth: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
+                    <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ width: '800px', maxWidth: '95%', maxHeight: '90vh', overflowY: 'auto', overflowX: 'hidden' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                             <h3>记录详情</h3>
                             <button onClick={() => setSelectedRecord(null)} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '1.5rem', cursor: 'pointer' }}>×</button>
@@ -3593,17 +3627,17 @@ export default function Dashboard() {
                         <div className="detail-section">
                             <h4>基本信息</h4>
                             <div className="detail-grid">
-                                <div><strong>Time:</strong> {formatDateTime(selectedRecord.timestamp)}</div>
-                                <div><strong>Framework:</strong> {selectedRecord.framework}</div>
-                                <div><strong>Latency:</strong> {formatLatency(selectedRecord.latency)}{(() => {
+                                <div><strong>时间：</strong> {formatDateTime(selectedRecord.timestamp)}</div>
+                                <div><strong>框架：</strong> {selectedRecord.framework}</div>
+                                <div><strong>时延：</strong> {formatLatency(selectedRecord.latency)}{(() => {
                                     const rid = selectedRecord.upload_id || selectedRecord.task_id || '';
                                     const vd = versionDiffMap.get(rid);
-                                    return vd ? formatDiff(vd.latencyDiff, true) : null;
+                                    return vd ? formatDiff(vd.latencyDiff, true, isDark) : null;
                                 })()}</div>
-                                <div><strong>Token:</strong> {selectedRecord.tokens}{(() => {
+                                <div><strong>Token：</strong> {selectedRecord.tokens}{(() => {
                                     const rid = selectedRecord.upload_id || selectedRecord.task_id || '';
                                     const vd = versionDiffMap.get(rid);
-                                    return vd ? formatDiff(vd.tokenDiff, true) : null;
+                                    return vd ? formatDiff(vd.tokenDiff, true, isDark) : null;
                                 })()}</div>
                                 {(() => {
                                     const rid = selectedRecord.upload_id || selectedRecord.task_id || '';
@@ -3611,8 +3645,8 @@ export default function Dashboard() {
                                     if (!vd) return null;
                                     return (
                                         <>
-                                            <div><strong>准确率变化:</strong> {formatDiff(vd.accuracyDiff, false)}</div>
-                                            <div><strong>成本变化:</strong> {formatDiff(vd.costDiff, true)}</div>
+                                            <div><strong>准确率变化:</strong> {formatDiff(vd.accuracyDiff, false, isDark)}</div>
+                                            <div><strong>成本变化:</strong> {formatDiff(vd.costDiff, true, isDark)}</div>
                                         </>
                                     );
                                 })()}
@@ -3620,13 +3654,13 @@ export default function Dashboard() {
                         </div>
 
                         <div className="detail-section">
-                            <h4>Input / Output</h4>
+                            <h4>输入与输出</h4>
                             <div className="detail-row">
-                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: '#94a3b8' }}>Query:</strong>
+                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>用户输入：</strong>
                                 <div className="code-block">{selectedRecord.query}</div>
                             </div>
                             <div className="detail-row">
-                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: '#94a3b8' }}>Skills Used:</strong>
+                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>使用的 Skill：</strong>
                                 <div className="code-block">
                                     <SkillLinks
                                         skills={selectedRecord.skills}
@@ -3637,8 +3671,8 @@ export default function Dashboard() {
                                 </div>
                             </div>
                             <div className="detail-row">
-                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: '#94a3b8' }}>Final Result:</strong>
-                                <div className="code-block" style={{ maxHeight: '200px', overflowY: 'auto' }}>{selectedRecord.final_result || '(None)'}</div>
+                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>最终结果：</strong>
+                                <div className="code-block" style={{ maxHeight: '200px', overflowY: 'auto' }}>{selectedRecord.final_result || '（无）'}</div>
                             </div>
                         </div>
 
@@ -3661,28 +3695,28 @@ export default function Dashboard() {
                                             }}
                                         >
                                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
-                                                <strong style={{ color: '#e2e8f0' }}>Routing Evaluation</strong>
+                                                <strong style={{ color: '#e2e8f0' }}>Skill 召回率评测</strong>
                                                 <span style={{ color: routingMeta.accent, fontSize: '0.8rem', fontWeight: 700 }}>{routingMeta.label}</span>
                                             </div>
                                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
                                                 <div>
-                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Recall</div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>召回率</div>
                                                     <div style={{ color: '#f8fafc', fontWeight: 700 }}>
                                                         {routing?.recall_rate != null ? `${(routing.recall_rate * 100).toFixed(0)}%` : '--'}
                                                     </div>
                                                 </div>
                                                 <div>
-                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Matched</div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>命中数</div>
                                                     <div style={{ color: '#f8fafc', fontWeight: 700 }}>
                                                         {routing?.status === 'available' ? `${routing.matched_count}/${routing.expected_count}` : '--'}
                                                     </div>
                                                 </div>
                                             </div>
                                             <div style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.6 }}>
-                                                <div><strong style={{ color: '#94a3b8' }}>Expected:</strong> {formatExpectedSkillList(routing?.expected_skills)}</div>
-                                                <div><strong style={{ color: '#94a3b8' }}>Invoked:</strong> {formatInvokedSkillList(routing?.invoked_skills)}</div>
-                                                {routing?.matched_intent && <div><strong style={{ color: '#94a3b8' }}>Matched Intent:</strong> {routing.matched_intent}</div>}
-                                                {routing?.matched_anchors?.length ? <div><strong style={{ color: '#94a3b8' }}>Matched Anchors:</strong> {routing.matched_anchors.join(', ')}</div> : null}
+                                                <div><strong style={{ color: '#94a3b8' }}>预期 Skill：</strong> {formatExpectedSkillList(routing?.expected_skills)}</div>
+                                                <div><strong style={{ color: '#94a3b8' }}>实际调用：</strong> {formatInvokedSkillList(routing?.invoked_skills)}</div>
+                                                {routing?.matched_intent && <div><strong style={{ color: '#94a3b8' }}>命中语义意图：</strong> {routing.matched_intent}</div>}
+                                                {routing?.matched_anchors?.length ? <div><strong style={{ color: '#94a3b8' }}>命中语义锚点：</strong> {routing.matched_anchors.join(', ')}</div> : null}
                                             </div>
                                             {routing?.skill_breakdown?.length ? (
                                                 <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
@@ -3693,7 +3727,7 @@ export default function Dashboard() {
                                                                 <div style={{ minWidth: 0 }}>
                                                                     <div style={{ color: '#f8fafc', fontSize: '0.82rem', fontWeight: 700 }}>{item.skill}</div>
                                                                     <div style={{ color: '#94a3b8', fontSize: '0.76rem' }}>
-                                                                        expected {item.expected_version != null ? `v${item.expected_version}` : 'any'} | invoked {item.invoked_version != null ? `v${item.invoked_version}` : 'none'}
+                                                                        预期版本 {item.expected_version != null ? `v${item.expected_version}` : '任意'} | 实际版本 {item.invoked_version != null ? `v${item.invoked_version}` : '未调用'}
                                                                     </div>
                                                                 </div>
                                                                 <span style={{ flexShrink: 0, padding: '0.22rem 0.5rem', borderRadius: '999px', fontSize: '0.72rem', color: statusMeta.color, background: statusMeta.background, border: `1px solid ${statusMeta.border}` }}>
@@ -3715,18 +3749,18 @@ export default function Dashboard() {
                                             }}
                                         >
                                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
-                                                <strong style={{ color: '#e2e8f0' }}>Outcome Evaluation</strong>
+                                                <strong style={{ color: '#e2e8f0' }}>Skill 执行效果评测</strong>
                                                 <span style={{ color: outcomeMeta.accent, fontSize: '0.8rem', fontWeight: 700 }}>{outcomeMeta.label}</span>
                                             </div>
                                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
                                                 <div>
-                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Score</div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>评分</div>
                                                     <div style={{ color: '#f8fafc', fontWeight: 700 }}>
                                                         {outcome?.score != null ? outcome.score.toFixed(2) : '--'}
                                                     </div>
                                                 </div>
                                                 <div>
-                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Criteria</div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>评测项数</div>
                                                     <div style={{ color: '#f8fafc', fontWeight: 700 }}>
                                                         {outcome?.status === 'available' || outcome?.status === 'pending'
                                                             ? `${outcome.root_cause_count + outcome.key_action_count}`
@@ -3735,9 +3769,9 @@ export default function Dashboard() {
                                                 </div>
                                             </div>
                                             <div style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.6 }}>
-                                                <div><strong style={{ color: '#94a3b8' }}>Matched Skill:</strong> {outcome?.matched_skill ? `${outcome.matched_skill}${outcome.matched_skill_version != null ? ` v${outcome.matched_skill_version}` : ''}` : '--'}</div>
-                                                {outcome?.matched_query && <div><strong style={{ color: '#94a3b8' }}>Source Scenario:</strong> {outcome.matched_query}</div>}
-                                                <div><strong style={{ color: '#94a3b8' }}>Outcome Data:</strong> {outcome?.standard_answer_present ? 'Standard answer configured' : 'Not configured'}</div>
+                                                <div><strong style={{ color: '#94a3b8' }}>匹配 Skill：</strong> {outcome?.matched_skill ? `${outcome.matched_skill}${outcome.matched_skill_version != null ? ` v${outcome.matched_skill_version}` : ''}` : '--'}</div>
+                                                {outcome?.matched_query && <div><strong style={{ color: '#94a3b8' }}>业务场景：</strong> {outcome.matched_query}</div>}
+                                                <div><strong style={{ color: '#94a3b8' }}>效果数据：</strong> {outcome?.standard_answer_present ? '已配置标准答案' : '未配置标准答案'}</div>
                                             </div>
                                             {outcome?.skill_breakdown?.length ? (
                                                 <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
@@ -3750,7 +3784,7 @@ export default function Dashboard() {
                                                                         {item.skill}{item.version != null ? ` v${item.version}` : ''}
                                                                     </div>
                                                                     <div style={{ color: '#94a3b8', fontSize: '0.76rem' }}>
-                                                                        role: {item.role} | routing: {routingStatusMeta.label}
+                                                                        角色：{item.role} | 路由：{routingStatusMeta.label}
                                                                     </div>
                                                                 </div>
                                                                 <span style={{ flexShrink: 0, color: '#cbd5e1', fontSize: '0.76rem' }}>
@@ -3768,48 +3802,48 @@ export default function Dashboard() {
 
                             {selectedRecord.failures && selectedRecord.failures.length > 0 && (
                                 <div className="detail-section">
-                                    <h4 style={{ color: '#f87171' }}>中间故障 / 异常分析</h4>
+                                    <h4 style={{ color: c.error }}>中间故障 / 异常分析</h4>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                         {selectedRecord.failures.map((fail, idx) => (
-                                            <div key={idx} style={{ background: 'rgba(248, 113, 113, 0.1)', border: '1px solid #7f1d1d', borderRadius: '6px', padding: '1rem' }}>
+                                            <div key={idx} style={{ background: c.errorSubtle, border: `1px solid ${c.errorSubtleBorder}`, borderRadius: '6px', padding: '1rem' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                                                    <span style={{ background: '#f87171', color: '#0f172a', padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                                                    <span style={{ background: c.error, color: c.bg, padding: '2px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' }}>
                                                         {fail.failure_type}
                                                     </span>
-                                                    <span style={{ color: '#fca5a5', fontWeight: 'bold' }}>{fail.description}</span>
+                                                    <span style={{ color: c.error, fontWeight: 'bold' }}>{fail.description}</span>
                                                 </div>
                                                 {fail.context && (
-                                                    <div style={{ marginBottom: '0.5rem', fontSize: '0.9rem', color: '#cbd5e1', fontFamily: 'monospace', background: 'rgba(0,0,0,0.3)', padding: '0.5rem', borderRadius: '4px' }}>
+                                                    <div style={{ marginBottom: '0.5rem', fontSize: '0.9rem', color: '#d4d4d8', fontFamily: 'monospace', background: 'rgba(0,0,0,0.3)', padding: '0.5rem', borderRadius: '4px' }}>
                                                         {fail.context}
                                                     </div>
                                                 )}
                                                 {fail.recovery && (
-                                                    <div style={{ fontSize: '0.9rem', color: '#86efac' }}>
-                                                        <strong style={{ color: '#94a3b8' }}>修复建议:</strong> {fail.recovery}
+                                                    <div style={{ fontSize: '0.9rem', color: c.success }}>
+                                                        <strong style={{ color: c.fgMuted }}>修复建议:</strong> {fail.recovery}
                                                     </div>
                                                 )}
 
                                                 {/* Attribution Display */}
                                                 {(fail.attribution || fail.attribution_reason) && (
-                                                    <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px dashed #7f1d1d' }}>
+                                                    <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: `1px dashed ${c.errorSubtleBorder}` }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.3rem' }}>
-                                                            <strong style={{ color: '#fbbf24' }}>归因分析:</strong>
+                                                            <strong style={{ color: c.warning }}>归因分析:</strong>
                                                             {fail.attribution && (
                                                                 <span style={{
-                                                                    background: '#fbbf24',
-                                                                    color: '#451a03',
+                                                                    background: c.warning,
+                                                                    color: c.bg,
                                                                     padding: '1px 6px',
                                                                     borderRadius: '4px',
                                                                     fontSize: '0.75rem',
                                                                     fontWeight: 'bold',
-                                                                    border: '1px solid #d97706'
+                                                                    border: `1px solid ${c.warning}`
                                                                 }}>
                                                                     {fail.attribution}
                                                                 </span>
                                                             )}
                                                         </div>
                                                         {fail.attribution_reason && (
-                                                            <div style={{ fontSize: '0.9rem', color: '#fcd34d', fontStyle: 'italic' }}>
+                                                            <div style={{ fontSize: '0.9rem', color: c.warning, fontStyle: 'italic' }}>
                                                                 {fail.attribution_reason}
                                                             </div>
                                                         )}
@@ -3824,13 +3858,13 @@ export default function Dashboard() {
 
 
                             <div className="detail-row" style={{ marginTop: '1rem' }}>
-                                <strong style={{ color: '#94a3b8' }}>Outcome Reason:</strong>
-                                <div style={{ marginTop: '0.2rem', fontSize: '0.9rem', color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>{selectedRecord.judgment_reason || '-'}</div>
+                                <strong style={{ color: c.fgMuted }}>执行效果判定说明：</strong>
+                                <div style={{ marginTop: '0.2rem', fontSize: '0.9rem', color: c.fg, whiteSpace: 'pre-wrap' }}>{selectedRecord.judgment_reason || '-'}</div>
                             </div>
                         </div >
 
                         <div className="detail-section">
-                            <h4>用户反馈 (User Feedback)</h4>
+                            <h4>用户反馈</h4>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                                     <button
@@ -3838,34 +3872,34 @@ export default function Dashboard() {
                                         style={{
                                             display: 'flex', alignItems: 'center', gap: '0.5rem',
                                             background: (selectedRecord.user_feedback?.type === 'like') ? '#38bdf8' : '#334155',
-                                            color: (selectedRecord.user_feedback?.type === 'like') ? '#0f172a' : '#94a3b8',
+                                            color: (selectedRecord.user_feedback?.type === 'like') ? '#18181b' : '#a1a1aa',
                                             border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer',
                                             fontWeight: (selectedRecord.user_feedback?.type === 'like') ? 'bold' : 'normal',
                                             transition: 'all 0.2s'
                                         }}
                                     >
-                                        👍 Like
+                                        👍 有帮助
                                     </button>
                                     <button
                                         onClick={() => submitFeedback('dislike')}
                                         style={{
                                             display: 'flex', alignItems: 'center', gap: '0.5rem',
                                             background: (selectedRecord.user_feedback?.type === 'dislike') ? '#f87171' : '#334155',
-                                            color: (selectedRecord.user_feedback?.type === 'dislike') ? '#0f172a' : '#94a3b8',
+                                            color: (selectedRecord.user_feedback?.type === 'dislike') ? '#18181b' : '#a1a1aa',
                                             border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer',
                                             fontWeight: (selectedRecord.user_feedback?.type === 'dislike') ? 'bold' : 'normal',
                                             transition: 'all 0.2s'
                                         }}
                                     >
-                                        👎 Dislike
+                                        👎 没帮助
                                     </button>
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
                                     <textarea
                                         value={feedbackComment}
                                         onChange={(e) => setFeedbackComment(e.target.value)}
-                                        placeholder="添加评论 (可选)..."
-                                        style={{ flex: 1, minHeight: '60px', padding: '8px', background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '4px', fontSize: '0.9rem' }}
+                                        placeholder="添加评论 （可选）..."
+                                        style={{ flex: 1, minHeight: '60px', padding: '8px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '4px', fontSize: '0.9rem' }}
                                     />
                                     <button
                                         className="btn-primary"
@@ -3891,8 +3925,8 @@ export default function Dashboard() {
                     width: '3rem',
                     height: '3rem',
                     borderRadius: '50%',
-                    background: '#38bdf8',
-                    color: '#0f172a',
+                    background: c.primary,
+                    color: c.bg,
                     border: 'none',
                     display: 'flex',
                     alignItems: 'center',
@@ -3913,23 +3947,23 @@ export default function Dashboard() {
             {/* User Info Modal */}
             {showUserModal && (
                 <div className="modal-overlay" onClick={() => setShowUserModal(false)} style={{ alignItems: 'flex-start', paddingTop: '10vh' }}>
-                    <div className="modal-content" style={{ width: '500px', maxWidth: '90vw', background: '#0f172a', border: '1px solid #334155', borderRadius: '12px', padding: '0', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+                    <div className="modal-content" style={{ width: '500px', maxWidth: '90vw', background: c.bg, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '0', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
 
                         {/* Modal Header */}
-                        <div style={{ padding: '1.5rem', background: 'linear-gradient(to right, #1e293b, #0f172a)', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ padding: '1.5rem', background: c.bgSecondary, borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <div style={{
-                                    width: '40px', height: '40px', borderRadius: '50%', background: '#38bdf8', color: '#0f172a',
+                                    width: '40px', height: '40px', borderRadius: '50%', background: c.primary, color: c.bg,
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: 'bold'
                                 }}>
                                     {user ? user.substring(0, 1).toUpperCase() : '?'}
                                 </div>
                                 <div>
-                                    <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '1.1rem' }}>{user}</h3>
-                                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>User Profile</span>
+                                    <h3 style={{ margin: 0, color: c.fg, fontSize: '1.1rem' }}>{user}</h3>
+                                    <span style={{ fontSize: '0.8rem', color: c.fgMuted }}>User Profile</span>
                                 </div>
                             </div>
-                            <button onClick={() => setShowUserModal(false)} style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}>×</button>
+                            <button onClick={() => setShowUserModal(false)} style={{ background: 'transparent', border: 'none', color: c.fgSecondary, fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}>×</button>
                         </div>
 
                         {/* Modal Body */}
@@ -3938,12 +3972,12 @@ export default function Dashboard() {
                             {/* Stats or Info could go here */}
 
                             {localApiKey ? (
-                                <div className="form-group" style={{ background: '#1e293b', padding: '1.25rem', borderRadius: '8px', border: '1px solid #334155' }}>
-                                    <label style={{ color: '#94a3b8', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.75rem', display: 'block' }}>API Key</label>
+                                <div className="form-group" style={{ background: c.bgSecondary, padding: '1.25rem', borderRadius: '8px', border: `1px solid ${c.border}` }}>
+                                    <label style={{ color: c.fgMuted, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.75rem', display: 'block' }}>密钥</label>
                                     <div style={{ display: 'flex', gap: '10px' }}>
                                         <div style={{
-                                            flex: 1, padding: '0.75rem 1rem', background: '#0f172a', borderRadius: '6px',
-                                            border: '1px solid #334155', color: '#e2e8f0', fontFamily: 'monospace', fontSize: '0.9rem',
+                                            flex: 1, padding: '0.75rem 1rem', background: c.bg, borderRadius: '6px',
+                                            border: `1px solid ${c.border}`, color: c.fg, fontFamily: 'monospace', fontSize: '0.9rem',
                                             overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis'
                                         }}>
                                             {localApiKey}
@@ -4000,8 +4034,8 @@ export default function Dashboard() {
                                     </div>
                                 </div>
                             ) : (
-                                <div style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
-                                    No API Key found.
+                                <div style={{ textAlign: 'center', padding: '2rem', color: c.fgSecondary }}>
+                                    未找到密钥。
                                 </div>
                             )}
 
@@ -4010,11 +4044,11 @@ export default function Dashboard() {
 
                         {/* Guide Settings */}
                         <div style={{ padding: '0 1.5rem 1.5rem' }}>
-                            <div style={{ background: '#1e293b', padding: '1.25rem', borderRadius: '8px', border: '1px solid #334155' }}>
+                            <div style={{ background: c.bgSecondary, padding: '1.25rem', borderRadius: '8px', border: `1px solid ${c.border}` }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <div>
-                                        <h4 style={{ margin: '0 0 0.25rem 0', color: '#f8fafc', fontSize: '0.95rem' }}>新手引导</h4>
-                                        <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>
+                                        <h4 style={{ margin: '0 0 0.25rem 0', color: c.fg, fontSize: '0.95rem' }}>新手引导</h4>
+                                        <p style={{ margin: 0, fontSize: '0.8rem', color: c.fgMuted }}>
                                             {guideState?.guideDisabled ? '引导已关闭' : '引导已开启'}
                                         </p>
                                     </div>
@@ -4058,7 +4092,7 @@ export default function Dashboard() {
                                         style={{
                                             background: guideState?.guideDisabled ? '#4ade80' : '#38bdf8',
                                             border: 'none',
-                                            color: '#0f172a',
+                                            color: c.bg,
                                             padding: '0.5rem 1rem',
                                             borderRadius: '6px',
                                             fontWeight: '600',
@@ -4073,13 +4107,13 @@ export default function Dashboard() {
                         </div>
 
                         {/* Modal Footer */}
-                        <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                        <div style={{ padding: '1.25rem 1.5rem', background: c.bg, borderTop: `1px solid ${c.border}`, display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
                             <button
                                 onClick={() => setShowUserModal(false)}
                                 style={{
                                     background: 'transparent',
-                                    border: '1px solid #334155',
-                                    color: '#94a3b8',
+                                    border: `1px solid ${c.border}`,
+                                    color: c.fgMuted,
                                     padding: '0.6rem 1.25rem',
                                     borderRadius: '6px',
                                     fontWeight: '500',
@@ -4096,7 +4130,7 @@ export default function Dashboard() {
                                     window.location.reload();
                                 }}
                                 style={{
-                                    background: '#ef4444',
+                                    background: c.error,
                                     border: 'none',
                                     color: 'white',
                                     padding: '0.6rem 1.25rem',
@@ -4120,40 +4154,40 @@ export default function Dashboard() {
 
             {/* Styles */}
             <style jsx>{`
-        .tab-btn { background: transparent; border: none; color: #94a3b8; padding: 0.5rem 1rem; cursor: pointer; font-size: 1rem; border-bottom: 2px solid transparent; }
-        .tab-btn.active { color: #38bdf8; border-bottom-color: #38bdf8; }
+        .tab-btn { background: transparent; border: none; color: var(--foreground-muted); padding: 0.5rem 1rem; cursor: pointer; font-size: 1rem; border-bottom: 2px solid transparent; }
+        .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
         .p-2 { padding: 0.75rem; }
-        .btn-primary { background: #38bdf8; color: #0f172a; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-weight: bold; }
-        .btn-sm { color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; justify-content: center; alignItems: center; z-index: 1000; backdrop-filter: blur(2px); }
-        .modal-content { background: #1e293b; padding: 2rem; border: 1px solid #334155; width: 66vw; max-width: 1200px; }
+        .btn-primary { background: var(--primary); color: var(--background); border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-sm { color: var(--background); border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; justify-content: center; alignItems: center; z-index: 1000; backdrop-filter: blur(2px); }
+        .modal-content { background: var(--background-secondary); padding: 2rem; border: 1px solid var(--border); width: 66vw; max-width: 1200px; }
         .form-group { margin-bottom: 1rem; }
-        .form-group label { display: block; marginBottom: 0.5rem; color: #cbd5e1; }
-        input, textarea { background: #0f172a; border: 1px solid #334155; color: white; borderRadius: 4px; }
+        .form-group label { display: block; marginBottom: 0.5rem; color: var(--foreground-secondary); }
+        input, textarea { background: var(--input-bg); border: 1px solid var(--border); color: white; borderRadius: 4px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         details[open] > summary .details-arrow { transform: rotate(90deg); }
         details > summary:hover { background: rgba(30, 41, 59, 0.8) !important; }
         details > summary::-webkit-details-marker { display: none; }
         details > summary::marker { display: none; content: ''; }
         @keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.3); } }
-        
+
         .detail-section { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #334155; }
         .detail-section:last-child { border-bottom: none; }
         .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
         .detail-row { margin-bottom: 1rem; }
-        .code-block { background: #0f172a; padding: 0.8rem; border-radius: 6px; font-family: monospace; white-space: pre-wrap; font-size: 0.9rem; color: #e2e8f0; }
+        .code-block { background: var(--input-bg); padding: 0.8rem; border-radius: 6px; font-family: monospace; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; font-size: 0.9rem; color: var(--foreground); max-width: 100%; overflow-x: auto; }
         .status-box { padding: 1rem; border-radius: 6px; text-align: center; }
-        .status-box.good { background: rgba(74, 222, 128, 0.1); border: 1px solid #4ade80; color: #4ade80; }
-        .status-box.bad { background: rgba(248, 113, 113, 0.1); border: 1px solid #f87171; color: #f87171; }
-        
-        h4 { color: #38bdf8; margin-bottom: 1rem; margin-top: 0; }
+        .status-box.good { background: var(--success-subtle); border: 1px solid var(--success); color: var(--success); }
+        .status-box.bad { background: var(--error-subtle); border: 1px solid var(--error); color: var(--error); }
+
+        h4 { color: var(--primary); margin-bottom: 1rem; margin-top: 0; }
         .text-sm { font-size: 0.875rem; }
         .text-xl { font-size: 1.25rem; }
         .text-2xl { font-size: 1.5rem; }
         .font-bold { font-weight: 700; }
-        .text-slate-400 { color: #94a3b8; }
-        .text-green-400 { color: #4ade80; }
-        .text-red-400 { color: #f87171; }
+        .text-slate-400 { color: var(--foreground-muted); }
+        .text-green-400 { color: var(--success); }
+        .text-red-400 { color: var(--error); }
         .dropdown-content { display: none; }
         .dropdown-trigger:hover + .dropdown-content, .dropdown-content:hover { display: block; }
       `}</style>

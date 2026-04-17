@@ -4,7 +4,7 @@ export const GUIDE_STEPS: GuideStep[] = [
     {
         id: 'welcome',
         target: '',
-        title: '欢迎使用 Skill-Insight',
+        title: '欢迎使用 Skill-insight',
         content: '这是智能体技能评估、分析与优化平台。接下来将引导您完成关键配置，帮助您快速上手使用。',
         position: 'center',
     },
