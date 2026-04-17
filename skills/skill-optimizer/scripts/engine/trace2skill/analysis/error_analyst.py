@@ -7,15 +7,15 @@ Multi-turn ReAct-style agentic analysis for failure trajectories.
 Each analyst takes a frozen copy of skill S0 and one trajectory, outputs a skill patch.
 """
 
+import concurrent.futures
 import logging
 import uuid
 import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Callable, Optional
 
-from trace2skill.patch import PatchEdit, SkillPatch
-from trace2skill.trajectory import Trajectory, TrajectoryStatus
+from ..patch import PatchEdit, SkillPatch, cleanup_json_fences, parse_edits_from_json
+from ..trajectory import Trajectory, TrajectoryStatus
 
 logger = logging.getLogger(__name__)
 
@@ -52,16 +52,6 @@ You MUST output your analysis in the following JSON format. Do not include any a
 If no patch is needed, set "patch": null.
 """
 
-def cleanup_json_prefix(response: str)->str:
-    # Strip markdown code fences if present
-    cleaned_response = response.strip()
-    if cleaned_response.startswith("```json"):
-        cleaned_response = cleaned_response[7:]  # Remove ```json
-    if cleaned_response.endswith("```"):
-        cleaned_response = cleaned_response[:-3]  # Remove ```
-    cleaned_response = cleaned_response.strip()
-    return cleaned_response
-
 
 @dataclass
 class ResponseModel:
@@ -71,26 +61,10 @@ class ResponseModel:
 
     @staticmethod
     def from_json(json_str: str) -> "ResponseModel":
-        
-        json_str = cleanup_json_prefix(json_str)
-        
-        data = json.loads(json_str)
+        cleaned = cleanup_json_fences(json_str)
+        data = json.loads(cleaned)
+        edits = parse_edits_from_json(data)
 
-        # Convert edits to PatchEdit objects
-        edits = []
-        for edit_data in data.get("edits", []):
-            edit = PatchEdit(
-                file = "SKILL.md",
-                operation=edit_data.get("operation", ""),
-                target=edit_data.get("target", ""),
-                target_start_line=edit_data.get("target_start_line"),
-                target_end_line=edit_data.get("target_end_line"),
-                content=edit_data.get("content", ""),
-                reasoning=edit_data.get("reasoning", ""),
-            )
-            edits.append(edit)
-
-        # Convert root_cause_identified from string to boolean
         root_cause_identified = data.get("root_cause_identified", "false")
         if isinstance(root_cause_identified, str):
             root_cause_identified = root_cause_identified.lower() == "true"
@@ -103,17 +77,9 @@ class ResponseModel:
 
 
 @dataclass
-class AnalystTurn:
-    turn_number: int
-    observation: str
-    is_final: bool = False
-
-
-@dataclass
 class AnalysisResult:
     patch: Optional[SkillPatch] = None
     reasoning: str = ""
-    turns: list[AnalystTurn] = None
 
 
 class ErrorAnalyst:
@@ -129,7 +95,6 @@ class ErrorAnalyst:
         self,
         trajectory: Trajectory,
         skill_content: str,
-        ground_truth_dir: Optional[Path] = None,
     ) -> AnalysisResult:
         if trajectory.status != TrajectoryStatus.FAILURE:
             logger.warning(
@@ -138,8 +103,6 @@ class ErrorAnalyst:
             return AnalysisResult()
 
         trajectory_context = trajectory.format_for_analyst()
-
-        turns: list[AnalystTurn] = []
         current_observation = ""
         turn_count = 0
 
@@ -157,13 +120,6 @@ class ErrorAnalyst:
                 f"## Agent Execution Trace\n{trajectory_context}",
                 f"{OUTPUT_FORMAT_PROMPT}",
             ]
-
-            if ground_truth_dir and trajectory.ground_truth:
-                gt_file = ground_truth_dir / f"{trajectory.task_id}.txt"
-                if gt_file.exists():
-                    prompt_parts.extend(
-                        [f"## Ground Truth\n{gt_file.read_text(encoding='utf-8')}\n"]
-                    )
 
             if current_observation:
                 prompt_parts.extend(
@@ -184,29 +140,20 @@ class ErrorAnalyst:
             response_str = self.llm_client(prompt)
 
             is_final = self._is_final_response(response_str)
-
-            turns.append(
-                AnalystTurn(
-                    turn_number=turn_count, observation=response_str, is_final=is_final
-                )
-            )
-
             current_observation = response_str
 
             if is_final:
                 logger.info(f"Error analysis completed in {turn_count} turns")
-                return self._create_analysis_result(response_str, turns, trajectory)
+                return self._create_analysis_result(response_str, trajectory)
 
         logger.warning(
             f"Error analysis exhausted {turn_count} turns without resolution"
         )
-        return self._create_analysis_result(current_observation, turns, trajectory)
+        return self._create_analysis_result(current_observation, trajectory)
 
     def _is_final_response(self, response: str) -> bool:
         try:
-            # Strip markdown code fences if present
-            cleaned_response = cleanup_json_prefix(response)
-            
+            cleaned_response = cleanup_json_fences(response)
             response_dict = json.loads(cleaned_response)
             root_cause_identified = response_dict.get("root_cause_identified", "false")
             if isinstance(root_cause_identified, str):
@@ -223,17 +170,12 @@ class ErrorAnalyst:
             return False
 
     def _create_analysis_result(
-        self, 
-        response_str: str, 
-        turns: list[AnalystTurn], 
-        trajectory: Trajectory
+        self,
+        response_str: str,
+        trajectory: Trajectory,
     ) -> AnalysisResult:
         patch = None
-
-        # Strip markdown code fences if present
-        cleaned_response = cleanup_json_prefix(response_str)
-        
-        response = ResponseModel.from_json(cleaned_response)
+        response = ResponseModel.from_json(response_str)
 
         if response.edits:
             patch = SkillPatch(
@@ -244,9 +186,7 @@ class ErrorAnalyst:
                 edits=response.edits,
             )
 
-        return AnalysisResult(
-            patch=patch, reasoning=response.root_cause, turns=turns
-        )
+        return AnalysisResult(patch=patch, reasoning=response.root_cause)
 
 
 class BatchErrorAnalyst:
@@ -263,10 +203,7 @@ class BatchErrorAnalyst:
         self,
         trajectories: list[Trajectory],
         skill_content: str,
-        ground_truth_dir: Optional[Path] = None,
     ) -> list[AnalysisResult]:
-        import concurrent.futures
-
         failure_trajectories = [
             t for t in trajectories if t.status == TrajectoryStatus.FAILURE
         ]
@@ -282,7 +219,6 @@ class BatchErrorAnalyst:
                     self.analyst.analyze,
                     t,
                     skill_content,
-                    ground_truth_dir,
                 ): t
                 for t in failure_trajectories
             }

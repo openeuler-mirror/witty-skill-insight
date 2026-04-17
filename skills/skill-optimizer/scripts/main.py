@@ -963,7 +963,10 @@ def main():
     output_path = Path(args.output) if args.output else None
 
     if args.mode == "trace":
-        from trace2skill.orchestrator import run_trace2skill, Trace2SkillConfig
+        from engine.trace2skill import run_trace2skill, Trace2SkillConfig
+
+        if not args.trajectories:
+            parser.error("--trajectories is required for --mode trace")
 
         trajectory_path = Path(args.trajectories)
         if not trajectory_path.exists():
@@ -976,7 +979,7 @@ def main():
         config = Trace2SkillConfig(
             trajectory_dir=trajectory_path,
             skill_path=input_path,
-            output_dir=output_path
+            output_dir=output_path,
         )
         result = run_trace2skill(llm_client=llm_client, config=config)
 

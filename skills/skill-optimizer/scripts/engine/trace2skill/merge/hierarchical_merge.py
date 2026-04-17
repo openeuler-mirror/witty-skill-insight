@@ -11,12 +11,11 @@ Hierarchical merging with programmatic conflict prevention:
 """
 
 import logging
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from trace2skill.patch import PatchEdit, PatchOperation, PatchPool, SkillPatch
+from ..patch import PatchPool, SkillPatch, cleanup_json_fences
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +53,8 @@ You MUST output your merge result in the following JSON format. Do not include a
 class MergeConfig:
     batch_size: int = 32
     max_levels: int = 4
-    enable_prevalence_weighting: bool = True
-    reference_dir: Optional[Path] = None
     check_file_existence: bool = True
     check_conflicts: bool = True
-    validate_format: bool = True
     skill_root: Optional[Path] = None
 
 
@@ -169,7 +165,7 @@ class HierarchicalMerge:
                         is_valid = False
 
             if self.config.check_conflicts:
-                for i, other in enumerate(patches):
+                for other in patches:
                     if other.patch_id == patch.patch_id:
                         continue
                     if self._has_conflict(patch, other):
@@ -235,86 +231,5 @@ class HierarchicalMerge:
         ])
 
         response = self.llm_client(prompt)
-
-        # Strip markdown code fences if present
-        cleaned_response = response.strip()
-        if cleaned_response.startswith("```json"):
-            cleaned_response = cleaned_response[7:]  # Remove ```json
-        if cleaned_response.endswith("```"):
-            cleaned_response = cleaned_response[:-3]  # Remove ```
-        cleaned_response = cleaned_response.strip()
-        
+        cleaned_response = cleanup_json_fences(response)
         return SkillPatch.from_json(cleaned_response)
-
-    def _parse_merged_patch(
-        self,
-        response: str,
-        source_count: int,
-    ) -> Optional[SkillPatch]:
-        edits = []
-        reasoning_parts = []
-        in_patch_section = False
-        current_content_lines = []
-
-        for line in response.split("\n"):
-            line_lower = line.lower().strip()
-            if any(line_lower.startswith(indicator) for indicator in ["patch:", "merged patch:", "final patch:"]):
-                in_patch_section = True
-                continue
-            if in_patch_section:
-                current_content_lines.append(line)
-            else:
-                if line.strip() and not line.startswith("#"):
-                    reasoning_parts.append(line)
-
-        if current_content_lines:
-            edits = self._parse_edits_from_diff("\n".join(current_content_lines))
-
-        if not edits and current_content_lines:
-            edits.append(PatchEdit(
-                file="SKILL.md",
-                operation=PatchOperation.INSERT,
-                content="\n".join(current_content_lines),
-            ))
-
-        return SkillPatch(
-            patch_id=str(uuid.uuid4())[:8],
-            is_from_error=False,
-            reasoning="\n".join(reasoning_parts).strip(),
-            edits=edits
-        )
-
-    def _parse_edits_from_diff(self, diff_content: str) -> list[PatchEdit]:
-        edits = []
-        lines = diff_content.split("\n")
-        current_file = None
-        current_op = None
-        current_content = []
-
-        for line in lines:
-            if line.startswith("---"):
-                current_file = line[3:].strip().lstrip("abc/")
-            elif line.startswith("+++"):
-                continue
-            elif line.startswith("@@"):
-                current_content = []
-            elif line.startswith("+") and not line.startswith("+++"):
-                current_content.append(line[1:])
-            elif line.startswith("-") and not line.startswith("---"):
-                pass
-            elif current_file and current_content:
-                edits.append(PatchEdit(
-                    file=current_file,
-                    operation=PatchOperation.INSERT,
-                    content="\n".join(current_content),
-                ))
-                current_content = []
-
-        if current_file and current_content:
-            edits.append(PatchEdit(
-                file=current_file,
-                operation=PatchOperation.INSERT,
-                content="\n".join(current_content),
-            ))
-
-        return edits

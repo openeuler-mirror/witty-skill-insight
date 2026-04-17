@@ -7,14 +7,15 @@ Single-pass pattern extraction for successful trajectories.
 Identifies generalizable behavior patterns that contributed to the correct answer.
 """
 
+import concurrent.futures
 import logging
 import json
 import uuid
-from dataclasses import dataclass
-from typing import Callable, Optional, List
+from dataclasses import dataclass, field
+from typing import Callable, Optional
 
-from trace2skill.patch import PatchEdit, SkillPatch
-from trace2skill.trajectory import Trajectory, TrajectoryStatus
+from ..patch import SkillPatch, cleanup_json_fences, parse_edits_from_json
+from ..trajectory import Trajectory, TrajectoryStatus
 
 logger = logging.getLogger(__name__)
 
@@ -55,51 +56,10 @@ If no patch is needed, set "edits": [] and "success_memory_items": []."""
 
 
 @dataclass
-class SuccessResponseModel:
-    reasoning: str
-    edits: List[PatchEdit]
-    success_memory_items: List[dict]
-
-    @staticmethod
-    def from_json(json_str: str) -> "SuccessResponseModel":
-        # Strip markdown code fences if present
-        cleaned_str = json_str.strip()
-        if cleaned_str.startswith("```json"):
-            cleaned_str = cleaned_str[7:]  # Remove ```json
-        if cleaned_str.endswith("```"):
-            cleaned_str = cleaned_str[:-3]  # Remove ```
-        cleaned_str = cleaned_str.strip()
-        
-        data = json.loads(cleaned_str)
-        
-        # Convert edits to PatchEdit objects
-        edits = []
-        for edit_data in data.get("edits", []):
-            edit = PatchEdit(
-                file=edit_data.get("file", "SKILL.md"),
-                operation=edit_data.get("operation", "insert"),
-                target=edit_data.get("target"),
-                target_start_line=edit_data.get("target_start_line"),
-                target_end_line=edit_data.get("target_end_line"),
-                content=edit_data.get("content"),
-                reasoning=edit_data.get("reasoning", "")
-            )
-            edits.append(edit)
-        
-        # Convert success_memory_items
-        success_memory_items = []
-        for item_data in data.get("success_memory_items", []):
-            item = {
-                "title": item_data.get("title", ""),
-                "description": item_data.get("description", "")
-            }
-            success_memory_items.append(item)
-        
-        return SuccessResponseModel(
-            reasoning=data.get("reasoning", ""),
-            edits=edits,
-            success_memory_items=success_memory_items
-        )
+class SuccessAnalysisResult:
+    patch: Optional[SkillPatch] = None
+    success_memory_items: list[dict] = field(default_factory=list)
+    reasoning: str = ""
 
 
 class SuccessAnalyst:
@@ -110,7 +70,7 @@ class SuccessAnalyst:
         self,
         trajectory: Trajectory,
         skill_content: str,
-    ) -> "SuccessAnalysisResult":
+    ) -> SuccessAnalysisResult:
         if trajectory.status != TrajectoryStatus.SUCCESS:
             logger.warning(
                 f"Trajectory {trajectory.task_id} is not a success, skipping success analysis"
@@ -119,14 +79,11 @@ class SuccessAnalyst:
 
         logger.info(f"Analyzing success pattern for trajectory {trajectory.task_id}")
 
-        system_prompt = SUCCESS_ANALYST_SYSTEM_PROMPT
         trajectory_context = trajectory.format_for_analyst()
-
-        skill_context = f"## Current Skill\n{skill_content}"
 
         prompt = "\n\n".join([
             "## System",
-            system_prompt,
+            SUCCESS_ANALYST_SYSTEM_PROMPT,
             "",
             "## Task Query",
             trajectory.query,
@@ -135,7 +92,7 @@ class SuccessAnalyst:
             trajectory_context,
             "",
             "## Current Skill (reference)",
-            skill_context,
+            f"## Current Skill\n{skill_content}",
             "",
             OUTPUT_FORMAT_PROMPT
         ])
@@ -144,38 +101,36 @@ class SuccessAnalyst:
         return self._create_analysis_result(response, trajectory)
 
     def _create_analysis_result(
-        self, 
-        response_str: str, 
-        trajectory: Trajectory
-    ) -> "SuccessAnalysisResult":
-        response_model = SuccessResponseModel.from_json(response_str)
-        
+        self,
+        response_str: str,
+        trajectory: Trajectory,
+    ) -> SuccessAnalysisResult:
+        cleaned = cleanup_json_fences(response_str)
+        data = json.loads(cleaned)
+        edits = parse_edits_from_json(data)
+
+        success_memory_items = [
+            {"title": item.get("title", ""), "description": item.get("description", "")}
+            for item in data.get("success_memory_items", [])
+        ]
+
+        reasoning = data.get("reasoning", "")
+
         patch = None
-        if response_model.edits:
+        if edits:
             patch = SkillPatch(
                 patch_id=str(uuid.uuid4())[:8],
                 source_trajectory_id=trajectory.task_id,
                 is_from_error=False,
-                reasoning=response_model.reasoning,
-                edits=response_model.edits,
+                reasoning=reasoning,
+                edits=edits,
             )
 
         return SuccessAnalysisResult(
             patch=patch,
-            success_memory_items=response_model.success_memory_items,
-            reasoning=response_model.reasoning
+            success_memory_items=success_memory_items,
+            reasoning=reasoning,
         )
-
-
-@dataclass
-class SuccessAnalysisResult:
-    patch: Optional[SkillPatch] = None
-    success_memory_items: List[dict] = None
-    reasoning: str = ""
-
-    def __post_init__(self):
-        if self.success_memory_items is None:
-            self.success_memory_items = []
 
 
 class BatchSuccessAnalyst:
@@ -192,8 +147,6 @@ class BatchSuccessAnalyst:
         trajectories: list[Trajectory],
         skill_content: str,
     ) -> list[SuccessAnalysisResult]:
-        import concurrent.futures
-
         success_trajectories = [
             t for t in trajectories if t.status == TrajectoryStatus.SUCCESS
         ]

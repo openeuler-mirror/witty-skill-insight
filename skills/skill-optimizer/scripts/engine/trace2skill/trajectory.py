@@ -22,14 +22,6 @@ class TrajectoryStep:
     tool_call: str
     observation: str
 
-    def to_dict(self) -> dict:
-        return {
-            "step_number": self.step_number,
-            "reasoning": self.reasoning,
-            "tool_call": self.tool_call,
-            "observation": self.observation,
-        }
-
     @classmethod
     def from_dict(cls, data: dict) -> "TrajectoryStep":
         return cls(
@@ -48,22 +40,7 @@ class Trajectory:
     final_output: str = ""
     status: TrajectoryStatus = TrajectoryStatus.UNKNOWN
     ground_truth: Optional[str] = None
-    input_files: list[Path] = field(default_factory=list)
-    output_files: list[Path] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict:
-        return {
-            "task_id": self.task_id,
-            "query": self.query,
-            "steps": [s.to_dict() for s in self.steps],
-            "final_output": self.final_output,
-            "status": self.status.value,
-            "ground_truth": self.ground_truth,
-            "input_files": [str(p) for p in self.input_files],
-            "output_files": [str(p) for p in self.output_files],
-            "metadata": self.metadata,
-        }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Trajectory":
@@ -88,10 +65,7 @@ class Trajectory:
                         tool_name = func.get("name", "")
                         tool_args = func.get("arguments", "")
 
-                        # Build a concise tool_call description
                         tool_call_str = f"{tool_name}({tool_args})" if tool_name else str(tc)
-
-                        # Tool output is inline in the same object
                         observation = tc.get("output", "")
 
                         steps.append(TrajectoryStep(
@@ -102,17 +76,13 @@ class Trajectory:
                         ))
                 elif role == "assistant" and not tool_calls:
                     # Pure assistant text without tool calls – either
-                    # intermediate reasoning or the final answer.  We still
-                    # record it as a step so nothing is lost; the caller can
-                    # also inspect ``final_output`` for the last such block.
+                    # intermediate reasoning or the final answer.
                     steps.append(TrajectoryStep(
                         step_number=len(steps) + 1,
                         reasoning=content,
                         tool_call="",
                         observation="",
                     ))
-                # role == "user" entries are intentionally skipped for steps;
-                # the query is extracted separately below.
 
         # --- query ---------------------------------------------------------
         query = data.get("query", "")
@@ -125,8 +95,6 @@ class Trajectory:
         # --- final_output --------------------------------------------------
         final_output = data.get("final_output", "")
         if not final_output and "interactions" in data:
-            # Walk backwards to find the last assistant message that has no
-            # tool calls – that is the final answer presented to the user.
             for interaction in reversed(data["interactions"]):
                 if interaction.get("role") == "assistant" and not interaction.get("tool_calls"):
                     final_output = interaction.get("content", "")
@@ -134,7 +102,6 @@ class Trajectory:
 
         # --- metadata ------------------------------------------------------
         metadata = data.get("metadata", {})
-        # Preserve trace-level fields that are useful downstream.
         for key in ("skillName", "skillId", "model", "user"):
             if key in data and key not in metadata:
                 metadata[key] = data[key]
@@ -146,8 +113,6 @@ class Trajectory:
             final_output=final_output,
             status=TrajectoryStatus(data.get("status", "unknown")),
             ground_truth=data.get("ground_truth"),
-            input_files=[Path(p) for p in data.get("input_files", [])],
-            output_files=[Path(p) for p in data.get("output_files", [])],
             metadata=metadata,
         )
 
@@ -188,21 +153,6 @@ class Trajectory:
 class TrajectorySet:
     trajectories: list[Trajectory] = field(default_factory=list)
     source_skill: Optional[str] = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def success_set(self) -> "TrajectorySet":
-        return TrajectorySet(
-            trajectories=[t for t in self.trajectories if t.is_success()],
-            source_skill=self.source_skill,
-        )
-
-    @property
-    def failure_set(self) -> "TrajectorySet":
-        return TrajectorySet(
-            trajectories=[t for t in self.trajectories if t.is_failure()],
-            source_skill=self.source_skill,
-        )
 
     @property
     def success_count(self) -> int:
@@ -222,27 +172,6 @@ class TrajectorySet:
             return 0.0
         return self.success_count / self.total_count
 
-    def to_dict(self) -> dict:
-        return {
-            "trajectories": [t.to_dict() for t in self.trajectories],
-            "source_skill": self.source_skill,
-            "metadata": self.metadata,
-            "summary": {
-                "total": self.total_count,
-                "success": self.success_count,
-                "failure": self.failure_count,
-                "success_rate": self.success_rate,
-            },
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "TrajectorySet":
-        return cls(
-            trajectories=[Trajectory.from_dict(t) for t in data.get("trajectories", [])],
-            source_skill=data.get("source_skill"),
-            metadata=data.get("metadata", {}),
-        )
-
     @classmethod
     def load_from_directory(cls, trajectory_dir: Path) -> "TrajectorySet":
         trajectories = []
@@ -252,12 +181,3 @@ class TrajectorySet:
                 trajectories.append(Trajectory.from_dict(data))
 
         return cls(trajectories=trajectories)
-
-    def save_to_directory(self, trajectory_dir: Path) -> None:
-        import json
-
-        trajectory_dir.mkdir(parents=True, exist_ok=True)
-        for trajectory in self.trajectories:
-            output_file = trajectory_dir / f"{trajectory.task_id}.json"
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(trajectory.to_dict(), f, ensure_ascii=False, indent=2)

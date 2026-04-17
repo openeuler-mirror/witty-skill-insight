@@ -35,27 +35,15 @@ class Trace2SkillConfig:
     merge_max_levels: int = 4
     enable_success_analyst: bool = True
     enable_error_analyst: bool = True
-    save_snapshots: bool = True
 
 
 @dataclass
 class Trace2SkillResult:
     evolved_skill_content: str = ""
-    evolved_files: dict[str, str] = field(default_factory=dict)
     error_patches_count: int = 0
     success_patches_count: int = 0
     merge_result: Optional[MergeResult] = None
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict:
-        return {
-            "evolved_skill_content": self.evolved_skill_content,
-            "evolved_files": self.evolved_files,
-            "error_patches_count": self.error_patches_count,
-            "success_patches_count": self.success_patches_count,
-            "merge_result": self.merge_result.to_dict() if self.merge_result else None,
-            "metadata": self.metadata,
-        }
 
 
 class Trace2SkillOrchestrator:
@@ -126,7 +114,6 @@ class Trace2SkillOrchestrator:
 
         return Trace2SkillResult(
             evolved_skill_content=evolved_content,
-            evolved_files={},
             error_patches_count=len(patch_pool.error_patches),
             success_patches_count=len(patch_pool.success_patches),
             merge_result=merge_result,
@@ -438,24 +425,7 @@ Check `trace2skill_result.json` for detailed results.
 
 def run_trace2skill(
     llm_client: Callable[[str], str],
-    config: Optional[Trace2SkillConfig] = None,
-    skill_path: Optional[Path] = None,
-    trajectory_path: Optional[Path] = None,
-    output_path: Optional[Path] = None,
-    max_concurrent: int = 8,
-    max_error_turns: int = 3,
+    config: Trace2SkillConfig,
 ) -> Trace2SkillResult:
-    if config is None:
-        config = Trace2SkillConfig(
-            trajectory_dir=trajectory_path,
-            skill_path=skill_path,
-            output_dir=output_path,
-            max_concurrent=max_concurrent,
-            max_error_turns=max_error_turns,
-        )
-
-    if config.skill_path is None and skill_path:
-        config.skill_path = skill_path
-
     orchestrator = Trace2SkillOrchestrator(llm_client, config)
     return orchestrator.run()

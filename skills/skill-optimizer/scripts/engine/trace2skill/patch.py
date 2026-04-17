@@ -9,6 +9,33 @@ import uuid
 from typing import Optional
 
 
+def cleanup_json_fences(text: str) -> str:
+    """Strip markdown code fences (```json ... ```) from LLM responses."""
+    cleaned = text.strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    return cleaned.strip()
+
+
+def parse_edits_from_json(data: dict) -> list["PatchEdit"]:
+    """Parse a list of PatchEdit objects from a JSON dict with an 'edits' key."""
+    edits = []
+    for edit_data in data.get("edits", []):
+        edit = PatchEdit(
+            file=edit_data.get("file", "SKILL.md"),
+            operation=edit_data.get("operation", ""),
+            target=edit_data.get("target", ""),
+            target_start_line=edit_data.get("target_start_line"),
+            target_end_line=edit_data.get("target_end_line"),
+            content=edit_data.get("content", ""),
+            reasoning=edit_data.get("reasoning", ""),
+        )
+        edits.append(edit)
+    return edits
+
+
 class PatchOperation(Enum):
     INSERT = "insert"
     REPLACE = "replace"
@@ -54,25 +81,6 @@ class PatchEdit:
             reasoning=data.get("reasoning")
         )
 
-    def to_unified_diff(self, old_prefix: str = "a/", new_prefix: str = "b/") -> str:
-        lines = []
-        if self.operation == PatchOperation.INSERT:
-            lines.append(f"--- {old_prefix}{self.file}")
-            lines.append(f"+++ {new_prefix}{self.file}")
-            lines.append(f"@@ +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
-            lines.append(self.content or "")
-        elif self.operation == PatchOperation.DELETE:
-            lines.append(f"--- {old_prefix}{self.file}")
-            lines.append(f"+++ {new_prefix}{self.file}")
-            lines.append(f"@@ -{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
-            lines.append(self.content or "")
-        elif self.operation == PatchOperation.REPLACE:
-            lines.append(f"--- {old_prefix}{self.file}")
-            lines.append(f"+++ {new_prefix}{self.file}")
-            lines.append(f"@@ -{self.target_start_line or 1},{self.target_end_line or 1} +{self.target_start_line or 1},{len((self.content or '').splitlines())} @@")
-            lines.append(self.content or "")
-        return "\n".join(lines)
-
 
 @dataclass
 class SkillPatch:
@@ -100,56 +108,20 @@ class SkillPatch:
             edits=[PatchEdit.from_dict(e) for e in data.get("edits", [])],
             reasoning=data.get("reasoning", "")
         )
-    
-    @classmethod
-    def from_json(cls, json_str: str)->"SkillPatch":
-        # Strip markdown code fences if present
-        cleaned_str = json_str.strip()
-        if cleaned_str.startswith("```json"):
-            cleaned_str = cleaned_str[7:]  # Remove ```json
-        if cleaned_str.endswith("```"):
-            cleaned_str = cleaned_str[:-3]  # Remove ```
-        cleaned_str = cleaned_str.strip()
-        
-        data = json.loads(cleaned_str)
 
-        # Convert edits to PatchEdit objects
-        edits = []
-        for edit_data in data.get("edits", []):
-            edit = PatchEdit(
-                file = "SKILL.md",
-                operation=edit_data.get("operation", ""),
-                target=edit_data.get("target", ""),
-                target_start_line=edit_data.get("target_start_line"),
-                target_end_line=edit_data.get("target_end_line"),
-                content=edit_data.get("content", ""),
-                reasoning=edit_data.get("reasoning", ""),
-            )
-            edits.append(edit)
+    @classmethod
+    def from_json(cls, json_str: str) -> "SkillPatch":
+        cleaned_str = cleanup_json_fences(json_str)
+        data = json.loads(cleaned_str)
+        edits = parse_edits_from_json(data)
 
         return SkillPatch(
             patch_id=str(uuid.uuid4())[:8],
             source_trajectory_id=None,
-            is_from_error=False, 
+            is_from_error=False,
             edits=edits,
             reasoning=""
         )
-
-    def add_edit(self, edit: PatchEdit) -> None:
-        self.edits.append(edit)
-
-    def references_file(self, filepath: str) -> bool:
-        return any(edit.file == filepath for edit in self.edits)
-
-    def get_line_ranges(self, filepath: str) -> list[tuple[int, int]]:
-        ranges = []
-        for edit in self.edits:
-            if edit.file == filepath and edit.target_start_line and edit.target_end_line:
-                ranges.append((edit.target_start_line, edit.target_end_line))
-        return ranges
-    
-    def save_to_file(self)->None:
-        pass
 
 
 @dataclass
@@ -180,9 +152,3 @@ class PatchPool:
                 "success": len(self.success_patches),
             },
         }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "PatchPool":
-        return cls(
-            patches=[SkillPatch.from_dict(p) for p in data.get("patches", [])]
-        )
