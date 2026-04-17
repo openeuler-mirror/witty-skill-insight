@@ -52,6 +52,16 @@ You MUST output your analysis in the following JSON format. Do not include any a
 If no patch is needed, set "patch": null.
 """
 
+def cleanup_json_prefix(response: str)->str:
+    # Strip markdown code fences if present
+    cleaned_response = response.strip()
+    if cleaned_response.startswith("```json"):
+        cleaned_response = cleaned_response[7:]  # Remove ```json
+    if cleaned_response.endswith("```"):
+        cleaned_response = cleaned_response[:-3]  # Remove ```
+    cleaned_response = cleaned_response.strip()
+    return cleaned_response
+
 
 @dataclass
 class ResponseModel:
@@ -61,6 +71,9 @@ class ResponseModel:
 
     @staticmethod
     def from_json(json_str: str) -> "ResponseModel":
+        
+        json_str = cleanup_json_prefix(json_str)
+        
         data = json.loads(json_str)
 
         # Convert edits to PatchEdit objects
@@ -78,8 +91,9 @@ class ResponseModel:
             edits.append(edit)
 
         # Convert root_cause_identified from string to boolean
-        root_cause_identified_str = data.get("root_cause_identified", "false").lower()
-        root_cause_identified = root_cause_identified_str == "true"
+        root_cause_identified = data.get("root_cause_identified", "false")
+        if isinstance(root_cause_identified, str):
+            root_cause_identified = root_cause_identified.lower() == "true"
 
         return ResponseModel(
             edits=edits,
@@ -115,8 +129,6 @@ class ErrorAnalyst:
         self,
         trajectory: Trajectory,
         skill_content: str,
-        input_dir: Optional[Path] = None,
-        output_dir: Optional[Path] = None,
         ground_truth_dir: Optional[Path] = None,
     ) -> AnalysisResult:
         if trajectory.status != TrajectoryStatus.FAILURE:
@@ -193,17 +205,21 @@ class ErrorAnalyst:
     def _is_final_response(self, response: str) -> bool:
         try:
             # Strip markdown code fences if present
-            cleaned_response = response.strip()
-            if cleaned_response.startswith("```json"):
-                cleaned_response = cleaned_response[7:]  # Remove ```json
-            if cleaned_response.endswith("```"):
-                cleaned_response = cleaned_response[:-3]  # Remove ```
-            cleaned_response = cleaned_response.strip()
+            cleaned_response = cleanup_json_prefix(response)
             
             response_dict = json.loads(cleaned_response)
-            root_cause_identified_str = response_dict.get("root_cause_identified", "false").lower()
-            return root_cause_identified_str == "true"
-        except (json.JSONDecodeError, Exception):
+            root_cause_identified = response_dict.get("root_cause_identified", "false")
+            if isinstance(root_cause_identified, str):
+                return root_cause_identified.lower() == "true"
+            elif isinstance(root_cause_identified, bool):
+                return root_cause_identified
+            else:
+                raise Exception("Invalid field type: root_cause_identified")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid error analyzer response. Not a JSON format. Error: {str(e)} Response: {response}")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to parse error analyzer response. Error: {str(e)}")
             return False
 
     def _create_analysis_result(
@@ -215,12 +231,7 @@ class ErrorAnalyst:
         patch = None
 
         # Strip markdown code fences if present
-        cleaned_response = response_str.strip()
-        if cleaned_response.startswith("```json"):
-            cleaned_response = cleaned_response[7:]  # Remove ```json
-        if cleaned_response.endswith("```"):
-            cleaned_response = cleaned_response[:-3]  # Remove ```
-        cleaned_response = cleaned_response.strip()
+        cleaned_response = cleanup_json_prefix(response_str)
         
         response = ResponseModel.from_json(cleaned_response)
 
@@ -252,8 +263,6 @@ class BatchErrorAnalyst:
         self,
         trajectories: list[Trajectory],
         skill_content: str,
-        input_dir: Optional[Path] = None,
-        output_dir: Optional[Path] = None,
         ground_truth_dir: Optional[Path] = None,
     ) -> list[AnalysisResult]:
         import concurrent.futures
@@ -273,8 +282,6 @@ class BatchErrorAnalyst:
                     self.analyst.analyze,
                     t,
                     skill_content,
-                    input_dir,
-                    output_dir,
                     ground_truth_dir,
                 ): t
                 for t in failure_trajectories
