@@ -147,6 +147,16 @@ interface ConfigItem {
     parse_status?: string;
 }
 
+interface OutcomeConfigGroup {
+    key: string;
+    skill: string;
+    skillVersion: number | null;
+    configs: ConfigItem[];
+    datasetTypes: ConfigDatasetType[];
+    sharedKeyActions: { content: string; weight: number }[];
+    hasGenericScenario: boolean;
+}
+
 interface SkillOption {
     id: string;
     name: string;
@@ -281,6 +291,42 @@ const getOutcomeTargetMeta = (config: ConfigItem) => {
     const query = normalizeConfigQuery(config.query);
     if (!query) return null;
     return query.length > 90 ? `${query.slice(0, 90)}...` : query;
+};
+
+const getOutcomeScenarioLabel = (config: ConfigItem) => {
+    const query = normalizeConfigQuery(config.query);
+    return query ? truncateCardText(query, 90) : '通用基准';
+};
+
+const getOutcomeGroupKey = (skill: string, skillVersion: number | null | undefined) => (
+    `${normalizeConfigSkillName(skill) || '__unbound_skill__'}::${normalizeOptionalSkillVersion(skillVersion) ?? 'any'}`
+);
+
+const sortOutcomeScenarioConfigs = (items: ConfigItem[]) => [...items].sort((a, b) => {
+    const queryA = normalizeConfigQuery(a.query);
+    const queryB = normalizeConfigQuery(b.query);
+
+    if (!queryA && queryB) return -1;
+    if (queryA && !queryB) return 1;
+    if (!queryA && !queryB) return a.id.localeCompare(b.id);
+    return (queryA || '').localeCompare(queryB || '', 'zh-CN');
+});
+
+const buildOutcomeConfigGroup = (configs: ConfigItem[]): OutcomeConfigGroup | null => {
+    if (configs.length === 0) return null;
+    const sortedConfigs = sortOutcomeScenarioConfigs(configs);
+    const first = sortedConfigs[0];
+    const sharedKeyActions = sortedConfigs.find(config => (config.key_actions || []).length > 0)?.key_actions || [];
+
+    return {
+        key: getOutcomeGroupKey(first.skill, first.skillVersion),
+        skill: normalizeConfigSkillName(first.skill),
+        skillVersion: normalizeOptionalSkillVersion(first.skillVersion),
+        configs: sortedConfigs,
+        datasetTypes: Array.from(new Set(sortedConfigs.map(config => normalizeConfigDatasetType(config.dataset_type)))),
+        sharedKeyActions,
+        hasGenericScenario: sortedConfigs.some(config => !normalizeConfigQuery(config.query)),
+    };
 };
 
 const getRoutingSourceQueryMeta = (config: ConfigItem) => {
@@ -1109,6 +1155,8 @@ export default function Dashboard() {
     const [editingConfig, setEditingConfig] = useState<Partial<ConfigItem> & { version?: number }>({});
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [configModalPerspective, setConfigModalPerspective] = useState<'routing' | 'outcome' | 'combined' | null>(null);
+    const [activeOutcomeGroupConfigs, setActiveOutcomeGroupConfigs] = useState<ConfigItem[]>([]);
+    const [activeOutcomeScenarioId, setActiveOutcomeScenarioId] = useState<string | null>(null);
     const [isSavingConfig, setIsSavingConfig] = useState(false);
     const [configAnswerMode, setConfigAnswerMode] = useState<'manual' | 'document'>('manual');
     const [configDocumentFile, setConfigDocumentFile] = useState<File | null>(null);
@@ -1120,6 +1168,17 @@ export default function Dashboard() {
             pollingTimersRef.current.forEach(timer => clearTimeout(timer));
         };
     }, []);
+
+    const closeConfigModal = () => {
+        setIsEditModalOpen(false);
+        setConfigModalPerspective(null);
+        setActiveOutcomeGroupConfigs([]);
+        setActiveOutcomeScenarioId(null);
+        setConfigDocumentFile(null);
+        setConfigAnswerMode('manual');
+        setEditingConfig({});
+        setIsSavingConfig(false);
+    };
 
     // Poll for parsing status of config items
     const pollConfigStatus = useCallback((configId: string) => {
@@ -1170,6 +1229,8 @@ export default function Dashboard() {
     }, [configs, pollConfigStatus]);
 
     const openCreateConfigModal = (datasetType: 'routing' | 'outcome') => {
+        setActiveOutcomeGroupConfigs([]);
+        setActiveOutcomeScenarioId(null);
         setConfigModalPerspective(datasetType);
         setEditingConfig({
             dataset_type: datasetType,
@@ -1194,6 +1255,8 @@ export default function Dashboard() {
         if (!configToEdit.expectedSkills && configToEdit.skill) {
             configToEdit.expectedSkills = [{ skill: configToEdit.skill, version: configToEdit.skillVersion ?? null }];
         }
+        setActiveOutcomeGroupConfigs([]);
+        setActiveOutcomeScenarioId(config.id);
         setConfigModalPerspective(sectionType || normalizeConfigDatasetType(config.dataset_type));
         setEditingConfig(configToEdit);
         setConfigAnswerMode('manual');
@@ -1201,7 +1264,80 @@ export default function Dashboard() {
         setIsEditModalOpen(true);
     };
 
+    const openOutcomeGroupModal = (group: OutcomeConfigGroup, scenarioId?: string | null) => {
+        const sortedConfigs = sortOutcomeScenarioConfigs(group.configs);
+        const initialConfig = sortedConfigs.find(config => config.id === scenarioId) || sortedConfigs[0];
+        if (!initialConfig) return;
+
+        const configToEdit = {
+            ...initialConfig,
+            dataset_type: normalizeConfigDatasetType(initialConfig.dataset_type),
+        };
+
+        setActiveOutcomeGroupConfigs(sortedConfigs);
+        setActiveOutcomeScenarioId(initialConfig.id);
+        setConfigModalPerspective('outcome');
+        setEditingConfig(configToEdit);
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+        setIsEditModalOpen(true);
+    };
+
+    const openCreateOutcomeScenarioModal = (group: OutcomeConfigGroup) => {
+        setActiveOutcomeGroupConfigs(sortOutcomeScenarioConfigs(group.configs));
+        setActiveOutcomeScenarioId(null);
+        setConfigModalPerspective('outcome');
+        setEditingConfig({
+            dataset_type: 'outcome',
+            query: '',
+            skill: group.skill,
+            skillVersion: group.skillVersion,
+            standard_answer: '',
+            root_causes: [],
+            key_actions: [...group.sharedKeyActions],
+        });
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+        setIsEditModalOpen(true);
+    };
+
+    const switchOutcomeScenario = (configId: string) => {
+        const nextConfig = currentOutcomeGroupConfigs.find(config => config.id === configId);
+        if (!nextConfig) return;
+
+        setActiveOutcomeScenarioId(configId);
+        setEditingConfig({
+            ...nextConfig,
+            dataset_type: normalizeConfigDatasetType(nextConfig.dataset_type),
+        });
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+    };
+
+    const deleteOutcomeGroup = async (group: OutcomeConfigGroup) => {
+        const targetLabel = formatSkillTargetLabel(group.skill, group.skillVersion);
+        if (!confirm(`确定删除 ${targetLabel} 的整套执行效果评测集吗？这会删除该 Skill / 版本下的全部业务场景。`)) {
+            return;
+        }
+
+        const groupIds = new Set(group.configs.map(config => config.id));
+        const newConfigs = configs.filter(config => !groupIds.has(config.id));
+        const res = await apiFetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ configs: newConfigs, user })
+        });
+        if (res.ok) {
+            setConfigs(newConfigs);
+            if (currentOutcomeGroup?.key === group.key) {
+                closeConfigModal();
+            }
+        }
+    };
+
     const duplicateConfigToDataset = (config: ConfigItem, datasetType: 'routing' | 'outcome') => {
+        setActiveOutcomeGroupConfigs([]);
+        setActiveOutcomeScenarioId(null);
         setConfigModalPerspective(datasetType);
         const duplicatedSkill = normalizeConfigSkillName(config.skill)
             || normalizeConfigSkillName(config.expectedSkills?.[0]?.skill)
@@ -1239,20 +1375,68 @@ export default function Dashboard() {
         [configs]
     );
 
+    const outcomeConfigGroups = useMemo(() => {
+        const groups = new Map<string, ConfigItem[]>();
+
+        for (const config of outcomeConfigs) {
+            const key = getOutcomeGroupKey(config.skill, config.skillVersion);
+            const existing = groups.get(key) || [];
+            existing.push(config);
+            groups.set(key, existing);
+        }
+
+        return Array.from(groups.values())
+            .map(buildOutcomeConfigGroup)
+            .filter((group): group is OutcomeConfigGroup => Boolean(group))
+            .sort((a, b) => {
+                const labelA = formatSkillTargetLabel(a.skill, a.skillVersion) || '';
+                const labelB = formatSkillTargetLabel(b.skill, b.skillVersion) || '';
+                const skillCompare = labelA.localeCompare(
+                    labelB,
+                    'zh-CN'
+                );
+                if (skillCompare !== 0) return skillCompare;
+                const versionA = a.skillVersion ?? -1;
+                const versionB = b.skillVersion ?? -1;
+                return versionA - versionB;
+            });
+    }, [outcomeConfigs]);
+
     const editingConfigType = normalizeConfigDatasetType(editingConfig.dataset_type);
     const modalEditingType = configModalPerspective || editingConfigType;
     const isRoutingEditor = modalEditingType === 'routing' || modalEditingType === 'combined';
     const isOutcomeEditor = modalEditingType === 'outcome' || modalEditingType === 'combined';
+    const currentOutcomeGroupConfigs = useMemo(() => {
+        if (!isOutcomeEditor) return [];
+        if (activeOutcomeGroupConfigs.length > 0) {
+            return sortOutcomeScenarioConfigs(activeOutcomeGroupConfigs);
+        }
+
+        const skill = normalizeConfigSkillName(editingConfig.skill);
+        if (!skill) return [];
+
+        const version = normalizeOptionalSkillVersion(editingConfig.skillVersion);
+        return sortOutcomeScenarioConfigs(
+            outcomeConfigs.filter(config =>
+                normalizeConfigSkillName(config.skill) === skill &&
+                normalizeOptionalSkillVersion(config.skillVersion) === version
+            )
+        );
+    }, [isOutcomeEditor, activeOutcomeGroupConfigs, editingConfig.skill, editingConfig.skillVersion, outcomeConfigs]);
+    const currentOutcomeGroup = useMemo(
+        () => buildOutcomeConfigGroup(currentOutcomeGroupConfigs),
+        [currentOutcomeGroupConfigs]
+    );
     const configModalTitle = editingConfig.id
         ? (modalEditingType === 'routing'
             ? 'Skill 召回率数据项详情'
             : modalEditingType === 'outcome'
-                ? 'Skill 执行效果数据项详情'
+                ? (currentOutcomeGroupConfigs.length > 1 ? 'Skill 执行效果评测集详情' : 'Skill 执行效果数据项详情')
                 : '兼容旧数据详情')
         : (modalEditingType === 'routing'
             ? '新增 Skill 召回率数据项'
             : modalEditingType === 'outcome'
-                ? '新增 Skill 执行效果数据项'
+                ? (currentOutcomeGroupConfigs.length > 0 ? '新增 Skill 执行效果场景' : '新增 Skill 执行效果数据项')
                 : '新增数据项');
 
     const saveConfig = async () => {
@@ -1353,11 +1537,7 @@ export default function Dashboard() {
                             pollConfigStatus(newConfig.id);
                         }
                     }
-                    setIsEditModalOpen(false);
-                    setConfigModalPerspective(null);
-                    setEditingConfig({});
-                    setConfigDocumentFile(null);
-                    setConfigAnswerMode('manual');
+                    closeConfigModal();
                 } else {
                     const err = await res.json();
                     alert(`保存失败: ${err.error || 'Unknown error'}`);
@@ -1373,9 +1553,7 @@ export default function Dashboard() {
                 });
                 if (res.ok) {
                     setConfigs(newConfigs);
-                    setIsEditModalOpen(false);
-                    setConfigModalPerspective(null);
-                    setEditingConfig({});
+                    closeConfigModal();
                 } else {
                     alert('保存失败');
                 }
@@ -1603,6 +1781,201 @@ export default function Dashboard() {
                                     }}
                                 >
                                     删除
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+
+    const renderOutcomeConfigGroupSection = (
+        title: string,
+        description: string,
+        groups: OutcomeConfigGroup[],
+        accent: string,
+        actionLabel: string,
+        emptyText: string
+    ) => (
+        <div
+            className="card"
+            style={{
+                padding: '18px',
+                border: `1px solid ${accent}33`,
+                boxShadow: `inset 0 1px 0 ${accent}14`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px',
+            }}
+        >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                        <h3 style={{ margin: 0, color: '#e2e8f0', fontSize: '1.05rem' }}>{title}</h3>
+                        <span
+                            style={{
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                background: `${accent}22`,
+                                border: `1px solid ${accent}44`,
+                                color: accent,
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                            }}
+                        >
+                            {groups.length} 套
+                        </span>
+                    </div>
+                    <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.6 }}>{description}</p>
+                </div>
+                <button
+                    onClick={() => openCreateConfigModal('outcome')}
+                    className="btn-primary"
+                    style={{ padding: '8px 16px', fontSize: '0.85rem', borderRadius: '8px', whiteSpace: 'nowrap' }}
+                >
+                    {actionLabel}
+                </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {groups.length === 0 && (
+                    <div
+                        style={{
+                            border: '1px dashed #334155',
+                            borderRadius: '12px',
+                            padding: '2rem 1rem',
+                            textAlign: 'center',
+                            color: '#64748b',
+                            background: 'rgba(15, 23, 42, 0.35)',
+                        }}
+                    >
+                        {emptyText}
+                    </div>
+                )}
+
+                {groups.map(group => {
+                    const titleText = formatSkillTargetLabel(group.skill, group.skillVersion) || '未绑定 Skill 执行效果评测集';
+                    const scenarioCount = group.configs.length;
+                    const scenarioPreview = group.configs.slice(0, 3).map(getOutcomeScenarioLabel);
+                    const hiddenScenarioCount = Math.max(0, scenarioCount - scenarioPreview.length);
+                    const statusColor = group.configs.some(config => config.parse_status === 'parsing')
+                        ? '#fbbf24'
+                        : group.configs.some(config => config.parse_status === 'failed')
+                            ? '#ef4444'
+                            : '#4ade80';
+                    const usesLegacyDataset = group.datasetTypes.includes('combined');
+
+                    return (
+                        <div
+                            key={group.key}
+                            style={{
+                                border: '1px solid #1e293b',
+                                borderRadius: '12px',
+                                padding: '14px 16px',
+                                background: 'rgba(15, 23, 42, 0.55)',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '14px',
+                            }}
+                        >
+                            <div
+                                style={{
+                                    flexShrink: 0,
+                                    width: '10px',
+                                    height: '10px',
+                                    borderRadius: '50%',
+                                    marginTop: '6px',
+                                    background: statusColor,
+                                    boxShadow: `0 0 10px ${statusColor}55`,
+                                }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                                    <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.5 }}>{titleText}</div>
+                                    <span
+                                        style={{
+                                            padding: '2px 8px',
+                                            borderRadius: '999px',
+                                            background: `${accent}22`,
+                                            border: `1px solid ${accent}44`,
+                                            color: accent,
+                                            fontSize: '0.72rem',
+                                            fontWeight: 600,
+                                        }}
+                                    >
+                                        {scenarioCount} 个业务场景
+                                    </span>
+                                    {usesLegacyDataset && (
+                                        <span
+                                            style={{
+                                                padding: '2px 8px',
+                                                borderRadius: '999px',
+                                                background: 'rgba(148, 163, 184, 0.16)',
+                                                border: '1px solid rgba(148, 163, 184, 0.28)',
+                                                color: '#cbd5e1',
+                                                fontSize: '0.72rem',
+                                                fontWeight: 600,
+                                            }}
+                                        >
+                                            含兼容旧数据
+                                        </span>
+                                    )}
+                                </div>
+                                <div style={{ color: '#94a3b8', fontSize: '0.83rem', lineHeight: 1.6 }}>
+                                    共享关键动作：{group.sharedKeyActions.length} 项 · {group.hasGenericScenario ? '包含通用基准' : '暂无通用基准'}
+                                </div>
+                                {scenarioPreview.length > 0 && (
+                                    <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
+                                        业务场景：{scenarioPreview.join('、')}{hiddenScenarioCount > 0 ? ` 等 ${scenarioCount} 个场景` : ''}
+                                    </div>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                <button
+                                    onClick={() => openOutcomeGroupModal(group)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#1e3a5f',
+                                        color: '#38bdf8',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    详情
+                                </button>
+                                <button
+                                    onClick={() => openCreateOutcomeScenarioModal(group)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#2d1b4e',
+                                        color: '#c084fc',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    新增场景
+                                </button>
+                                <button
+                                    onClick={() => deleteOutcomeGroup(group)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#3b1c1c',
+                                        color: '#ef4444',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    删除整套
                                 </button>
                             </div>
                         </div>
@@ -3124,11 +3497,10 @@ export default function Dashboard() {
                             '+ 新增 Skill 召回率数据项',
                             '暂无 Skill 召回率评测数据，添加后即可开始评估 Skill 是否被正确召回。'
                         )}
-                        {renderConfigSection(
-                            'outcome',
+                        {renderOutcomeConfigGroupSection(
                             'Skill 执行效果数据集',
-                            '围绕某个 Skill 定义标准答案、关键观点与关键动作，用于评估命中该 Skill 后的最终回答质量与执行效果。',
-                            outcomeConfigs,
+                            '按 Skill / 版本聚合管理执行效果评测集。点进单个评测集后，可以切换不同业务场景；关键动作在同一 Skill / 版本下共享，关键观点按场景分别维护。',
+                            outcomeConfigGroups,
                             '#a78bfa',
                             '+ 新增 Skill 执行效果数据项',
                             '暂无 Skill 执行效果数据，添加后即可开始评估该 Skill 的回答质量与执行动作。'
@@ -3146,7 +3518,7 @@ export default function Dashboard() {
             {/* MODALS */}
             {/* 1. Config Edit Modal */}
             {isEditModalOpen && (
-                <div className="modal-overlay" onClick={() => { setIsEditModalOpen(false); setConfigModalPerspective(null); }}>
+                <div className="modal-overlay" onClick={closeConfigModal}>
                     <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ maxHeight: '90vh', overflowY: 'auto', maxWidth: '900px', width: '66vw', minWidth: '500px', flexDirection: 'column' }}>
                         <h3>{configModalTitle}</h3>
 
@@ -3266,6 +3638,83 @@ export default function Dashboard() {
 
                         {isOutcomeEditor && (
                             <>
+                                {currentOutcomeGroup && (
+                                    <div
+                                        style={{
+                                            marginTop: '1rem',
+                                            marginBottom: '0.5rem',
+                                            padding: '12px 14px',
+                                            borderRadius: '10px',
+                                            background: c.bgTertiary,
+                                            border: `1px solid ${c.border}`,
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '10px',
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                            <div>
+                                                <div style={{ color: c.fg, fontWeight: 600, fontSize: '0.92rem' }}>
+                                                    当前 Skill 评测集：{formatSkillTargetLabel(currentOutcomeGroup.skill, currentOutcomeGroup.skillVersion)}
+                                                </div>
+                                                <div style={{ marginTop: '4px', color: c.fgMuted, fontSize: '0.82rem', lineHeight: 1.6 }}>
+                                                    共 {currentOutcomeGroup.configs.length} 个业务场景，关键动作共享 {currentOutcomeGroup.sharedKeyActions.length} 项。
+                                                    {currentOutcomeGroup.hasGenericScenario ? ' 当前包含通用基准场景。' : ' 当前尚未配置通用基准场景。'}
+                                                </div>
+                                            </div>
+                                            {!editingConfig.id && (
+                                                <span
+                                                    style={{
+                                                        padding: '3px 10px',
+                                                        borderRadius: '999px',
+                                                        background: 'rgba(167, 139, 250, 0.16)',
+                                                        border: '1px solid rgba(167, 139, 250, 0.3)',
+                                                        color: '#c4b5fd',
+                                                        fontSize: '0.75rem',
+                                                        fontWeight: 600,
+                                                    }}
+                                                >
+                                                    正在新增业务场景
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                            {currentOutcomeGroup.configs.map(config => {
+                                                const isActive = editingConfig.id === config.id && activeOutcomeScenarioId === config.id;
+                                                return (
+                                                    <button
+                                                        key={config.id}
+                                                        type="button"
+                                                        onClick={() => switchOutcomeScenario(config.id)}
+                                                        style={{
+                                                            padding: '6px 10px',
+                                                            borderRadius: '999px',
+                                                            border: `1px solid ${isActive ? '#38bdf8' : c.border}`,
+                                                            background: isActive ? 'rgba(56, 189, 248, 0.14)' : c.bg,
+                                                            color: isActive ? '#38bdf8' : c.fgSecondary,
+                                                            cursor: 'pointer',
+                                                            fontSize: '0.8rem',
+                                                            maxWidth: '320px',
+                                                            whiteSpace: 'nowrap',
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                        }}
+                                                        title={normalizeConfigQuery(config.query) || '通用基准'}
+                                                    >
+                                                        {getOutcomeScenarioLabel(config)}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        {editingConfig.id && currentOutcomeGroup.configs.length > 1 && (
+                                            <div style={{ color: c.fgSecondary, fontSize: '0.78rem', lineHeight: 1.5 }}>
+                                                可在同一 Skill / 版本下切换不同业务场景；关键动作为共享项，关键观点与标准答案按场景分别查看和维护。
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
                                 <div className="form-group" style={{ marginTop: '1rem' }}>
                                     <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>
                                         目标 Skill {!editingConfig.id && <span style={{ color: c.error }}>*</span>}
@@ -3577,7 +4026,7 @@ export default function Dashboard() {
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '1.5rem', paddingTop: '1rem', borderTop: `1px solid ${c.border}` }}>
                             <button
-                                onClick={() => { setIsEditModalOpen(false); setConfigModalPerspective(null); setIsSavingConfig(false); }}
+                                onClick={closeConfigModal}
                                 style={{
                                     padding: '8px 24px',
                                     background: c.bgSecondary,
