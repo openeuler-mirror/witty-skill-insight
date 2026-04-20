@@ -34,6 +34,8 @@ model SkillVersion {
   id        String   @id @default(cuid())
   skillId   String
   version   Int
+  semanticVersion String?  // 语义化版本号，用于企业同步
+  enterpriseSkillId Int?  // 企业skill的id，用于删除同步
   content   String
   assetPath String?
   files     String?
@@ -68,6 +70,7 @@ model Execution {
   cacheReadInputTokens    Int?
   cacheCreationInputTokens Int?
   maxSingleCallTokens     Int?
+  reasoningTokens          Int?
   timestamp       DateTime @default(now())
   model           String?
   finalResult     String?

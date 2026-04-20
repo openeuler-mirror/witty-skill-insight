@@ -1,6 +1,7 @@
 import { readConfig, saveExecutionRecord } from '@/lib/data-service';
 import { analyzeFailures, analyzeSession, extractSkillsFromClaudeSession, extractSkillsFromOpenClawSession, extractSkillsFromOpencodeSession, extractSkillsWithVersionsFromClaudeSession, extractSkillsWithVersionsFromOpenClawSession, extractSkillsWithVersionsFromOpencodeSession, InvokedSkill, judgeAnswer, normalizeInteractions } from '@/lib/judge';
 import { db, prisma } from '@/lib/prisma';
+import { debounceByKey } from '@/lib/upload-analysis-debouncer';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
@@ -134,8 +135,16 @@ export async function POST(request: Request) {
         console.warn(`[Upload-API] Quick initial save failed:`, e);
     }
 
-    processUploadAsync(data, username, normalized, interactions).catch(e => {
-        console.error('[Upload-API] Async analysis failed:', e);
+    const debounceMs = Number(process.env.UPLOAD_ASYNC_DEBOUNCE_MS || 15000);
+    const safeDebounceMs = Number.isFinite(debounceMs) && debounceMs >= 0 ? debounceMs : 15000;
+    const taskKey = String(data.task_id || '');
+    debounceByKey(taskKey, safeDebounceMs, () => {
+        const clonedData = JSON.parse(JSON.stringify(data));
+        const clonedNormalized = JSON.parse(JSON.stringify(normalized));
+        const clonedInteractions = JSON.parse(JSON.stringify(interactions));
+        processUploadAsync(clonedData, username, clonedNormalized, clonedInteractions).catch(e => {
+            console.error('[Upload-API] Async analysis failed:', e);
+        });
     });
 
     return NextResponse.json({ 

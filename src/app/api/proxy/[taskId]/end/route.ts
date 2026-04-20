@@ -267,6 +267,7 @@ export async function POST(
     const duration = (endTime - session.startTime) / 1000;
 
     let totalTokens = 0;
+    let totalReasoningTokens = 0;
     for (const interaction of session.interactions) {
       const usage = interaction.usage || interaction.responseMessage?.usage;
       if (usage) {
@@ -276,11 +277,13 @@ export async function POST(
                  console.warn(`[ProxyEnd] Failed to parse usage JSON for task ${taskId}:`, e);
              }
         }
-        
+
         const anyUsage = parsedUsage as any;
         const t = (anyUsage.total_tokens || anyUsage.total || 0);
-        
+        const r = (anyUsage.reasoning || anyUsage.reasoning_tokens || anyUsage.completion_tokens_details?.reasoning_tokens || 0);
+
         totalTokens += Number(t);
+        totalReasoningTokens += Number(r);
       }
     }
 
@@ -412,6 +415,7 @@ export async function POST(
       skill_version: skillVersion,
       final_result: analysis.final_result,
       tokens: totalTokens,
+      reasoning_tokens: totalReasoningTokens || undefined,
       latency: duration,
       timestamp: new Date(session.startTime).toISOString(),
       user: session.user,

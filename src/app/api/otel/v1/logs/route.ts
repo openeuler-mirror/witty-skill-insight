@@ -101,6 +101,7 @@ export async function POST(req: Request) {
                         const outputTokens = parseInt(attributes['output_tokens'] || '0');
                         const cacheRead = parseInt(attributes['cache_read_tokens'] || '0');
                         const cacheCreate = parseInt(attributes['cache_creation_tokens'] || '0');
+                        const reasoningTokens = parseInt(attributes['reasoning_tokens'] || '0');
                         const totalTokens = inputTokens + outputTokens + cacheRead + cacheCreate;
                         const durationMs = parseInt(attributes['duration_ms'] || '0');
                         const costUsd = parseFloat(attributes['cost_usd'] || '0');
@@ -113,6 +114,7 @@ export async function POST(req: Request) {
                             cost: costUsd,
                             framework: framework,
                             user: finalUser,
+                            reasoning_tokens: reasoningTokens || undefined,
                         });
                         console.log(`[OTel Logs] ✅ Saved api_request for session ${sessionId}: model=${attributes['model']}, tokens=${totalTokens}`);
 

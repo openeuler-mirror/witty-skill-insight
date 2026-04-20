@@ -41,7 +41,6 @@ function migrateDataIfNeeded() {
     fs.copyFileSync(oldDbPath, newDbPath)
     console.log('✓ Database migrated to ' + newDbPath)
 
-    try { fs.renameSync(oldDbPath, oldDbPath + '.bak') } catch (e) {}
     return
   }
 

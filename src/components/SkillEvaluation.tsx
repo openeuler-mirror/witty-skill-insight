@@ -2,7 +2,8 @@
 
 import { SkillMetadata } from '@/lib/skill-types';
 import { useEffect, useMemo, useState } from 'react';
-import { apiFetch } from '@/lib/api';
+import { apiFetch } from '@/lib/api'
+import { useTheme, useThemeColors } from '@/lib/theme-context';
 import {
     Bar,
     BarChart,
@@ -23,6 +24,8 @@ import {
 
 // 技能评估可视化组件
 export function SkillEvaluation({ skillId }: { skillId?: string }) {
+  const { isDark } = useTheme();
+  const c = useThemeColors();
   const [skills, setSkills] = useState<SkillMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSkillId, setSelectedSkillId] = useState<string>(skillId || '');
@@ -247,8 +250,8 @@ export function SkillEvaluation({ skillId }: { skillId?: string }) {
                   <Radar
                     name="当前技能"
                     dataKey="value"
-                    stroke="#38bdf8"
-                    fill="#38bdf8"
+                    stroke={c.primary}
+                    fill={c.primary}
                     fillOpacity={0.3}
                   />
                 </RadarChart>
@@ -265,19 +268,19 @@ export function SkillEvaluation({ skillId }: { skillId?: string }) {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={usageTrendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="date" stroke="#9ca3af" />
-                  <YAxis stroke="#9ca3af" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={c.border} />
+                  <XAxis dataKey="date" stroke={c.fgMuted} />
+                  <YAxis stroke={c.fgMuted} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: '#1f2937', borderColor: '#4b5563' }}
-                    labelStyle={{ color: '#d1d5db' }}
+                    contentStyle={{ backgroundColor: c.bgSecondary, borderColor: c.borderDark }}
+                    labelStyle={{ color: c.fgSecondary }}
                   />
                   <Legend />
                   <Line
                     type="monotone"
                     dataKey="usage"
                     name="使用次数"
-                    stroke="#38bdf8"
+                    stroke={c.primary}
                     strokeWidth={2}
                     dot={{ r: 2 }}
                     activeDot={{ r: 6 }}
@@ -286,7 +289,7 @@ export function SkillEvaluation({ skillId }: { skillId?: string }) {
                     type="monotone"
                     dataKey="successRate"
                     name="成功率 (%)"
-                    stroke="#4ade80"
+                    stroke={c.success}
                     strokeWidth={2}
                     dot={{ r: 2 }}
                   />
@@ -301,17 +304,17 @@ export function SkillEvaluation({ skillId }: { skillId?: string }) {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={comparisonData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="name" stroke="#9ca3af" angle={-45} textAnchor="end" height={60} />
-                  <YAxis stroke="#9ca3af" domain={[0, 100]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={c.border} />
+                  <XAxis dataKey="name" stroke={c.fgMuted} angle={-45} textAnchor="end" height={60} />
+                  <YAxis stroke={c.fgMuted} domain={[0, 100]} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: '#1f2937', borderColor: '#4b5563' }}
+                    contentStyle={{ backgroundColor: c.bgSecondary, borderColor: c.borderDark }}
                     formatter={(value) => [`${value}分`, '质量评分']}
                   />
                   <Bar
                     dataKey="score"
                     name="质量评分"
-                    fill="#38bdf8"
+                    fill={c.primary}
                     radius={[4, 4, 0, 0]}
                   />
                 </BarChart>

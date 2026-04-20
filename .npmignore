@@ -46,6 +46,7 @@ prisma/dev.db
 skills/
 README.md
 docs/
+features/
 
 # Development only
 .next/cache

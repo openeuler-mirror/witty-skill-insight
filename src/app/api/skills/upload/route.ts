@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
 
             if (skill) {
                 return NextResponse.json({
-                    error: `Skill '${extractedName}' already exists. Please use the 'Version Management' (版本管理) -> 'Upload New Version' feature to update it.`
+                    error: `Skill '${extractedName}' 已经存在，请使用 版本管理 -> 上传新版本 功能更新。`
                 }, { status: 400 });
             }
 

@@ -30,14 +30,49 @@ fi
 # --- 2. Setup OpenCode Plugin (Priority) ---
 OPENCODE_PLUGIN_SRC="$SCRIPTS_DIR/opencode_plugin.ts"
 OPENCODE_PLUGIN_DEST="$HOME/.opencode/plugins/Witty-Skill-Insight.ts"
+OPENCODE_TUI_PLUGIN_SRC="$SCRIPTS_DIR/opencode_tui_plugin.tsx"
+OPENCODE_TUI_PLUGIN_DEST="$HOME/.opencode/plugins/Witty-Skill-Insight.tui.tsx"
+OPENCODE_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+OPENCODE_CONFIG_PLUGIN_DIR="$OPENCODE_CONFIG_DIR/plugins"
 
 if [ -f "$OPENCODE_PLUGIN_SRC" ]; then
     echo "🛠️  Syncing OpenCode Plugin..."
     
     # Create plugin directory
     mkdir -p "$HOME/.opencode/plugins"
+    mkdir -p "$OPENCODE_CONFIG_PLUGIN_DIR"
     cp "$OPENCODE_PLUGIN_SRC" "$OPENCODE_PLUGIN_DEST"
+    cp "$OPENCODE_PLUGIN_SRC" "$OPENCODE_CONFIG_PLUGIN_DIR/Witty-Skill-Insight.ts"
     echo "✅ OpenCode Plugin installed to $OPENCODE_PLUGIN_DEST"
+    
+    if [ -f "$OPENCODE_TUI_PLUGIN_SRC" ]; then
+        cp "$OPENCODE_TUI_PLUGIN_SRC" "$OPENCODE_TUI_PLUGIN_DEST"
+        cp "$OPENCODE_TUI_PLUGIN_SRC" "$OPENCODE_CONFIG_PLUGIN_DIR/Witty-Skill-Insight.tui.tsx"
+        echo "✅ OpenCode TUI Plugin installed to $OPENCODE_TUI_PLUGIN_DEST"
+        if command -v node &> /dev/null; then
+            export TUI_PLUGIN_PATH="$OPENCODE_CONFIG_PLUGIN_DIR/Witty-Skill-Insight.tui.tsx"
+            export TUI_CONFIG_FILE="$OPENCODE_CONFIG_DIR/tui.json"
+            node - <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const file = process.env.TUI_CONFIG_FILE;
+const pluginPath = process.env.TUI_PLUGIN_PATH;
+let data = {};
+try {
+  if (fs.existsSync(file)) {
+    const text = fs.readFileSync(file, "utf8");
+    data = text && text.trim() ? JSON.parse(text) : {};
+  }
+} catch {}
+if (!data || typeof data !== "object") data = {};
+const list = Array.isArray(data.plugin) ? data.plugin.slice() : [];
+if (pluginPath && !list.includes(pluginPath)) list.push(pluginPath);
+data.plugin = list;
+fs.mkdirSync(path.dirname(file), { recursive: true });
+fs.writeFileSync(file, JSON.stringify(data, null, 2));
+NODE
+        fi
+    fi
 
     # --- 2.1 Setup Skill-Insight Config (~/.skill-insight/.env) ---
     SKILL_INSIGHT_CONFIG_DIR="$HOME/.skill-insight"
@@ -46,10 +81,12 @@ if [ -f "$OPENCODE_PLUGIN_SRC" ]; then
 
     EXISTING_KEY=""
     EXISTING_HOST=""
+    EXISTING_SHOW_TASK_STATS=""
     if [ -f "$SKILL_INSIGHT_CONFIG_FILE" ]; then
         # match only UNCOMMENTED lines
         EXISTING_KEY=$(grep '^SKILL_INSIGHT_API_KEY=' "$SKILL_INSIGHT_CONFIG_FILE" | head -n 1 | cut -d'=' -f2-)
         EXISTING_HOST=$(grep '^SKILL_INSIGHT_HOST=' "$SKILL_INSIGHT_CONFIG_FILE" | head -n 1 | cut -d'=' -f2-)
+        EXISTING_SHOW_TASK_STATS=$(grep '^SKILL_INSIGHT_SHOW_TASK_STATS=' "$SKILL_INSIGHT_CONFIG_FILE" | head -n 1 | cut -d'=' -f2-)
     fi
 
     # API Key Selection Logic
@@ -89,13 +126,19 @@ if [ -f "$OPENCODE_PLUGIN_SRC" ]; then
     if [ -z "$API_KEY" ]; then
         echo "⚠️  Warning: No API Key provided. Data reporting will fail."
     fi
+    
+    FINAL_SHOW_TASK_STATS="$EXISTING_SHOW_TASK_STATS"
+    if [ -z "$FINAL_SHOW_TASK_STATS" ]; then
+        FINAL_SHOW_TASK_STATS="true"
+    fi
 
     echo "⚙️  Syncing configuration to $SKILL_INSIGHT_CONFIG_FILE..."
     touch "$SKILL_INSIGHT_CONFIG_FILE"
     cp "$SKILL_INSIGHT_CONFIG_FILE" "${SKILL_INSIGHT_CONFIG_FILE}.bak"
-    grep -v "^SKILL_INSIGHT_API_KEY=" "${SKILL_INSIGHT_CONFIG_FILE}.bak" | grep -v "^SKILL_INSIGHT_HOST=" > "$SKILL_INSIGHT_CONFIG_FILE"
+    grep -v "^SKILL_INSIGHT_API_KEY=" "${SKILL_INSIGHT_CONFIG_FILE}.bak" | grep -v "^SKILL_INSIGHT_HOST=" | grep -v "^SKILL_INSIGHT_SHOW_TASK_STATS=" > "$SKILL_INSIGHT_CONFIG_FILE"
     echo "SKILL_INSIGHT_API_KEY=$API_KEY" >> "$SKILL_INSIGHT_CONFIG_FILE"
     echo "SKILL_INSIGHT_HOST=$FINAL_HOST" >> "$SKILL_INSIGHT_CONFIG_FILE"
+    echo "SKILL_INSIGHT_SHOW_TASK_STATS=$FINAL_SHOW_TASK_STATS" >> "$SKILL_INSIGHT_CONFIG_FILE"
     rm "${SKILL_INSIGHT_CONFIG_FILE}.bak"
     echo "✅ Configuration updated (Other settings preserved)."
 

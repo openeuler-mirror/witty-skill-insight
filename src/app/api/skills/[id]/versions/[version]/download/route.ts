@@ -42,7 +42,16 @@ export async function GET(
         console.log(`[Download] Found version. AssetPath: ${skillVersion.assetPath}`);
 
         const assetPath = skillVersion.assetPath;
-        const storageRoot = assetPath ? path.join(process.cwd(), assetPath) : '';
+        let storageRoot = '';
+        if (assetPath && typeof assetPath === 'string') {
+            const m = assetPath.match(/^data\/storage\/skills\/([^/]+)\/v(\d+)$/);
+            if (m) {
+                storageRoot = path.join(process.cwd(), 'data', 'storage', 'skills', m[1], `v${m[2]}`);
+            }
+        }
+        if (!storageRoot) {
+            storageRoot = path.join(process.cwd(), 'data', 'storage', 'skills', id, `v${versionNum}`);
+        }
 
         const archive = archiver('zip', {
             zlib: { level: 9 }

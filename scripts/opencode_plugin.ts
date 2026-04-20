@@ -22,6 +22,9 @@ let uploadedSessions = new Map(); // sessionId -> uploaded message count
 let sessionGraph = new Map(); // parent_id -> [child_ids]
 let pendingChildSessions = new Map(); // child_id -> {parent_id, data}
 let lastDeltaByPartField = new Map();
+let sessionParentById = new Map();
+let sessionAgentById = new Map();
+let subagentTypeBySessionId = new Map();
 
 const STORE_PATH = path.join(os.homedir(), '.opencode', 'witty_plugin_session_store.json');
 
@@ -131,6 +134,27 @@ function loadStore() {
                     }
                 }
             }
+
+            if (data.sessionParentById) {
+                const diskParents = new Map(data.sessionParentById);
+                for (const [sid, pid] of diskParents.entries()) {
+                    if (!sessionParentById.has(sid) && pid) sessionParentById.set(sid, pid);
+                }
+            }
+
+            if (data.sessionAgentById) {
+                const diskAgents = new Map(data.sessionAgentById);
+                for (const [sid, agentName] of diskAgents.entries()) {
+                    if (!sessionAgentById.has(sid) && agentName) sessionAgentById.set(sid, agentName);
+                }
+            }
+
+            if (data.subagentTypeBySessionId) {
+                const diskTypes = new Map(data.subagentTypeBySessionId);
+                for (const [sid, t] of diskTypes.entries()) {
+                    if (!subagentTypeBySessionId.has(sid) && t) subagentTypeBySessionId.set(sid, t);
+                }
+            }
             
             logDebug(`Loaded store (merged): ${sessionStore.size} messages`);
         }
@@ -156,6 +180,9 @@ function saveStore() {
             uploadedSessions: Array.from(uploadedSessions.entries()),
             sessionGraph: Array.from(sessionGraph.entries()),
             pendingChildSessions: Array.from(pendingChildSessions.entries()),
+            sessionParentById: Array.from(sessionParentById.entries()),
+            sessionAgentById: Array.from(sessionAgentById.entries()),
+            subagentTypeBySessionId: Array.from(subagentTypeBySessionId.entries()),
             timestamp: new Date().toISOString()
         };
         fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), 'utf8');
@@ -290,7 +317,8 @@ function collectSessionMessages(sessionId) {
                 timeInfo: entry.info.time,
                 partBasedDuration: partBasedDuration,
                 modelID: entry.info.modelID,
-                model: entry.info.model
+                model: entry.info.model,
+                agent: entry.info.agent
             });
         }
     }
@@ -315,32 +343,53 @@ function cleanupOrphanedSessions() {
     }
 }
 
-function collectSessionWithChildren(sessionId) {
-    const messages = collectSessionMessages(sessionId);
-    const childSessionIds = sessionGraph.get(sessionId) || [];
-    
-    logDebug(`Collecting ${childSessionIds.length} child sessions for ${sessionId}`);
-    
-    for (const childId of childSessionIds) {
-        const childData = pendingChildSessions.get(childId);
+function findRootSessionId(sessionId) {
+    let cur = sessionId;
+    const visited = new Set();
+    while (cur && cur.startsWith('ses') && !visited.has(cur)) {
+        visited.add(cur);
+        const p = sessionParentById.get(cur);
+        if (!p || !p.startsWith('ses')) break;
+        cur = p;
+    }
+    return cur;
+}
+
+function collectSessionWithDescendants(rootSessionId) {
+    const messages = collectSessionMessages(rootSessionId);
+    const mergedSessionIds = [];
+    const visited = new Set();
+    const stack = Array.isArray(sessionGraph.get(rootSessionId)) ? [...sessionGraph.get(rootSessionId)] : [];
+
+    while (stack.length > 0) {
+        const sid = stack.pop();
+        if (!sid || visited.has(sid)) continue;
+        visited.add(sid);
+
+        const childData = pendingChildSessions.get(sid);
         if (childData && childData.messages) {
-            logDebug(`Merging ${childData.messages.length} messages from child ${childId}`);
-            
-            // Convert roles in child sessions
+            logDebug(`Merging ${childData.messages.length} messages from child ${sid}`);
+            const name =
+                sessionAgentById.get(sid) ||
+                subagentTypeBySessionId.get(sid) ||
+                null;
             const subagentMessages = childData.messages.map(msg => {
                 if (msg.role === 'assistant') {
-                    return { ...msg, role: 'subagent' };
+                    return { ...msg, role: 'subagent', subagent_name: name || msg.agent, subagent_session_id: sid };
                 } else if (msg.role === 'user') {
                     return { ...msg, role: 'opencode' };
                 }
                 return msg;
             });
-            
             messages.push(...subagentMessages);
+            mergedSessionIds.push(sid);
         }
+
+        const next = sessionGraph.get(sid) || [];
+        for (const x of next) stack.push(x);
     }
-    
-    return { messages, childSessionIds };
+
+    return { messages, mergedSessionIds };
 }
 
 export default async function WittySkillInsightPlugin(input) {
@@ -399,9 +448,26 @@ export default async function WittySkillInsightPlugin(input) {
 
       // logDebug(`Event: ${event.type}`);
 
-       try {
+      try {
            // Attempt to find session ID in various places
-           const sessionId = event.session_id || event.properties?.sessionID || event.payload?.session_id;
+           let sessionId = event.session_id || event.properties?.sessionID || event.payload?.session_id;
+           let eagerFlush = false;
+
+           if (event.type === 'session.created' || event.type === 'session.updated') {
+               const sessionInfo = event.properties?.info || event.payload?.info;
+               if (sessionInfo && sessionInfo.id) {
+                   const sid = sessionInfo.id;
+                   const pid = sessionInfo.parentID || sessionInfo.parentId || sessionInfo.parent_id;
+                   if (pid && pid.startsWith('ses')) {
+                       sessionParentById.set(sid, pid);
+                       if (!sessionGraph.has(pid)) sessionGraph.set(pid, []);
+                       if (!sessionGraph.get(pid).includes(sid)) {
+                           sessionGraph.get(pid).push(sid);
+                           logDebug(`Session created: ${sid} is child of ${pid}`);
+                       }
+                   }
+               }
+           }
 
            // 1. Accumulate Message Metadata
            if (event.type === 'message.created' || event.type === 'message.updated') {
@@ -416,11 +482,22 @@ export default async function WittySkillInsightPlugin(input) {
                      });
                  }
                  const entry = sessionStore.get(msgId);
+                 if (!sessionId) sessionId = info.sessionID || info.sessionId || entry.info?.sessionID;
                  if (sessionId) entry.info.sessionID = sessionId;
                   // Merge info
                   Object.assign(entry.info, info);
                   if (info.tool_calls || info.toolCalls) entry.info.tool_calls = info.tool_calls || info.toolCalls;
                   if (info.function_call || info.functionCall) entry.info.function_call = info.function_call || info.functionCall;
+
+                 if (entry.info?.sessionID && entry.info?.agent) {
+                     if (!sessionAgentById.has(entry.info.sessionID)) {
+                         sessionAgentById.set(entry.info.sessionID, entry.info.agent);
+                     }
+                 }
+
+                  if (entry.info?.role === 'assistant' && (entry.info.finish || entry.info.time?.completed != null)) {
+                      eagerFlush = true;
+                  }
              }
           }
 
@@ -441,6 +518,7 @@ export default async function WittySkillInsightPlugin(input) {
                         });
                   }
                   const entry = sessionStore.get(msgId);
+                  if (!sessionId) sessionId = entry.info?.sessionID || part.sessionID || part.session_id;
                   if (!(entry.parts instanceof Map)) entry.parts = new Map(Array.isArray(entry.parts) ? entry.parts : []);
                   if (entry.toolParts && !(entry.toolParts instanceof Map)) entry.toolParts = new Map(Array.isArray(entry.toolParts) ? entry.toolParts : []);
                   
@@ -515,21 +593,30 @@ export default async function WittySkillInsightPlugin(input) {
                                if (tp.tool === 'task' && tp.state.output) {
                                    try {
                                        const taskOutput = tp.state.output;
-                                       const taskIdMatch = taskOutput.match(/task_id:\s*(\w+)/);
-                                       if (taskIdMatch && taskIdMatch[1]) {
-                                           const subagentSessionId = taskIdMatch[1];
-                                           if (subagentSessionId.startsWith('ses')) {
-                                               // Establish parent-child relationship
-                                               const parentSessionId = entry.info.sessionID || sessionId;
-                                               if (parentSessionId) {
-                                                   if (!sessionGraph.has(parentSessionId)) {
-                                                       sessionGraph.set(parentSessionId, []);
-                                                   }
-                                                   if (!sessionGraph.get(parentSessionId).includes(subagentSessionId)) {
-                                                       sessionGraph.get(parentSessionId).push(subagentSessionId);
-                                                       logDebug(`Task detected: ${subagentSessionId} is child of ${parentSessionId}`);
-                                                   }
+                                       let subagentSessionId = null;
+                                       const m1 = taskOutput.match(/<task_metadata>[\s\S]*?session_id:\s*(ses_[A-Za-z0-9]+)[\s\S]*?<\/task_metadata>/i);
+                                       const m2 = taskOutput.match(/session_id:\s*(ses_[A-Za-z0-9]+)/i);
+                                       const m3 = taskOutput.match(/task\(\s*session_id\s*=\s*\"(ses_[A-Za-z0-9]+)\"/i);
+                                       const m4 = taskOutput.match(/task_id:\s*(\w+)/i);
+                                       const candidate = (m1 && m1[1]) || (m2 && m2[1]) || (m3 && m3[1]) || (m4 && m4[1]) || null;
+                                       if (candidate && String(candidate).startsWith('ses')) subagentSessionId = String(candidate);
+
+                                       if (subagentSessionId) {
+                                           const parentSessionId = entry.info.sessionID || sessionId;
+                                           if (parentSessionId) {
+                                               if (!sessionGraph.has(parentSessionId)) sessionGraph.set(parentSessionId, []);
+                                               if (!sessionGraph.get(parentSessionId).includes(subagentSessionId)) {
+                                                   sessionGraph.get(parentSessionId).push(subagentSessionId);
+                                                   logDebug(`Task detected: ${subagentSessionId} is child of ${parentSessionId}`);
                                                }
+                                               if (!sessionParentById.has(subagentSessionId)) {
+                                                   sessionParentById.set(subagentSessionId, parentSessionId);
+                                               }
+                                           }
+
+                                           const t = tp.state?.input?.subagent_type;
+                                           if (t && !subagentTypeBySessionId.has(subagentSessionId)) {
+                                               subagentTypeBySessionId.set(subagentSessionId, t);
                                            }
                                        }
                                    } catch (e) {
@@ -566,6 +653,7 @@ export default async function WittySkillInsightPlugin(input) {
                   }
 
                   const entry = sessionStore.get(msgId);
+                  if (!sessionId) sessionId = entry.info?.sessionID;
                   if (!(entry.parts instanceof Map)) entry.parts = new Map(Array.isArray(entry.parts) ? entry.parts : []);
 
                   const dedupeKey = `${msgId}:${partId}:${field}`;
@@ -606,7 +694,7 @@ export default async function WittySkillInsightPlugin(input) {
           }
 
            // 3. Upload on Session Idle
-           if (event.type === "session.idle") {
+           if (event.type === "session.idle" || eagerFlush) {
                if (!sessionId || !sessionId.startsWith("ses")) return;
 
                // Reload store from disk to pick up any data written by
@@ -614,15 +702,18 @@ export default async function WittySkillInsightPlugin(input) {
                // from within the opencode interactive interface).
                loadStore();
 
-               // Only treat a session as "child" when it was detected via Task tool
-               // (i.e. registered in sessionGraph). Do NOT rely on event.parentID because
-               // nested `opencode run ...` can also set parentID and we want both sessions uploaded.
                let foundParentId = null;
-               for (const [potentialParent, childIds] of sessionGraph.entries()) {
-                   if (childIds.includes(sessionId)) {
-                       foundParentId = potentialParent;
-                       logDebug(`Found parent ${foundParentId} for for child ${sessionId} from sessionGraph`);
-                       break;
+               const directParent = sessionParentById.get(sessionId);
+               if (directParent && Array.isArray(sessionGraph.get(directParent)) && sessionGraph.get(directParent).includes(sessionId)) {
+                   foundParentId = directParent;
+                   logDebug(`Found parent ${foundParentId} for for child ${sessionId} from sessionParentById`);
+               } else {
+                   for (const [potentialParent, childIds] of sessionGraph.entries()) {
+                       if (childIds.includes(sessionId)) {
+                           foundParentId = potentialParent;
+                           logDebug(`Found parent ${foundParentId} for for child ${sessionId} from sessionGraph`);
+                           break;
+                       }
                    }
                }
                
@@ -647,14 +738,16 @@ export default async function WittySkillInsightPlugin(input) {
                        });
                        logDebug(`Stored ${childMessages.length} messages for child session ${sessionId}`);
                    }
-                   
-                   return; // Don't upload child session separately
+
+                   const rootId = findRootSessionId(foundParentId) || foundParentId;
+                   if (!rootId || rootId === sessionId) return;
+                   sessionId = rootId;
                }
 
                logDebug(`Session Idle: ${sessionId}. Messages in store: ${sessionStore.size}`);
 
                // This is a parent session, collect all messages including children
-               const { messages, childSessionIds } = collectSessionWithChildren(sessionId);
+               const { messages, mergedSessionIds } = collectSessionWithDescendants(sessionId);
 
                if (messages.length === 0) {
                    logDebug(`No messages found for session ${sessionId}, skipping upload.`);
@@ -662,11 +755,10 @@ export default async function WittySkillInsightPlugin(input) {
                }
 
                // Cleanup child session data after successful upload
-               for (const childId of childSessionIds) {
+               for (const childId of mergedSessionIds) {
                    pendingChildSessions.delete(childId);
                    logDebug(`Cleaned up child session ${childId}`);
                }
-               sessionGraph.delete(sessionId);
                
                // Cleanup orphaned child sessions (older than 1 hour)
                cleanupOrphanedSessions();
@@ -688,6 +780,7 @@ export default async function WittySkillInsightPlugin(input) {
               let totalOutputTokens = 0;
               let totalCacheReadInputTokens = 0;
               let totalCacheCreationInputTokens = 0;
+              let totalReasoningTokens = 0;
               let llmCallCount = 0;
               let toolCallCount = 0;
               let toolCallErrorCount = 0;
@@ -695,11 +788,14 @@ export default async function WittySkillInsightPlugin(input) {
 
               for (const m of messages) {
                   if (m.role === 'user' && !firstUserQuery) firstUserQuery = m.content;
+                  const isCompletion = m.role === 'assistant' || m.role === 'subagent';
                   if (m.role === 'assistant') {
-                      llmCallCount++;
                       lastAssistantContent = m.content;
                       if (m.model) model = m.model;
                       else if (m.modelID) model = m.modelID;
+                  }
+                  if (isCompletion) {
+                      llmCallCount++;
                       
                       // Token logic
                       const u = m.usage;
@@ -717,11 +813,18 @@ export default async function WittySkillInsightPlugin(input) {
                           const cacheReadToks = Number(u.cache?.read || u.cache_read_input_tokens || 0);
                           const cacheCreateToks = Number(u.cache?.write || u.cache_creation_input_tokens || 0);
                           const inputToks = Number(u.input_tokens || u.input || 0);  // base input only (excludes cache)
-                          const outputToks = Number(u.output_tokens || u.output || 0);
+                          const rawOutputToks = Number(u.output_tokens || u.output || 0);
+                          const reasoningToks = Number(u.reasoning || u.reasoning_tokens || u.completion_tokens_details?.reasoning_tokens || 0);
+                          // OpenCode reports reasoning separately from output; DeepSeek API includes it in output.
+                          // Normalize: output_tokens should always include reasoning tokens.
+                          const outputToks = (u.reasoning !== undefined && reasoningToks > 0 && rawOutputToks < reasoningToks)
+                              ? rawOutputToks + reasoningToks
+                              : rawOutputToks;
                           totalInputTokens += inputToks;
                           totalOutputTokens += outputToks;
                           totalCacheReadInputTokens += cacheReadToks;
                           totalCacheCreationInputTokens += cacheCreateToks;
+                          totalReasoningTokens += reasoningToks;
                           const callTotal = inputToks + cacheReadToks + cacheCreateToks + outputToks;
                           if (callTotal > maxSingleCallTokens) maxSingleCallTokens = callTotal;
                       }
@@ -767,6 +870,7 @@ export default async function WittySkillInsightPlugin(input) {
                   cache_read_input_tokens: totalCacheReadInputTokens,
                   cache_creation_input_tokens: totalCacheCreationInputTokens,
                   max_single_call_tokens: maxSingleCallTokens,
+                  reasoning_tokens: totalReasoningTokens,
                   final_result: lastAssistantContent,
                   interactions: messages.map(m => ({
                       role: m.role,
@@ -775,7 +879,10 @@ export default async function WittySkillInsightPlugin(input) {
                       function_call: m.function_call || m.functionCall,
                       usage: m.usage,
                       timestamp: m.timestamp,
-                      timeInfo: m.timeInfo
+                      timeInfo: m.timeInfo,
+                      agent: m.agent,
+                      subagent_name: m.subagent_name,
+                      subagent_session_id: m.subagent_session_id
                   })),
                   timestamp: new Date().toISOString()
               };
@@ -911,8 +1018,9 @@ try {
           }
       } catch (err) {
           logDebug(`Plugin Exception: ${err.message}`);
+      } finally {
+        saveStore();
       }
-      saveStore();
     }
   };
 }

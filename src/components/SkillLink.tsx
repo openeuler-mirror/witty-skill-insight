@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import React from 'react';
+import { useTheme } from '@/lib/theme-context';
 
 interface SkillLinkProps {
   skillId?: string | null;
@@ -12,6 +13,7 @@ interface SkillLinkProps {
 
 export function SkillLink({ skillId, skillName, version, user }: SkillLinkProps) {
   const router = useRouter();
+  const { isDark } = useTheme();
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -31,25 +33,25 @@ export function SkillLink({ skillId, skillName, version, user }: SkillLinkProps)
   };
 
   if (!skillId && !skillName) {
-    return <span style={{ color: '#64748b' }}>(None)</span>;
+    return <span style={{ color: isDark ? '#71717a' : '#a1a1aa' }}>(None)</span>;
   }
 
   return (
     <span
       onClick={handleClick}
       style={{
-        color: '#60a5fa',
+        color: isDark ? '#60a5fa' : '#2563eb',
         cursor: 'pointer',
         textDecoration: 'none',
-        transition: 'color 0.2s',
+        transition: 'color 0.15s',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.textDecoration = 'underline';
-        e.currentTarget.style.color = '#93c5fd';
+        e.currentTarget.style.color = isDark ? '#93c5fd' : '#2563eb';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.textDecoration = 'none';
-        e.currentTarget.style.color = '#60a5fa';
+        e.currentTarget.style.color = isDark ? '#60a5fa' : '#2563eb';
       }}
     >
       {skillName}{version ? ` (v${version})` : ''}
@@ -74,8 +76,10 @@ export function SkillLinks({
   skillVersion, 
   user 
 }: SkillLinksProps) {
+  const { isDark } = useTheme();
+
   if (!skills?.length && !skill) {
-    return <span style={{ color: '#64748b' }}>(None)</span>;
+    return <span style={{ color: isDark ? '#71717a' : '#a1a1aa' }}>(None)</span>;
   }
 
   if (skills?.length) {
@@ -85,7 +89,7 @@ export function SkillLinks({
           const sId = skillIds?.[index] || null;
           return (
             <React.Fragment key={index}>
-              {index > 0 && <span style={{ color: '#e2e8f0' }}>, </span>}
+              {index > 0 && <span style={{ color: isDark ? '#3f3f46' : '#d4d4d8' }}>, </span>}
               <SkillLink
                 skillId={sId}
                 skillName={s}

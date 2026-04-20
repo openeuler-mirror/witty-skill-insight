@@ -2,6 +2,7 @@
 
 import { createPortal } from 'react-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useTheme, useThemeColors } from '@/lib/theme-context';
 
 export interface GuideStep {
     id: string;
@@ -57,6 +58,9 @@ function GuideBubble({
     const [arrowPosition, setArrowPosition] = useState<ArrowPositionState>({ top: 0, left: 0 });
     const bubbleRef = useRef<HTMLDivElement>(null);
     const mounted = typeof window !== 'undefined';
+    const { isDark } = useTheme();
+    const c = useThemeColors();
+
 
     const handleCopy = (text: string) => {
         if (navigator.clipboard && window.isSecureContext) {
@@ -246,16 +250,16 @@ function GuideBubble({
                     position: 'fixed',
                     top: position.top,
                     left: position.left,
-                    background: isCenter ? 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)' : '#1e293b',
-                    border: '1px solid #38bdf8',
+                    background: isCenter ? `linear-gradient(135deg, ${c.bgSecondary} 0%, ${c.bg} 100%)` : c.bgSecondary,
+                    border: `1px solid ${c.primary}`,
                     borderRadius: isCenter ? '16px' : '12px',
                     padding: isCenter ? '32px 40px' : '20px',
                     maxWidth: isCenter ? '480px' : '360px',
                     minWidth: isCenter ? '320px' : '280px',
                     zIndex: 9999,
                     boxShadow: isCenter 
-                        ? '0 25px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(56, 189, 248, 0.3)' 
-                        : '0 20px 40px rgba(0, 0, 0, 0.4), 0 0 20px rgba(56, 189, 248, 0.2)',
+                        ? `0 25px 50px ${c.overlayBg}, 0 0 40px ${c.primarySubtleBorder}` 
+                        : `0 20px 40px ${c.overlayBg}, 0 0 20px ${c.primarySubtle}`,
                     animation: 'fadeInScale 0.3s ease-out',
                     textAlign: isCenter ? 'center' : 'left',
                 }}
@@ -269,7 +273,7 @@ function GuideBubble({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                     <h3 style={{ 
                         margin: 0, 
-                        color: '#38bdf8', 
+                        color: c.primary, 
                         fontSize: isCenter ? '1.4rem' : '1.1rem', 
                         fontWeight: 600,
                         width: '100%',
@@ -281,7 +285,7 @@ function GuideBubble({
                         style={{
                             background: 'transparent',
                             border: 'none',
-                            color: '#94a3b8',
+                            color: c.fgMuted,
                             cursor: 'pointer',
                             fontSize: '1.2rem',
                             padding: '0',
@@ -292,7 +296,7 @@ function GuideBubble({
                     </button>
                 </div>
 
-                <p style={{ margin: '0 0 16px 0', color: '#e2e8f0', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                <p style={{ margin: '0 0 16px 0', color: c.fg, fontSize: '0.9rem', lineHeight: 1.6 }}>
                     {step.content}
                 </p>
 
@@ -303,7 +307,7 @@ function GuideBubble({
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{
-                                color: '#38bdf8',
+                                color: c.primary,
                                 textDecoration: 'none',
                                                                fontSize: '0.9rem',
                                 fontWeight: 500,
@@ -327,7 +331,7 @@ function GuideBubble({
                 {step.setupCommands && (
                     <div style={{ marginBottom: '16px', textAlign: 'left' }}>
                         <div style={{ 
-                            color: '#94a3b8', 
+                            color: c.fgMuted, 
                             fontSize: '0.85rem', 
                             marginBottom: '12px',
                             lineHeight: 1.5
@@ -337,7 +341,7 @@ function GuideBubble({
                         
                         <div style={{ marginBottom: '10px' }}>
                             <div style={{ 
-                                color: '#38bdf8', 
+                                color: c.primary, 
                                 fontSize: '0.85rem', 
                                 fontWeight: 600,
                                 marginBottom: '6px',
@@ -349,14 +353,14 @@ function GuideBubble({
                                 <span>Linux / macOS</span>
                             </div>
                             <div style={{ 
-                                background: '#0f172a',
-                                border: '1px solid #334155',
+                                background: c.bg,
+                                border: `1px solid ${c.border}`,
                                 borderRadius: '6px',
                                 padding: '10px',
                                 position: 'relative'
                             }}>
                                 <code style={{ 
-                                    color: '#e2e8f0', 
+                                    color: c.fg, 
                                     fontSize: '0.8rem',
                                     fontFamily: 'monospace',
                                     wordBreak: 'break-all',
@@ -375,7 +379,7 @@ function GuideBubble({
                                         right: '8px',
                                         background: 'rgba(56, 189, 248, 0.2)',
                                         border: '1px solid rgba(56, 189, 248, 0.4)',
-                                        color: '#38bdf8',
+                                        color: c.primary,
                                         padding: '4px 8px',
                                         borderRadius: '4px',
                                         cursor: 'pointer',
@@ -397,7 +401,7 @@ function GuideBubble({
 
                         <div>
                             <div style={{ 
-                                color: '#38bdf8', 
+                                color: c.primary, 
                                 fontSize: '0.85rem', 
                                 fontWeight: 600,
                                 marginBottom: '6px',
@@ -409,14 +413,14 @@ function GuideBubble({
                                 <span>Windows</span>
                             </div>
                             <div style={{ 
-                                background: '#0f172a',
-                                border: '1px solid #334155',
+                                background: c.bg,
+                                border: `1px solid ${c.border}`,
                                 borderRadius: '6px',
                                 padding: '10px',
                                 position: 'relative'
                             }}>
                                 <code style={{ 
-                                    color: '#e2e8f0', 
+                                    color: c.fg, 
                                     fontSize: '0.8rem',
                                     fontFamily: 'monospace',
                                     wordBreak: 'break-all',
@@ -435,7 +439,7 @@ function GuideBubble({
                                         right: '8px',
                                         background: 'rgba(56, 189, 248, 0.2)',
                                         border: '1px solid rgba(56, 189, 248, 0.4)',
-                                        color: '#38bdf8',
+                                        color: c.primary,
                                         padding: '4px 8px',
                                         borderRadius: '4px',
                                         cursor: 'pointer',
@@ -464,18 +468,18 @@ function GuideBubble({
                                 marginTop: '12px'
                             }}>
                                 <div style={{ 
-                                    color: '#38bdf8', 
+                                    color: c.primary, 
                                     fontSize: '0.85rem', 
                                     fontWeight: 600,
                                     marginBottom: '6px'
                                 }}>
-                                    🔑 您的 API Key
+                                    🔑 您的密钥
                                 </div>
                                 <div style={{ 
                                     position: 'relative'
                                 }}>
                                     <div style={{ 
-                                        color: '#e2e8f0', 
+                                        color: c.fg, 
                                         fontSize: '0.8rem',
                                         fontFamily: 'monospace',
                                         wordBreak: 'break-all',
@@ -494,7 +498,7 @@ function GuideBubble({
                                             right: '0',
                                             background: 'rgba(56, 189, 248, 0.2)',
                                             border: '1px solid rgba(56, 189, 248, 0.4)',
-                                            color: '#38bdf8',
+                                            color: c.primary,
                                             padding: '4px 8px',
                                             borderRadius: '4px',
                                             cursor: 'pointer',
@@ -513,11 +517,11 @@ function GuideBubble({
                                     </button>
                                 </div>
                                 <div style={{ 
-                                    color: '#94a3b8', 
+                                    color: c.fgMuted, 
                                     fontSize: '0.75rem',
                                     lineHeight: 1.4
                                 }}>
-                                    执行上述命令时，系统会提示您输入 API Key，请复制上面的 Key 粘贴到终端中。
+                                    执行上述命令时，系统会提示您输入 密钥，请复制上面的 Key 粘贴到终端中。
                                 </div>
                             </div>
                         )}
@@ -532,12 +536,12 @@ function GuideBubble({
                                 width: '8px',
                                 height: '8px',
                                 borderRadius: '50%',
-                                background: i === currentStep ? '#38bdf8' : '#475569',
+                                background: i === currentStep ? '#38bdf8' : '#52525b',
                                 transition: 'background 0.2s',
                             }}
                         />
                     ))}
-                    <span style={{ marginLeft: 'auto', color: '#94a3b8', fontSize: '0.8rem' }}>
+                    <span style={{ marginLeft: 'auto', color: c.fgMuted, fontSize: '0.8rem' }}>
                         {currentStep + 1} / {totalSteps}
                     </span>
                 </div>
@@ -548,8 +552,8 @@ function GuideBubble({
                             onClick={onPrev}
                             style={{
                                 background: 'transparent',
-                                border: '1px solid #475569',
-                                color: '#94a3b8',
+                                border: '1px solid #52525b',
+                                color: c.fgMuted,
                                 padding: '8px 16px',
                                 borderRadius: '6px',
                                 cursor: 'pointer',
@@ -567,9 +571,9 @@ function GuideBubble({
                                 onNext();
                             }}
                             style={{
-                                background: 'linear-gradient(135deg, #38bdf8, #818cf8)',
+                                background: c.primary,
                                 border: 'none',
-                                color: 'white',
+                                color: c.bg,
                                 padding: '8px 16px',
                                 borderRadius: '6px',
                                 cursor: 'pointer',
@@ -585,9 +589,9 @@ function GuideBubble({
                         <button
                             onClick={onNext}
                             style={{
-                                background: '#38bdf8',
+                                background: c.primary,
                                 border: 'none',
-                                color: '#0f172a',
+                                color: c.bg,
                                 padding: '8px 16px',
                                 borderRadius: '6px',
                                 cursor: 'pointer',
@@ -601,9 +605,9 @@ function GuideBubble({
                         <button
                             onClick={onDismiss}
                             style={{
-                                background: '#4ade80',
+                                background: c.success,
                                 border: 'none',
-                                color: '#0f172a',
+                                color: c.bg,
                                 padding: '8px 16px',
                                 borderRadius: '6px',
                                 cursor: 'pointer',
@@ -620,7 +624,7 @@ function GuideBubble({
                         style={{
                             background: 'transparent',
                             border: 'none',
-                            color: '#94a3b8',
+                            color: c.fgMuted,
                             padding: '8px 12px',
                             borderRadius: '6px',
                             cursor: 'pointer',
@@ -631,12 +635,12 @@ function GuideBubble({
                     </button>
                 </div>
 
-                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #334155' }}>
+                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${c.border}` }}>
                     <label style={{
                         display: 'flex',
                         alignItems: 'center',
                         gap: '8px',
-                        color: '#94a3b8',
+                        color: c.fgMuted,
                         fontSize: '0.8rem',
                         cursor: 'pointer',
                     }}>

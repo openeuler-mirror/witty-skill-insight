@@ -31,6 +31,7 @@ export interface DatabaseAdapter {
     createSkillVersion(data: any): Promise<any>;
     deleteSkillVersion(skillId: string, version: number): Promise<any>;
     findSkillVersion(skillId: string, version: number): Promise<any>;
+    findSkillVersionBySemanticVersion(skillId: string, semanticVersion: string): Promise<any>;
 
     // Config operations
     findConfigs(where: any): Promise<any[]>;
@@ -174,6 +175,12 @@ class PrismaAdapter implements DatabaseAdapter {
     async findSkillVersion(skillId: string, version: number) {
         return this.client.skillVersion.findFirst({
             where: { skillId, version }
+        });
+    }
+
+    async findSkillVersionBySemanticVersion(skillId: string, semanticVersion: string) {
+        return this.client.skillVersion.findFirst({
+            where: { skillId, semanticVersion }
         });
     }
 
@@ -558,6 +565,12 @@ class OpenGaussAdapter implements DatabaseAdapter {
     async findSkillVersion(skillId: string, version: number) {
         const sql = 'SELECT * FROM "SkillVersion" WHERE "skillId" = $1 AND version = $2';
         const res = await this.query(sql, [skillId, version]);
+        return res.rows[0] || null;
+    }
+
+    async findSkillVersionBySemanticVersion(skillId: string, semanticVersion: string) {
+        const sql = 'SELECT * FROM "SkillVersion" WHERE "skillId" = $1 AND "semanticVersion" = $2';
+        const res = await this.query(sql, [skillId, semanticVersion]);
         return res.rows[0] || null;
     }
 

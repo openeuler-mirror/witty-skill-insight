@@ -1,6 +1,6 @@
 {
   "name": "@witty-ai/skill-insight",
-  "version": "0.3.0-beta",
+  "version": "0.6.0-beta",
   "description": "Agent Skill 评估与观测平台 — 量化评估 Skills 在 Agent 上的实际运行效果",
   "license": "MIT",
   "private": false,
@@ -21,12 +21,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --import tsx --test \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@prisma/client": "5.22.0",
     "@types/archiver": "^7.0.0",
     "@types/uuid": "^11.0.0",
+    "adm-zip": "^0.5.10",
     "archiver": "7.0.1",
     "chokidar": "^5.0.0",
     "dotenv": "^17.3.1",
@@ -49,12 +51,14 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
     "@types/node": "^20",
     "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.4",
+    "tsx": "^4.20.5",
     "typescript": "^5"
   }
 }
