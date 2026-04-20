@@ -135,8 +135,7 @@ class Trace2SkillOrchestrator:
 
     def _load_skill(self) -> str:
         skill_path = self.config.skill_path if isinstance(self.config.skill_path, Path) else Path(self.config.skill_path)
-        skill_md = skill_path / "SKILL.md"
-        return skill_md.read_text(encoding="utf-8")
+        return skill_path.read_text(encoding="utf-8")
 
     def _run_error_analysts(self, trajectory_set: TrajectorySet, skill_content: str):
         analyst = BatchErrorAnalyst(
