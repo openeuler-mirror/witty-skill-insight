@@ -3,6 +3,9 @@ import path from 'path';
 import { judgeAnswer } from './judge';
 import { db, prisma } from './prisma';
 import { getModelPricing, calculateCost, getModelContextWindow, DEFAULT_CACHE_READ_RATIO, DEFAULT_CACHE_CREATION_RATIO } from './model-config';
+import { deriveOpencodeExecutionFields } from './opencode-derived-metrics';
+import { chooseExecutionLabel } from './label-utils';
+import { parseLabelSkillVersionBinding } from './label-skill-binding';
 
 export interface InvokedSkill {
     name: string;
@@ -387,6 +390,16 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
     const existingQuery = typeof existingRecord?.query === 'string' ? existingRecord.query.trim() : '';
     const incomingQuery = typeof data.query === 'string' ? data.query.trim() : '';
 
+    if (typeof data.label === 'string') {
+        const b = parseLabelSkillVersionBinding(data.label);
+        if (b) {
+            data.skill = b.skill;
+            data.skill_version = b.skill_version;
+            data.skills = b.skills;
+            data.invokedSkills = b.invokedSkills;
+        }
+    }
+
     targetRecord = { ...targetRecord, ...data };
     if (existingQuery && !allowQueryOverwrite) {
         targetRecord.query = existingQuery;
@@ -437,6 +450,56 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
     if (data.cache_creation_input_tokens !== undefined) targetRecord.cache_creation_input_tokens = Number(data.cache_creation_input_tokens);
     if (data.max_single_call_tokens !== undefined) targetRecord.max_single_call_tokens = Number(data.max_single_call_tokens);
     if (data.reasoning_tokens !== undefined) targetRecord.reasoning_tokens = Number(data.reasoning_tokens);
+
+    let mergedInteractionsForSession: any[] | null = null;
+    if (targetRecord.task_id && targetRecord.interactions) {
+        const incomingInteractions = typeof targetRecord.interactions === 'string'
+            ? (() => { try { return JSON.parse(targetRecord.interactions); } catch { return []; } })()
+            : targetRecord.interactions;
+
+        mergedInteractionsForSession = incomingInteractions;
+        try {
+            const existingSession = await db.findSessionByTaskId(targetRecord.task_id);
+            const existingInteractions = existingSession?.interactions
+                ? (() => { try { return JSON.parse(existingSession.interactions as string); } catch { return []; } })()
+                : [];
+
+            if (Array.isArray(existingInteractions) && existingInteractions.length > 0) {
+                if (!Array.isArray(incomingInteractions) || incomingInteractions.length < existingInteractions.length) {
+                    mergedInteractionsForSession = existingInteractions;
+                } else {
+                    mergedInteractionsForSession = incomingInteractions.map((it: any, idx: number) => {
+                        const prev = existingInteractions[idx];
+                        const contentEmpty = it?.content === '' || it?.content == null;
+                        const prevContentOk = typeof prev?.content === 'string' && prev.content.length > 0;
+                        if (contentEmpty && prevContentOk && prev?.role === it?.role) {
+                            return { ...it, content: prev.content };
+                        }
+                        return it;
+                    });
+                }
+            }
+        } catch {}
+
+        targetRecord.interactions = mergedInteractionsForSession;
+
+        if (targetRecord.framework === 'opencode' && Array.isArray(mergedInteractionsForSession)) {
+            const derived = deriveOpencodeExecutionFields(mergedInteractionsForSession);
+            if (derived.model) targetRecord.model = derived.model;
+            if (derived.final_result) targetRecord.final_result = derived.final_result;
+            targetRecord.tokens = derived.tokens;
+            targetRecord.latency = derived.latency;
+            targetRecord.input_tokens = derived.input_tokens;
+            targetRecord.output_tokens = derived.output_tokens;
+            targetRecord.tool_call_count = derived.tool_call_count;
+            targetRecord.tool_call_error_count = derived.tool_call_error_count;
+            targetRecord.llm_call_count = derived.llm_call_count;
+            targetRecord.cache_read_input_tokens = derived.cache_read_input_tokens;
+            targetRecord.cache_creation_input_tokens = derived.cache_creation_input_tokens;
+            targetRecord.max_single_call_tokens = derived.max_single_call_tokens;
+            targetRecord.reasoning_tokens = derived.reasoning_tokens;
+        }
+    }
 
     const NO_MATCH_REASON = '未找到匹配的评测配置';
 
@@ -606,13 +669,12 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
         if (scoreStr) targetRecord.skill_score = parseFloat(scoreStr);
     }
 
-    if (targetRecord.skill && targetRecord.skill_version !== undefined && targetRecord.skill_version !== null) {
-        targetRecord.label = `${targetRecord.skill}-v${targetRecord.skill_version}`;
-    } else if (targetRecord.skill) {
-        targetRecord.label = `${targetRecord.skill}-v1`;
-    } else {
-        targetRecord.label = 'without-skill';
-    }
+    targetRecord.label = chooseExecutionLabel({
+        existingLabel: existingRecord?.label,
+        incomingLabel: data.label,
+        skill: targetRecord.skill,
+        skillVersion: targetRecord.skill_version ?? null
+    });
 
     await db.upsertExecution({
         where: { id: recordId },
@@ -696,35 +758,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
         } catch {}
     }
 
-    if (targetRecord.task_id && targetRecord.interactions) {
-        const incomingInteractions = typeof targetRecord.interactions === 'string'
-            ? (() => { try { return JSON.parse(targetRecord.interactions); } catch { return []; } })()
-            : targetRecord.interactions;
-
-        let mergedInteractions = incomingInteractions;
-        try {
-            const existingSession = await db.findSessionByTaskId(targetRecord.task_id);
-            const existingInteractions = existingSession?.interactions
-                ? (() => { try { return JSON.parse(existingSession.interactions as string); } catch { return []; } })()
-                : [];
-
-            if (Array.isArray(existingInteractions) && existingInteractions.length > 0) {
-                if (!Array.isArray(incomingInteractions) || incomingInteractions.length < existingInteractions.length) {
-                    mergedInteractions = existingInteractions;
-                } else {
-                    mergedInteractions = incomingInteractions.map((it: any, idx: number) => {
-                        const prev = existingInteractions[idx];
-                        const contentEmpty = it?.content === '' || it?.content == null;
-                        const prevContentOk = typeof prev?.content === 'string' && prev.content.length > 0;
-                        if (contentEmpty && prevContentOk && prev?.role === it?.role) {
-                            return { ...it, content: prev.content };
-                        }
-                        return it;
-                    });
-                }
-            }
-        } catch {}
-
+    if (targetRecord.task_id && mergedInteractionsForSession) {
         await db.upsertSession(
             targetRecord.task_id,
             {
@@ -733,14 +767,14 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                 label: targetRecord.label,
                 user: targetRecord.user,
                 model: targetRecord.model,
-                interactions: JSON.stringify(mergedInteractions)
+                interactions: JSON.stringify(mergedInteractionsForSession)
             },
             {
                 query: targetRecord.query,
                 label: targetRecord.label,
                 user: targetRecord.user,
                 model: targetRecord.model,
-                interactions: JSON.stringify(mergedInteractions)
+                interactions: JSON.stringify(mergedInteractionsForSession)
             }
         );
     }

@@ -548,11 +548,13 @@ const RenderInteractionList = ({
                             const latencyStr = latencyVal < 1000 ? `${latencyVal.toFixed(0)}ms` : `${(latencyVal / 1000).toFixed(2)}s`;
 
                             let role = 'unknown';
+                            let displayRole = 'unknown';
                             let contentSummary = '';
 
                             if (kind === 'tool') {
                                 const tc = original;
                                 role = `tool:${tc.function?.name || tc.name || 'unknown'}`;
+                                displayRole = role;
                                 const out = tc.output ?? (tc.state && tc.state.output);
                                 if (typeof out === 'string') contentSummary = out;
                                 else if (out != null) contentSummary = JSON.stringify(out);
@@ -561,6 +563,7 @@ const RenderInteractionList = ({
                                 const step = original;
                                 if (step.responseMessage) {
                                     role = step.responseMessage.role || 'assistant';
+                                    displayRole = role;
                                     const content = step.responseMessage.content;
                                     if (typeof content === 'string') contentSummary = content;
                                     else if (content) contentSummary = JSON.stringify(content);
@@ -572,6 +575,11 @@ const RenderInteractionList = ({
                                 }
                                 if (step.role && role === 'unknown') {
                                     role = step.role;
+                                    displayRole = role;
+                                }
+                                if (role === 'subagent') {
+                                    const subName = step.subagent_name || step.agent;
+                                    if (subName) displayRole = `subagent(${subName})`;
                                 }
                             }
 
@@ -620,7 +628,7 @@ const RenderInteractionList = ({
                                                 {kind === 'tool' ? `#${parentIndex}.${toolIndex}` : `#${parentIndex}`}
                                             </span>
                                             <span style={{ fontWeight: 'bold', color: roleColor, textTransform: 'capitalize' }}>
-                                                {role}
+                                                {displayRole}
                                             </span>
                                             {isTool && (
                                                 <span style={{
