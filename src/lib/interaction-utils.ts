@@ -17,7 +17,7 @@ export function normalizeInteractions(messages: any[]): any[] {
 
     let lastAssistantIndex = -1
     for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].role === "assistant") {
+      if (msgs[i].role === "assistant" || msgs[i].role === "subagent") {
         lastAssistantIndex = i
         break
       }
@@ -39,8 +39,9 @@ export function normalizeInteractions(messages: any[]): any[] {
   for (const msg of messages) {
     if (!msg) continue
     const role = msg.role || "unknown"
+    const isUserBoundary = role === "user" || role === "opencode"
 
-    if (role === "user" && turnMessages.length > 0) {
+    if (isUserBoundary && turnMessages.length > 0) {
       flushTurn(turnMessages)
       turnMessages = []
     }
@@ -102,7 +103,7 @@ export function extractSkillsWithVersionsFromOpencodeSession(interactions: any[]
     collectFromMsg(interaction.responseMessage)
     const reqMsgs = interaction.requestMessages || []
     for (const m of reqMsgs) {
-      if (m.role === "assistant") collectFromMsg(m)
+      if (m.role === "assistant" || m.role === "subagent") collectFromMsg(m)
     }
   }
   return skills
@@ -187,4 +188,3 @@ export function extractSkillsFromClaudeSession(interactions: any[]): string[] {
 export function extractSkillsFromOpenClawSession(interactions: any[]): string[] {
   return extractSkillsWithVersionsFromOpenClawSession(interactions).map((s) => s.name)
 }
-

@@ -62,6 +62,20 @@ async function getLlmClient(user?: string | null) {
     };
 }
 
+function getJudgmentTimeoutMs() {
+  const raw = Number(process.env.JUDGMENT_TIMEOUT_MS || 15000);
+  if (!Number.isFinite(raw) || raw <= 0) return 15000;
+  return raw;
+}
+
+async function withTimeout<T>(p: Promise<T>, label: string): Promise<T> {
+  const ms = getJudgmentTimeoutMs();
+  return await Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)),
+  ]);
+}
+
 export interface JudgmentResult {
   is_correct: boolean;
   score: number;
@@ -99,10 +113,13 @@ export async function judgeAnswer(
     const { generateJudgePrompt } = require('../prompts/judge-prompt');
     const prompt = generateJudgePrompt(userQuery, actualAnswer, rcList, kaList, criteria.skill_definition);
 
-    const response = await client.chat.completions.create({
-      messages: [{ role: "user", content: prompt }],
-      model: model, 
-    });
+    const response = await withTimeout(
+      client.chat.completions.create({
+        messages: [{ role: "user", content: prompt }],
+        model: model,
+      }),
+      'Judgment API',
+    );
 
     // --- DEBUG LOG ---
     console.log(`[Judge API Debug] Model: ${model}. Received response choices:`, response?.choices?.length);
@@ -203,6 +220,8 @@ export async function judgeAnswer(
   } catch (error) {
 
     console.error("LLM Judgment Error:", error);
+    const msg = String((error as any)?.message || '');
+    if (msg.includes('timeout')) return { is_correct: false, score: 0, reason: "Judgment API failed: timeout" };
     return { is_correct: false, score: 0, reason: "Judgment API failed" };
   }
 }
@@ -338,10 +357,13 @@ export async function analyzeEvaluationItems(
         try {
             const prompt = generateSkillIssuePrompt(skillDef, item, userQuery, actualAnswer, conversationHistory);
             
-            const response = await client.chat.completions.create({
-                messages: [{ role: "user", content: prompt }],
-                model: model,
-            });
+            const response = await withTimeout(
+                client.chat.completions.create({
+                    messages: [{ role: "user", content: prompt }],
+                    model: model,
+                }),
+                'Skill issue analysis API',
+            );
             
             const content = response.choices?.[0]?.message?.content;
             if (!content) {
@@ -439,10 +461,13 @@ export async function analyzeFailures(
         const { generateFailureAnalysisPrompt } = require('../prompts/failure-analysis-prompt');
         const prompt = generateFailureAnalysisPrompt(history);
 
-        const response = await client.chat.completions.create({
-            messages: [{ role: "user", content: prompt }],
-            model: model, 
-        });
+        const response = await withTimeout(
+            client.chat.completions.create({
+                messages: [{ role: "user", content: prompt }],
+                model: model,
+            }),
+            'Failure analysis API',
+        );
 
         const content = response.choices?.[0]?.message?.content;
         
@@ -907,11 +932,14 @@ export async function analyzeSession(input: any[], user?: string | null): Promis
              const { generateExtractionPrompt } = require('../prompts/extraction-prompt');
              const prompt = generateExtractionPrompt(history);
 
-             const response = await client.chat.completions.create({
-                 messages: [{ role: "user", content: prompt }],
-                 model: model, 
-                 temperature: 0.1 // Low temperature for extraction
-             });
+             const response = await withTimeout(
+                 client.chat.completions.create({
+                     messages: [{ role: "user", content: prompt }],
+                     model: model,
+                     temperature: 0.1 // Low temperature for extraction
+                 }),
+                 'Session extraction API',
+             );
 
              const content = response.choices[0].message.content;
              if (content) {

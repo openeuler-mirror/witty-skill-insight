@@ -136,3 +136,45 @@ test("opencode: extractSkillsWithVersionsFromOpencodeSession dedupes repeated sk
     { name: "unique-skill", version: null },
   ])
 })
+
+test("opencode: normalizeInteractions treats opencode role as a user boundary", () => {
+  const messages = [
+    { role: "user", content: "Top-level user" },
+    { role: "assistant", content: "Top-level assistant" },
+    { role: "opencode", content: "Child user message (from subagent session)" },
+    { role: "subagent", content: "Child assistant message (from subagent session)" },
+  ]
+
+  const normalized = normalizeInteractions(messages as any[])
+  assert.equal(normalized.length, 2)
+  assert.equal(normalized[0].requestMessages.length, 1)
+  assert.equal(normalized[0].responseMessage?.content, "Top-level assistant")
+  assert.equal(normalized[1].requestMessages.length, 1)
+  assert.equal(normalized[1].responseMessage?.content, "Child assistant message (from subagent session)")
+})
+
+test("opencode: extractSkillsWithVersionsFromOpencodeSession extracts from subagent role tool calls", () => {
+  const messages = [
+    { role: "user", content: "x" },
+    { role: "assistant", content: "y" },
+    {
+      role: "opencode",
+      content: "child user",
+    },
+    {
+      role: "subagent",
+      content: "child assistant",
+      tool_calls: [
+        {
+          id: "call_skill_subagent",
+          type: "function",
+          function: { name: "skill", arguments: JSON.stringify({ name: "deep-skill", version: 7 }) },
+        },
+      ],
+    },
+  ]
+
+  const normalized = normalizeInteractions(messages as any[])
+  const skills = extractSkillsWithVersionsFromOpencodeSession(normalized)
+  assert.deepEqual(skills, [{ name: "deep-skill", version: 7 }])
+})
