@@ -1185,7 +1185,7 @@ def main():
     if not args.mode:
         parser.error("--mode is required for 'optimize' action")
 
-    output_path = Path(args.output) if args.output else None
+    output_path = Path(args.project_dir) if args.project_dir else None
 
     if args.mode == "trace":
         from engine.trace2skill import run_trace2skill, Trace2SkillConfig
