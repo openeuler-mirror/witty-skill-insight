@@ -90,7 +90,7 @@ class Trace2SkillOrchestrator:
         merge_config = MergeConfig(
             batch_size=self.config.merge_batch_size,
             max_levels=self.config.merge_max_levels,
-            skill_root=self.config.skill_path,
+            skill_root=self.config.skill_path.parent,
         )
         merge = HierarchicalMerge(self.llm_client, merge_config)
 
@@ -118,8 +118,7 @@ class Trace2SkillOrchestrator:
             success_patches_count=len(patch_pool.success_patches),
             merge_result=merge_result,
             metadata={
-                "trajectory_count": trajectory_set.total_count,
-                "success_rate": trajectory_set.success_rate,
+                "trajectory_count": trajectory_set.total_count
             },
         )
 
@@ -254,10 +253,6 @@ class Trace2SkillOrchestrator:
     ) -> None:
         output_dir = self.config.output_dir
         output_dir.mkdir(parents=True, exist_ok=True)
-
-        skill_path = output_dir / "SKILL.md"
-        skill_path.write_text(evolved_content, encoding="utf-8")
-        logger.info(f"Saved evolved skill to {skill_path}")
 
         if merge_result:
             result_path = output_dir / "trace2skill_result.json"

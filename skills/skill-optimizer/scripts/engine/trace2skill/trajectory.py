@@ -166,12 +166,6 @@ class TrajectorySet:
     def total_count(self) -> int:
         return len(self.trajectories)
 
-    @property
-    def success_rate(self) -> float:
-        if self.total_count == 0:
-            return 0.0
-        return self.success_count / self.total_count
-
     @classmethod
     def load_from_directory(cls, trajectory_dir: Path) -> "TrajectorySet":
         trajectories = []
