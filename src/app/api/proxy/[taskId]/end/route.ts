@@ -1,5 +1,6 @@
 
 import { readConfig, saveExecutionRecord } from '@/lib/data-service';
+import { analyzeExecutionMatch, analyzeDynamicOnly } from '@/lib/flow-parser';
 import { analyzeFailures, analyzeSession, judgeAnswer } from '@/lib/judge';
 import { db, prisma } from '@/lib/prisma';
 import { endSession } from '@/lib/proxy-store';
@@ -373,30 +374,6 @@ export async function POST(
         }
     } catch (e) { console.warn("Config load error", e); }
 
-
-    if (analysis.query && analysis.final_result) {
-        const judgmentResult = await judgeAnswer(analysis.query, criteria, analysis.final_result, session.user);
-        evaluation = {
-            is_skill_correct: false,
-            is_answer_correct: judgmentResult.is_correct,
-            answer_score: judgmentResult.score,
-            judgment_reason: judgmentResult.reason || 'Judged by Evaluation Model'
-        };
-    }
-
-    console.log(`[End] Calling analyzeFailures: skillName=${primarySkillName || 'none'}, skillDef=${skillDef ? 'present' : 'absent'}, answerScore=${evaluation.answer_score}`);
-    const failureAnalysis = await analyzeFailures(
-        session.interactions, 
-        primarySkillName, 
-        skillDef, 
-        evaluation.answer_score,
-        String(evaluation.judgment_reason || ""),
-        analysis.query,
-        analysis.final_result,
-        session.user
-    );
-    console.log(`[End] analyzeFailures result: ${failureAnalysis.failures.length} failures, ${failureAnalysis.skill_issues?.length || 0} skill issues`);
-
     let body = {};
     try {
       body = await request.json();
@@ -419,16 +396,107 @@ export async function POST(
       latency: duration,
       timestamp: new Date(session.startTime).toISOString(),
       user: session.user,
-      failures: failureAnalysis.failures,
       
-      is_skill_correct: evaluation.is_skill_correct,
-      is_answer_correct: evaluation.is_answer_correct,
-      answer_score: evaluation.answer_score,
-      judgment_reason: evaluation.judgment_reason,
+      is_skill_correct: false,
+      is_answer_correct: false,
+      answer_score: 0,
+      judgment_reason: "Evaluation in progress...",
       force_judgment: false,
+      skip_evaluation: true,
 
       ...body,
     });
+
+    const executionId = result.record?.id || result.record?.task_id || taskId;
+
+    // --- Auto-parse execution flow ---
+    if (primarySkillName && skillVersion !== null) {
+        const skillRecord = await db.findSkill(primarySkillName, session.user || null);
+        if (skillRecord) {
+            const targetVersion = skillRecord.activeVersion || 0;
+            const versionExists = (skillRecord.versions || []).some((v: any) => v.version === targetVersion);
+            const effectiveVersion = versionExists ? targetVersion : (skillRecord.versions?.[0]?.version ?? null);
+            
+            if (effectiveVersion !== null) {
+                try {
+                    const matchResult = await analyzeExecutionMatch(
+                        executionId,
+                        skillRecord.id,
+                        effectiveVersion,
+                        session.user
+                    );
+                    if (matchResult.success) {
+                        console.log(`[End] Auto-parsed execution flow for ${taskId} (compare mode)`);
+                    } else {
+                        console.warn(`[End] Auto-parse execution flow failed for ${taskId}: ${matchResult.error}`);
+                    }
+                } catch (e) {
+                    console.warn(`[End] Auto-parse execution flow error for ${taskId}:`, e);
+                }
+            }
+        }
+    } else {
+        try {
+            const dynamicResult = await analyzeDynamicOnly(executionId, session.user);
+            if (dynamicResult.success) {
+                console.log(`[End] Auto-parsed execution flow for ${taskId} (dynamic mode)`);
+            } else {
+                console.warn(`[End] Auto-parse dynamic flow failed for ${taskId}: ${dynamicResult.error}`);
+            }
+        } catch (e) {
+            console.warn(`[End] Auto-parse dynamic flow error for ${taskId}:`, e);
+        }
+    }
+
+    // --- Evaluation ---
+    if (analysis.query && analysis.final_result) {
+        let executionSteps: { name: string; description: string; type: string }[] | null = null;
+        try {
+            const matchRecord = await db.findExecutionMatch(executionId);
+            if (matchRecord?.extractedSteps) {
+                executionSteps = typeof matchRecord.extractedSteps === 'string' 
+                    ? JSON.parse(matchRecord.extractedSteps) 
+                    : matchRecord.extractedSteps;
+                console.log(`[End] Found ${executionSteps?.length || 0} execution steps for KA evaluation`);
+            }
+        } catch (e) {
+            console.warn(`[End] Failed to load execution steps for KA evaluation:`, e);
+        }
+
+        const judgmentResult = await judgeAnswer(analysis.query, criteria, analysis.final_result, session.user, executionSteps);
+        evaluation = {
+            is_skill_correct: false,
+            is_answer_correct: judgmentResult.is_correct,
+            answer_score: judgmentResult.score,
+            judgment_reason: judgmentResult.reason || 'Judged by Evaluation Model'
+        };
+    }
+
+    console.log(`[End] Calling analyzeFailures: skillName=${primarySkillName || 'none'}, skillDef=${skillDef ? 'present' : 'absent'}, answerScore=${evaluation.answer_score}`);
+    const failureAnalysis = await analyzeFailures(
+        session.interactions, 
+        primarySkillName, 
+        skillDef, 
+        evaluation.answer_score,
+        String(evaluation.judgment_reason || ""),
+        analysis.query,
+        analysis.final_result,
+        session.user
+    );
+    console.log(`[End] analyzeFailures result: ${failureAnalysis.failures.length} failures, ${failureAnalysis.skill_issues?.length || 0} skill issues`);
+
+    // --- Update execution record with evaluation results ---
+    try {
+        await db.updateExecution(executionId, {
+            isAnswerCorrect: evaluation.is_answer_correct,
+            answerScore: evaluation.answer_score,
+            judgmentReason: evaluation.judgment_reason,
+            failures: JSON.stringify(failureAnalysis.failures),
+            skillIssues: JSON.stringify(failureAnalysis.skill_issues || []),
+        });
+    } catch (e) {
+        console.warn(`[End] Failed to update evaluation results for ${executionId}:`, e);
+    }
 
     const response = NextResponse.json({
       status: 'ok',

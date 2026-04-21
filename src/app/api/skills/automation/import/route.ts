@@ -1,4 +1,5 @@
 import { resolveUser } from '@/lib/auth';
+import { parseSkillFlow } from '@/lib/flow-parser';
 import { db } from '@/lib/prisma';
 import fs from 'fs';
 import { NextRequest, NextResponse } from 'next/server';
@@ -102,6 +103,16 @@ export async function POST(request: NextRequest) {
         });
 
         await db.updateSkill(skill.id, { activeVersion: nextVersionNum });
+
+        parseSkillFlow(skillContent, skill.id, nextVersionNum, user || null)
+            .then(result => {
+                if (result.success) {
+                    console.log(`[AutoImport] Auto-parsed flow for skill ${skill.name} v${nextVersionNum}`);
+                } else {
+                    console.warn(`[AutoImport] Auto-parse flow failed for skill ${skill.name} v${nextVersionNum}: ${result.error}`);
+                }
+            })
+            .catch(e => console.warn(`[AutoImport] Auto-parse flow error for skill ${skill.name} v${nextVersionNum}:`, e));
 
         return NextResponse.json({
             success: true,

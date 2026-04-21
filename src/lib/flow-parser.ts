@@ -58,12 +58,15 @@ async function getLlmClient(user?: string | null) {
   };
 }
 
+export type ControlFlowType = 'required' | 'conditional' | 'loop' | 'optional' | 'handoff';
+
 export interface FlowStep {
   id: string;
   name: string;
   description: string;
   type: 'action' | 'decision' | 'output';
   isOptional?: boolean;
+  controlFlowType?: ControlFlowType;
 }
 
 export interface FlowBranch {
@@ -72,10 +75,45 @@ export interface FlowBranch {
   falseStepId: string;
 }
 
+export interface ConditionalGroupBranch {
+  label: string;
+  stepIds: string[];
+}
+
+export interface ConditionalGroup {
+  id: string;
+  condition: string;
+  branches: ConditionalGroupBranch[];
+}
+
+export interface LoopGroup {
+  id: string;
+  loopCondition: string;
+  bodyStepIds: string[];
+  expectedMinCount: number;
+  expectedMaxCount: number;
+}
+
 export interface ParsedFlowResult {
   steps: FlowStep[];
   branches?: FlowBranch[];
+  conditionalGroups?: ConditionalGroup[];
+  loopGroups?: LoopGroup[];
   summary?: string;
+}
+
+export interface ExtractedKeyAction {
+  id: string;
+  content: string;
+  weight: number;
+  controlFlowType: ControlFlowType;
+  condition?: string;
+  branchLabel?: string;
+  loopCondition?: string;
+  expectedMinCount?: number;
+  expectedMaxCount?: number;
+  skillSource?: string;
+  groupId?: string;
 }
 
 export interface StepMatch {
@@ -133,6 +171,14 @@ export async function parseSkillFlow(
   }
 
   try {
+    await db.upsertParsedFlow({
+      skillId,
+      version,
+      user: user || null,
+      flowJson: null,
+      mermaidCode: null
+    });
+
     const prompt = generateFlowParsePrompt(skillContent);
     
     const response = await client.chat.completions.create({
@@ -165,6 +211,68 @@ export async function parseSkillFlow(
     
     if (!flow.steps || !Array.isArray(flow.steps) || flow.steps.length === 0) {
       return { success: false, error: "解析结果中未找到有效步骤" };
+    }
+
+    const validStepIds = new Set(flow.steps.map(s => s.id));
+
+    if (flow.conditionalGroups && Array.isArray(flow.conditionalGroups)) {
+      for (const cg of flow.conditionalGroups) {
+        if (!cg.branches || !Array.isArray(cg.branches)) {
+          console.warn(`[FlowParse] ConditionalGroup ${cg.id} has invalid branches, degrading to required`);
+        }
+      }
+    } else {
+      flow.conditionalGroups = [];
+    }
+
+    if (!flow.loopGroups || !Array.isArray(flow.loopGroups)) {
+      flow.loopGroups = [];
+    }
+
+    const loopBodyStepIds = new Set<string>();
+    for (const lg of flow.loopGroups) {
+      if (!lg.bodyStepIds || !Array.isArray(lg.bodyStepIds)) {
+        console.warn(`[FlowParse] LoopGroup ${lg.id} has invalid bodyStepIds, degrading to required`);
+        continue;
+      }
+      for (const sid of lg.bodyStepIds) {
+        if (!validStepIds.has(sid)) {
+          console.warn(`[FlowParse] LoopGroup ${lg.id} references invalid stepId ${sid}, degrading to required`);
+        } else {
+          loopBodyStepIds.add(sid);
+        }
+      }
+    }
+
+    const conditionalStepIds = new Set<string>();
+    if (flow.conditionalGroups) {
+      for (const cg of flow.conditionalGroups) {
+        if (!cg.branches) continue;
+        for (const branch of cg.branches) {
+          if (!branch.stepIds) continue;
+          for (const sid of branch.stepIds) {
+            if (!validStepIds.has(sid)) {
+              console.warn(`[FlowParse] ConditionalGroup ${cg.id} references invalid stepId ${sid}, degrading to required`);
+            } else {
+              conditionalStepIds.add(sid);
+            }
+          }
+        }
+      }
+    }
+
+    for (const step of flow.steps) {
+      if (step.controlFlowType) continue;
+
+      if (loopBodyStepIds.has(step.id)) {
+        step.controlFlowType = 'loop';
+      } else if (conditionalStepIds.has(step.id)) {
+        step.controlFlowType = 'conditional';
+      } else if (step.isOptional) {
+        step.controlFlowType = 'optional';
+      } else {
+        step.controlFlowType = 'required';
+      }
     }
 
     const mermaidCode = generateMermaidCode(flow);
@@ -208,30 +316,135 @@ export function generateMermaidCode(flow: ParsedFlowResult): string {
   
   flow.steps.forEach((step, index) => {
     const nodeId = `S${index + 1}`;
-    const label = sanitizeMermaidLabel(`${index + 1}. ${step.name}`);
+    const cfType = step.controlFlowType || 'required';
+    const prefix = cfType === 'loop' ? '🔄 ' : '';
+    const label = sanitizeMermaidLabel(`${prefix}${index + 1}. ${step.name}`);
     const nodeType = step.type === 'decision' ? '{' + label + '}' : 
                      step.type === 'output' ? '((' + label + '))' :
                      '[' + label + ']';
     lines.push(`    ${nodeId}${nodeType}`);
   });
 
+  const branchStepIds = new Set<string>();
+  const branchStepsMap = new Map<string, string[]>();
+
+  if (flow.conditionalGroups) {
+    for (const cg of flow.conditionalGroups) {
+      for (const branch of cg.branches) {
+        if (branch.stepIds && branch.stepIds.length > 0) {
+          branchStepsMap.set(branch.label, branch.stepIds);
+          for (const stepId of branch.stepIds) {
+            branchStepIds.add(stepId);
+          }
+        }
+      }
+    }
+  }
+
   for (let i = 0; i < flow.steps.length - 1; i++) {
+    const currentStep = flow.steps[i];
+    const nextStep = flow.steps[i + 1];
     const currentNode = `S${i + 1}`;
     const nextNode = `S${i + 2}`;
     
     const branch = flow.branches?.find(b => 
-      b.trueStepId === flow.steps[i + 1]?.id || 
-      b.falseStepId === flow.steps[i + 1]?.id
+      b.trueStepId === nextStep?.id || 
+      b.falseStepId === nextStep?.id
     );
     
-    if (branch && flow.steps[i].type === 'decision') {
+    if (branch && currentStep.type === 'decision') {
       lines.push(`    ${currentNode} -->|是| ${nextNode}`);
       const falseStepIndex = flow.steps.findIndex(s => s.id === branch.falseStepId);
       if (falseStepIndex !== -1 && falseStepIndex !== i + 1) {
         lines.push(`    ${currentNode} -->|否| S${falseStepIndex + 1}`);
       }
     } else {
+      const currentIsBranch = branchStepIds.has(currentStep.id);
+      const nextIsBranch = branchStepIds.has(nextStep.id);
+
+      // 【新增拦截逻辑】：防止向分支起点画出多余的默认连线
+      if (!currentIsBranch && nextIsBranch) {
+        continue;
+      }
+
+      if (currentIsBranch && nextIsBranch) {
+        let sameBranch = false;
+        for (const [_, stepIds] of branchStepsMap) {
+          const currentIndex = stepIds.indexOf(currentStep.id);
+          const nextIndex = stepIds.indexOf(nextStep.id);
+          if (currentIndex !== -1 && nextIndex !== -1 && nextIndex === currentIndex + 1) {
+            sameBranch = true;
+            break;
+          }
+        }
+        if (!sameBranch) {
+          continue;
+        }
+      }
+
       lines.push(`    ${currentNode} --> ${nextNode}`);
+    }
+  }
+
+  if (flow.conditionalGroups) {
+    for (const cg of flow.conditionalGroups) {
+      let maxStepIndex = -1;
+      let minStepIndex = flow.steps.length;
+
+      // 1. 遍历计算当前条件组在整个数组中的边界索引
+      for (const branch of cg.branches) {
+        if (!branch.stepIds || branch.stepIds.length === 0) continue;
+        
+        const firstStepIndex = flow.steps.findIndex(s => s.id === branch.stepIds[0]);
+        if (firstStepIndex !== -1 && firstStepIndex < minStepIndex) {
+          minStepIndex = firstStepIndex;
+        }
+
+        branch.stepIds.forEach(id => {
+          const idx = flow.steps.findIndex(s => s.id === id);
+          if (idx > maxStepIndex) {
+            maxStepIndex = idx;
+          }
+        });
+      }
+
+      // 确定属于该组的 Decision 节点
+      let decisionIndex = -1;
+      if (minStepIndex > 0 && flow.steps[minStepIndex - 1].type === 'decision') {
+          decisionIndex = minStepIndex - 1;
+      } else {
+          // 降级回退：找最近的一个 decision 节点
+          const dStep = flow.steps.find(s => s.type === 'decision');
+          if (dStep) decisionIndex = flow.steps.indexOf(dStep);
+      }
+
+      // 2. 画线：Decision 节点 -> 各个分支起始节点
+      if (decisionIndex !== -1) {
+        for (const branch of cg.branches) {
+           if (!branch.stepIds || branch.stepIds.length === 0) continue;
+           const firstStepIndex = flow.steps.findIndex(s => s.id === branch.stepIds[0]);
+           if (firstStepIndex !== -1) {
+               lines.push(`    S${decisionIndex + 1} -->|${branch.label}| S${firstStepIndex + 1}`);
+           }
+        }
+      }
+
+      // 3. 将各个分支的最后一个节点，连向后续的公共节点进行汇合
+      const commonStepIndex = maxStepIndex + 1;
+      if (commonStepIndex > 0 && commonStepIndex < flow.steps.length) {
+        const commonNode = `S${commonStepIndex + 1}`;
+        for (const branch of cg.branches) {
+          if (!branch.stepIds || branch.stepIds.length === 0) continue;
+          
+          const lastStepId = branch.stepIds[branch.stepIds.length - 1];
+          const lastStepIndex = flow.steps.findIndex(s => s.id === lastStepId);
+          
+          // 排除数组里自然相连的最后一个分支，避免重复画线
+          if (lastStepIndex !== -1 && lastStepIndex !== commonStepIndex - 1) {
+            lines.push(`    S${lastStepIndex + 1} --> ${commonNode}`);
+          }
+        }
+      }
     }
   }
 
@@ -243,7 +456,172 @@ export function generateMermaidCode(flow: ParsedFlowResult): string {
     lines.push(`    style ${lastStep} fill:#4ade80,color:#0f172a`);
   }
 
+  flow.steps.forEach((step, index) => {
+    const nodeId = `S${index + 1}`;
+    const cfType = step.controlFlowType || 'required';
+    if (cfType === 'optional') {
+      lines.push(`    style ${nodeId} stroke-dasharray: 5 5`);
+    } else if (cfType === 'loop') {
+      lines.push(`    style ${nodeId} fill:#a78bfa,color:#0f172a`);
+    } else if (cfType === 'conditional') {
+      lines.push(`    style ${nodeId} fill:#fbbf24,color:#0f172a`);
+    } else if (cfType === 'handoff') {
+      lines.push(`    style ${nodeId} fill:#4ade80,color:#0f172a`);
+    }
+  });
+
   return lines.join('\n');
+}
+
+export function extractKeyActionsFromFlow(flow: ParsedFlowResult): ExtractedKeyAction[] {
+  const actions: ExtractedKeyAction[] = [];
+  const stepIdToGroup = new Map<string, { type: ControlFlowType; group: ConditionalGroup | LoopGroup }>();
+
+  if (flow.conditionalGroups) {
+    for (const cg of flow.conditionalGroups) {
+      for (const branch of cg.branches) {
+        for (const stepId of branch.stepIds) {
+          stepIdToGroup.set(stepId, { type: 'conditional', group: cg });
+        }
+      }
+    }
+  }
+
+  if (flow.loopGroups) {
+    for (const lg of flow.loopGroups) {
+      for (const stepId of lg.bodyStepIds) {
+        stepIdToGroup.set(stepId, { type: 'loop', group: lg });
+      }
+    }
+  }
+
+  const validStepIds = new Set(flow.steps.map(s => s.id));
+
+  if (flow.conditionalGroups) {
+    for (const cg of flow.conditionalGroups) {
+      for (const branch of cg.branches) {
+        for (const stepId of branch.stepIds) {
+          if (!validStepIds.has(stepId)) {
+            console.warn(`[FlowParse] ConditionalGroup ${cg.id} references invalid stepId ${stepId}, degrading to required`);
+            stepIdToGroup.delete(stepId);
+          }
+        }
+      }
+    }
+  }
+
+  if (flow.loopGroups) {
+    for (const lg of flow.loopGroups) {
+      for (const stepId of lg.bodyStepIds) {
+        if (!validStepIds.has(stepId)) {
+          console.warn(`[FlowParse] LoopGroup ${lg.id} references invalid stepId ${stepId}, degrading to required`);
+          stepIdToGroup.delete(stepId);
+        }
+      }
+    }
+  }
+
+  const branchCountMap = new Map<string, number>();
+  if (flow.conditionalGroups) {
+    for (const cg of flow.conditionalGroups) {
+      branchCountMap.set(cg.id, cg.branches.length);
+    }
+  }
+
+  for (const step of flow.steps) {
+    const groupInfo = stepIdToGroup.get(step.id);
+
+    if (step.isOptional && !groupInfo) {
+      actions.push({
+        id: step.id,
+        content: step.name,
+        weight: 0,
+        controlFlowType: 'optional',
+      });
+      continue;
+    }
+
+    if (groupInfo?.type === 'conditional') {
+      const cg = groupInfo.group as ConditionalGroup;
+      const branch = cg.branches.find(b => b.stepIds.includes(step.id));
+      const branchCount = branchCountMap.get(cg.id) || 1;
+      actions.push({
+        id: step.id,
+        content: step.name,
+        weight: 1.0 / branchCount,
+        controlFlowType: 'conditional',
+        condition: cg.condition,
+        branchLabel: branch?.label,
+        groupId: cg.id,
+      });
+      continue;
+    }
+
+    if (groupInfo?.type === 'loop') {
+      const lg = groupInfo.group as LoopGroup;
+      actions.push({
+        id: step.id,
+        content: step.name,
+        weight: 1.0,
+        controlFlowType: 'loop',
+        loopCondition: lg.loopCondition,
+        expectedMinCount: lg.expectedMinCount,
+        expectedMaxCount: lg.expectedMaxCount,
+        groupId: lg.id,
+      });
+      continue;
+    }
+
+    if (step.isOptional) {
+      actions.push({
+        id: step.id,
+        content: step.name,
+        weight: 0,
+        controlFlowType: 'optional',
+      });
+      continue;
+    }
+
+    actions.push({
+      id: step.id,
+      content: step.name,
+      weight: 1.0,
+      controlFlowType: 'required',
+    });
+  }
+
+  return actions;
+}
+
+export function mergeKeyActionsFromMultipleSkills(
+  skills: { name: string; actions: ExtractedKeyAction[] }[]
+): ExtractedKeyAction[] {
+  const merged: ExtractedKeyAction[] = [];
+
+  for (let i = 0; i < skills.length; i++) {
+    const { name, actions } = skills[i];
+
+    for (const action of actions) {
+      merged.push({
+        ...action,
+        id: `${name}-${action.id}`,
+        skillSource: name,
+      });
+    }
+
+    if (i < skills.length - 1) {
+      const nextName = skills[i + 1].name;
+      merged.push({
+        id: `handoff-${name}-to-${nextName}`,
+        content: `从 ${name} 输出衔接至 ${nextName} 输入`,
+        weight: 1.0,
+        controlFlowType: 'handoff',
+        skillSource: `${name}->${nextName}`,
+      });
+    }
+  }
+
+  return merged;
 }
 
 export function generateDynamicMermaidCode(
@@ -670,6 +1048,20 @@ export async function analyzeDynamicOnly(
     }
 
     const interactionCount = Array.isArray(interactions) ? interactions.length : 0;
+
+    await db.upsertExecutionMatch({
+      executionId,
+      skillId: null,
+      skillVersion: null,
+      user: user || null,
+      mode: 'dynamic',
+      matchJson: null,
+      staticMermaid: null,
+      dynamicMermaid: null,
+      analysisText: null,
+      extractedSteps: null,
+      interactionCount
+    });
     
     // 使用分批并行提取步骤（与 Skill 对比相同的逻辑）
     const allExtractedSteps = await extractStepsInBatches(client, model, interactions);

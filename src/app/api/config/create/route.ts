@@ -10,6 +10,7 @@ import {
 import { configSupportsDatasetType, normalizeConfigDatasetType, type ConfigDatasetType } from '@/lib/config-dataset';
 import { getConfigSubjectLabel, normalizeConfigQuery, normalizeConfigSkillName, normalizeOptionalSkillVersion } from '@/lib/config-target';
 import { deriveRoutingSignature } from '@/lib/routing-signature';
+import { extractKeyActionsFromFlow, mergeKeyActionsFromMultipleSkills, type ExtractedKeyAction, type ParsedFlowResult } from '@/lib/flow-parser';
 import { NextResponse } from 'next/server';
 import { OpenAI } from "openai";
 const pdfParse = require('pdf-parse/lib/pdf-parse.js');
@@ -115,6 +116,98 @@ async function findReusableKeyActions(
     return matched[0]?.keyActions || [];
 }
 
+function normalizeFlowTargets(
+    skill: string | null,
+    skillVersion: number | null,
+    expectedSkills?: { skill: string; version: number | null }[] | null,
+) {
+    const targets = new Map<string, { skill: string; version: number | null }>();
+
+    const addTarget = (rawSkill: string | null | undefined, rawVersion: number | null | undefined) => {
+        const normalizedSkill = normalizeConfigSkillName(rawSkill);
+        if (!normalizedSkill) return;
+
+        const version = rawVersion ?? null;
+        targets.set(`${normalizedSkill}::${version ?? 'any'}`, {
+            skill: normalizedSkill,
+            version,
+        });
+    };
+
+    addTarget(skill, skillVersion);
+
+    for (const item of expectedSkills || []) {
+        addTarget(item?.skill, normalizeOptionalSkillVersion(item?.version));
+    }
+
+    return Array.from(targets.values());
+}
+
+async function extractKeyActionsFromTargetFlows(
+    targets: { skill: string; version: number | null }[],
+    user?: string | null,
+): Promise<{
+    keyActions: { content: string; weight: number; controlFlowType?: string; condition?: string; branchLabel?: string; loopCondition?: string; expectedMinCount?: number; expectedMaxCount?: number; groupId?: string }[];
+    extractedKeyActions: ExtractedKeyAction[] | null;
+}> {
+    const allActions: { name: string; actions: ExtractedKeyAction[] }[] = [];
+
+    for (const target of targets) {
+        const skillRecord = await db.findSkill(target.skill, user || null);
+        if (!skillRecord) {
+            console.warn(`[ConfigCreate] Skill "${target.skill}" not found, skipping flow-based key action extraction`);
+            continue;
+        }
+
+        const resolvedVersion = target.version
+            ?? skillRecord.activeVersion
+            ?? skillRecord.versions?.[0]?.version
+            ?? null;
+        if (resolvedVersion == null) {
+            continue;
+        }
+
+        const parsedFlow = await db.findParsedFlow(skillRecord.id, resolvedVersion, user || null);
+        if (!parsedFlow?.flowJson) {
+            console.warn(`[ConfigCreate] No parsed flow for skill "${target.skill}" v${resolvedVersion}, skipping`);
+            continue;
+        }
+
+        const flow: ParsedFlowResult = JSON.parse(parsedFlow.flowJson);
+        const actions = extractKeyActionsFromFlow(flow).map(action => ({
+            ...action,
+            skillSource: action.skillSource || target.skill,
+        }));
+
+        if (actions.length > 0) {
+            allActions.push({ name: target.skill, actions });
+        }
+    }
+
+    if (allActions.length === 0) {
+        return { keyActions: [], extractedKeyActions: null };
+    }
+
+    const extractedActions = allActions.length === 1
+        ? allActions[0].actions
+        : mergeKeyActionsFromMultipleSkills(allActions);
+
+    return {
+        keyActions: extractedActions.map(action => ({
+            content: action.content,
+            weight: action.weight,
+            ...(action.controlFlowType !== 'required' ? { controlFlowType: action.controlFlowType } : {}),
+            ...(action.condition ? { condition: action.condition } : {}),
+            ...(action.branchLabel ? { branchLabel: action.branchLabel } : {}),
+            ...(action.loopCondition ? { loopCondition: action.loopCondition } : {}),
+            ...(action.expectedMinCount !== undefined ? { expectedMinCount: action.expectedMinCount } : {}),
+            ...(action.expectedMaxCount !== undefined ? { expectedMaxCount: action.expectedMaxCount } : {}),
+            ...(action.groupId ? { groupId: action.groupId } : {}),
+        })),
+        extractedKeyActions: extractedActions,
+    };
+}
+
 async function processConfigAsync(
     configId: string, 
     query: string | null,
@@ -123,6 +216,7 @@ async function processConfigAsync(
     datasetType: ConfigDatasetType,
     skill: string | null,
     skillVersion: number | null,
+    expectedSkills: { skill: string; version: number | null }[] | null,
     user?: string | null
 ) {
     try {
@@ -182,7 +276,7 @@ async function processConfigAsync(
                     }
                 }
                 const parsed = JSON.parse(jsonStr);
-                standardAnswer = parsed.standard_answer || '';
+                standardAnswer = parsed.standard_answer?.trim() || '';
 
                 if (!standardAnswer) {
                     throw new Error('Extracted standard answer is empty');
@@ -199,6 +293,8 @@ async function processConfigAsync(
         }
 
         if (configSupportsDatasetType(datasetType, 'outcome')) {
+            let extractedKeyActionsData: ExtractedKeyAction[] | null = null;
+
             if (standardAnswer.trim()) {
                 const rootCausePrompt = generateRootCauseExtractionPrompt(taskContext, standardAnswer);
                 const response = await openaiClient.chat.completions.create({
@@ -213,9 +309,20 @@ async function processConfigAsync(
 
                 const extractedData = parseJsonPayload<{ root_causes?: { content?: string; weight?: number }[] }>(content);
                 updates.rootCauses = JSON.stringify(normalizeCriteriaItems(extractedData.root_causes));
+            } else {
+                updates.rootCauses = JSON.stringify([]);
             }
 
             let keyActions = await findReusableKeyActions(skill, skillVersion, user, configId);
+            if (keyActions.length === 0) {
+                const flowTargets = normalizeFlowTargets(skill, skillVersion, expectedSkills);
+                if (flowTargets.length > 0) {
+                    const derived = await extractKeyActionsFromTargetFlows(flowTargets, user);
+                    keyActions = derived.keyActions;
+                    extractedKeyActionsData = derived.extractedKeyActions;
+                }
+            }
+
             if (keyActions.length === 0) {
                 const skillDefinition = await resolveSkillDefinition(skill, skillVersion, user);
                 if (skillDefinition) {
@@ -237,6 +344,7 @@ async function processConfigAsync(
             }
 
             updates.keyActions = JSON.stringify(keyActions);
+            updates.extractedKeyActions = extractedKeyActionsData ? JSON.stringify(extractedKeyActionsData) : null;
 
             console.log(`[ConfigCreate] Successfully extracted outcome criteria for config ${configId}`);
         }
@@ -392,35 +500,35 @@ export async function POST(request: Request) {
             parseStatus
         });
 
-        await processConfigAsync(newConfig.id, query, standardAnswer, documentContent, datasetType, skill, skillVersion, user);
-
-        const refreshedConfig = await db.findConfigById(newConfig.id);
-        let routingAnchors: string[] = [];
-        let rootCauses: any[] = [];
-        let keyActions: any[] = [];
-
-        try {
-            if (refreshedConfig?.routingAnchors) routingAnchors = JSON.parse(refreshedConfig.routingAnchors);
-            if (refreshedConfig?.rootCauses) rootCauses = JSON.parse(refreshedConfig.rootCauses);
-            if (refreshedConfig?.keyActions) keyActions = JSON.parse(refreshedConfig.keyActions);
-        } catch (error) {
-            console.error('[ConfigCreate] Failed to parse refreshed config payload:', error);
-        }
-
-        return NextResponse.json({
-            id: refreshedConfig?.id || newConfig.id,
-            query: refreshedConfig?.query ?? newConfig.query ?? null,
+        const formattedConfig = {
+            id: newConfig.id,
+            query: newConfig.query ?? null,
             dataset_type: datasetType,
-            skill: refreshedConfig?.skill || newConfig.skill,
-            skillVersion: refreshedConfig?.skillVersion ?? newConfig.skillVersion ?? null,
-            routing_intent: refreshedConfig?.routingIntent || null,
-            routing_anchors: routingAnchors,
+            skill: newConfig.skill,
+            skillVersion: newConfig.skillVersion ?? null,
+            routing_intent: null,
+            routing_anchors: [],
             expectedSkills: expectedSkills,
-            standard_answer: refreshedConfig?.standardAnswer || standardAnswer || '',
-            root_causes: rootCauses,
-            key_actions: keyActions,
-            parse_status: refreshedConfig?.parseStatus || parseStatus
-        });
+            standard_answer: standardAnswer || (documentContent && configSupportsDatasetType(datasetType, 'outcome') ? '正在从文档中提取...' : ''),
+            root_causes: [],
+            key_actions: [],
+            extractedKeyActions: null,
+            parse_status: 'parsing'
+        };
+
+        void processConfigAsync(
+            newConfig.id,
+            query,
+            standardAnswer,
+            documentContent,
+            datasetType,
+            skill,
+            skillVersion,
+            expectedSkills,
+            user
+        );
+
+        return NextResponse.json(formattedConfig);
 
     } catch (error: any) {
         console.error('Config Create Error:', error);

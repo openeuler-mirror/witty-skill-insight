@@ -1,5 +1,6 @@
 import { analyzeSession } from '@/lib/judge';
 import { db } from '@/lib/prisma';
+import { inferSubagentNamesFromInteractions } from '@/lib/subagent-inference';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
@@ -17,7 +18,8 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Session not found' }, { status: 404 });
         }
 
-        const interactions = session.interactions ? JSON.parse(session.interactions) : [];
+        const rawInteractions = session.interactions ? JSON.parse(session.interactions) : [];
+        const interactions = inferSubagentNamesFromInteractions(rawInteractions);
         
         let query = session.query;
         if (!query && interactions.length > 0) {

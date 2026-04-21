@@ -43,6 +43,7 @@ export interface DatabaseAdapter {
     findExecutionById(id: string): Promise<any>;
     findExecutions(where: any, orderBy?: any): Promise<any[]>;
     upsertExecution(data: any): Promise<any>;
+    updateExecution(id: string, data: any): Promise<any>;
     deleteExecution(id: string): Promise<boolean>;
     deleteExecutions(where: any): Promise<number>;
 
@@ -222,6 +223,10 @@ class PrismaAdapter implements DatabaseAdapter {
 
     async upsertExecution(data: any) {
         return this.client.execution.upsert(data);
+    }
+
+    async updateExecution(id: string, data: any) {
+        return this.client.execution.update({ where: { id }, data });
     }
 
     async deleteExecution(id: string) {
@@ -790,6 +795,18 @@ class OpenGaussAdapter implements DatabaseAdapter {
         } catch {
             return false;
         }
+    }
+
+    async updateExecution(id: string, data: any) {
+        const keys = Object.keys(data).filter(k => k !== 'id');
+        if (keys.length === 0) return null;
+
+        const setClause = keys.map((k, i) => `"${k}" = $${i + 2}`).join(', ');
+        const values = keys.map(k => data[k]);
+        
+        const sql = `UPDATE "Execution" SET ${setClause} WHERE id = $1 RETURNING *`;
+        const res = await this.query(sql, [id, ...values]);
+        return res.rows[0];
     }
 
     async deleteExecutions(where: any) {

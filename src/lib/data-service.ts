@@ -20,6 +20,10 @@ import {
     matchQueryToStoredRoutingSignature,
     type RoutingSemanticSignature,
 } from './routing-signature';
+import { deriveOpencodeExecutionFields } from './opencode-derived-metrics';
+import { chooseExecutionLabel } from './label-utils';
+import { parseLabelSkillVersionBinding } from './label-skill-binding';
+import { extractKeyActionsFromFlow, mergeKeyActionsFromMultipleSkills, type ExtractedKeyAction, type ParsedFlowResult } from './flow-parser';
 
 export interface InvokedSkill {
     name: string;
@@ -154,6 +158,7 @@ export interface ConfigItem {
     root_causes?: { content: string; weight: number }[];
     key_actions?: { content: string; weight: number }[];
     parse_status?: string;
+    extractedKeyActions?: { id: string; content: string; weight: number; controlFlowType: string; condition?: string; branchLabel?: string; loopCondition?: string; expectedMinCount?: number; expectedMaxCount?: number; skillSource?: string; groupId?: string }[];
 }
 
 type ConfigMatchMode = 'any' | 'routing' | 'outcome';
@@ -522,6 +527,102 @@ function collectSkillContexts(
         if (aWeight !== bWeight) return bWeight - aWeight;
         return a.skill.localeCompare(b.skill);
     });
+}
+
+function getKeyActionFlowTargets(config: ConfigItem): { skill: string; version: number | null }[] {
+    const targets = new Map<string, { skill: string; version: number | null }>();
+
+    const addTarget = (rawSkill: string | undefined, rawVersion: number | null | undefined) => {
+        const skill = normalizeConfigSkillName(rawSkill);
+        if (!skill) return;
+        const version = rawVersion ?? null;
+        targets.set(`${skill}::${version ?? 'any'}`, { skill, version });
+    };
+
+    addTarget(config.skill, config.skillVersion ?? null);
+
+    for (const expected of normalizeExpectedSkills(config.expectedSkills)) {
+        addTarget(expected.skill, expected.version ?? null);
+    }
+
+    return Array.from(targets.values());
+}
+
+async function fillConfigKeyActionsFromParsedFlows(
+    config: ConfigItem,
+    user?: string | null
+): Promise<void> {
+    if (!config || (Array.isArray(config.key_actions) && config.key_actions.length > 0)) {
+        return;
+    }
+
+    const targets = getKeyActionFlowTargets(config);
+    if (targets.length === 0) {
+        return;
+    }
+
+    const allActions: { name: string; actions: ExtractedKeyAction[] }[] = [];
+
+    for (const target of targets) {
+        const skill = await db.findSkill(target.skill, user || null);
+        if (!skill) {
+            continue;
+        }
+
+        const resolvedVersion = target.version
+            ?? skill.activeVersion
+            ?? skill.versions?.[0]?.version
+            ?? null;
+        if (resolvedVersion == null) {
+            continue;
+        }
+
+        const parsedFlow = await db.findParsedFlow(skill.id, resolvedVersion, user || null);
+        if (!parsedFlow?.flowJson) {
+            continue;
+        }
+
+        const flow: ParsedFlowResult = JSON.parse(parsedFlow.flowJson);
+        const actions = extractKeyActionsFromFlow(flow).map(action => ({
+            ...action,
+            skillSource: action.skillSource || target.skill,
+        }));
+
+        if (actions.length > 0) {
+            allActions.push({ name: target.skill, actions });
+        }
+    }
+
+    if (allActions.length === 0) {
+        return;
+    }
+
+    const extractedActions = allActions.length === 1
+        ? allActions[0].actions
+        : mergeKeyActionsFromMultipleSkills(allActions);
+
+    config.key_actions = extractedActions.map(action => ({
+        content: action.content,
+        weight: action.weight,
+        ...(action.controlFlowType !== 'required' ? { controlFlowType: action.controlFlowType } : {}),
+        ...(action.condition ? { condition: action.condition } : {}),
+        ...(action.branchLabel ? { branchLabel: action.branchLabel } : {}),
+        ...(action.loopCondition ? { loopCondition: action.loopCondition } : {}),
+        ...(action.expectedMinCount !== undefined ? { expectedMinCount: action.expectedMinCount } : {}),
+        ...(action.expectedMaxCount !== undefined ? { expectedMaxCount: action.expectedMaxCount } : {}),
+        ...(action.groupId ? { groupId: action.groupId } : {}),
+    }));
+    config.extractedKeyActions = extractedActions;
+
+    try {
+        await db.updateConfig(config.id, {
+            keyActions: JSON.stringify(config.key_actions),
+            extractedKeyActions: JSON.stringify(extractedActions),
+        });
+        console.log(`[AutoExtract] Auto-filled key_actions for config ${config.id} from ${targets.map(target => target.skill).join(', ')}`);
+    } catch (err) {
+        console.error('[AutoExtract] Error updating config with extracted key_actions:', err);
+    }
 }
 
 async function buildRoutingEvaluationSnapshot(
@@ -941,6 +1042,7 @@ export async function readConfig(
             standard_answer: c.standardAnswer || '',
             root_causes: parse(c.rootCauses, 'rootCauses'),
             key_actions: parse(c.keyActions, 'keyActions'),
+            extractedKeyActions: parse(c.extractedKeyActions, 'extractedKeyActions'),
             parse_status: c.parseStatus || 'completed',
         };
     });
@@ -1035,6 +1137,16 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
     const existingQuery = typeof existingRecord?.query === 'string' ? existingRecord.query.trim() : '';
     const incomingQuery = typeof data.query === 'string' ? data.query.trim() : '';
 
+    if (typeof data.label === 'string') {
+        const b = parseLabelSkillVersionBinding(data.label);
+        if (b) {
+            data.skill = b.skill;
+            data.skill_version = b.skill_version;
+            data.skills = b.skills;
+            data.invokedSkills = b.invokedSkills;
+        }
+    }
+
     targetRecord = { ...targetRecord, ...data };
     if (existingQuery && !allowQueryOverwrite) {
         targetRecord.query = existingQuery;
@@ -1086,6 +1198,55 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
     if (data.max_single_call_tokens !== undefined) targetRecord.max_single_call_tokens = Number(data.max_single_call_tokens);
     if (data.reasoning_tokens !== undefined) targetRecord.reasoning_tokens = Number(data.reasoning_tokens);
 
+    let mergedInteractionsForSession: any[] | null = null;
+    if (targetRecord.task_id && targetRecord.interactions) {
+        const incomingInteractions = typeof targetRecord.interactions === 'string'
+            ? (() => { try { return JSON.parse(targetRecord.interactions); } catch { return []; } })()
+            : targetRecord.interactions;
+
+        mergedInteractionsForSession = incomingInteractions;
+        try {
+            const existingSession = await db.findSessionByTaskId(targetRecord.task_id);
+            const existingInteractions = existingSession?.interactions
+                ? (() => { try { return JSON.parse(existingSession.interactions as string); } catch { return []; } })()
+                : [];
+
+            if (Array.isArray(existingInteractions) && existingInteractions.length > 0) {
+                if (!Array.isArray(incomingInteractions) || incomingInteractions.length < existingInteractions.length) {
+                    mergedInteractionsForSession = existingInteractions;
+                } else {
+                    mergedInteractionsForSession = incomingInteractions.map((it: any, idx: number) => {
+                        const prev = existingInteractions[idx];
+                        const contentEmpty = it?.content === '' || it?.content == null;
+                        const prevContentOk = typeof prev?.content === 'string' && prev.content.length > 0;
+                        if (contentEmpty && prevContentOk && prev?.role === it?.role) {
+                            return { ...it, content: prev.content };
+                        }
+                        return it;
+                    });
+                }
+            }
+        } catch {}
+
+        targetRecord.interactions = mergedInteractionsForSession;
+
+        if (targetRecord.framework === 'opencode' && Array.isArray(mergedInteractionsForSession)) {
+            const derived = deriveOpencodeExecutionFields(mergedInteractionsForSession);
+            if (derived.model) targetRecord.model = derived.model;
+            if (derived.final_result) targetRecord.final_result = derived.final_result;
+            targetRecord.tokens = derived.tokens;
+            targetRecord.latency = derived.latency;
+            targetRecord.input_tokens = derived.input_tokens;
+            targetRecord.output_tokens = derived.output_tokens;
+            targetRecord.tool_call_count = derived.tool_call_count;
+            targetRecord.tool_call_error_count = derived.tool_call_error_count;
+            targetRecord.llm_call_count = derived.llm_call_count;
+            targetRecord.cache_read_input_tokens = derived.cache_read_input_tokens;
+            targetRecord.cache_creation_input_tokens = derived.cache_creation_input_tokens;
+            targetRecord.max_single_call_tokens = derived.max_single_call_tokens;
+            targetRecord.reasoning_tokens = derived.reasoning_tokens;
+        }
+    }
     let isSkillCorrect = false; // Reset to false and recalculate based on current config
     let isAnswerCorrect = targetRecord.is_answer_correct || false;
     let judgmentReason = targetRecord.judgment_reason || NO_OUTCOME_MATCH_REASON;
@@ -1174,6 +1335,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
         }
 
         if (outcomeConfig) {
+            await fillConfigKeyActionsFromParsedFlows(outcomeConfig, targetRecord.user);
             if (targetRecord.final_result !== undefined) {
                 let needsJudgment = true;
 
@@ -1196,7 +1358,10 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                         try {
                             const skill = await db.findSkill(skillName, targetRecord.user || null);
                             if (skill) {
-                                const targetVersion = skill.activeVersion || 0;
+                                const targetVersion = outcomeConfig.skillVersion
+                                    ?? targetRecord.skill_version
+                                    ?? skill.activeVersion
+                                    ?? 0;
                                 const sv = skill.versions?.find((v: any) => v.version === targetVersion);
                                 if (sv && sv.content) {
                                     skillDefinition = sv.content;
@@ -1214,6 +1379,18 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                         }
                     }
 
+                    let executionSteps: { name: string; description: string; type: string }[] | null = null;
+                    try {
+                        const matchRecord = await db.findExecutionMatch(targetRecord.task_id || targetRecord.upload_id || '');
+                        if (matchRecord?.extractedSteps) {
+                            executionSteps = typeof matchRecord.extractedSteps === 'string' 
+                                ? JSON.parse(matchRecord.extractedSteps) 
+                                : matchRecord.extractedSteps;
+                        }
+                    } catch (e) {
+                        console.warn('[Judgment] Failed to load execution steps for KA evaluation:', e);
+                    }
+
                     const judgment = await judgeAnswer(
                         getEvaluationContextLabel(targetRecord, outcomeConfig),
                         {
@@ -1223,7 +1400,8 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                             skill_definition: skillDefinition
                         },
                         targetRecord.final_result,
-                        targetRecord.user
+                        targetRecord.user,
+                        executionSteps
                     );
                     isAnswerCorrect = judgment.is_correct;
                     targetRecord.answer_score = judgment.score;
@@ -1257,13 +1435,12 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
         if (scoreStr) targetRecord.skill_score = parseFloat(scoreStr);
     }
 
-    if (targetRecord.skill && targetRecord.skill_version !== undefined && targetRecord.skill_version !== null) {
-        targetRecord.label = `${targetRecord.skill}-v${targetRecord.skill_version}`;
-    } else if (targetRecord.skill) {
-        targetRecord.label = `${targetRecord.skill}-v1`;
-    } else {
-        targetRecord.label = 'without-skill';
-    }
+    targetRecord.label = chooseExecutionLabel({
+        existingLabel: existingRecord?.label,
+        incomingLabel: data.label,
+        skill: targetRecord.skill,
+        skillVersion: targetRecord.skill_version ?? null
+    });
 
     await db.upsertExecution({
         where: { id: recordId },
@@ -1347,35 +1524,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
         } catch {}
     }
 
-    if (targetRecord.task_id && targetRecord.interactions) {
-        const incomingInteractions = typeof targetRecord.interactions === 'string'
-            ? (() => { try { return JSON.parse(targetRecord.interactions); } catch { return []; } })()
-            : targetRecord.interactions;
-
-        let mergedInteractions = incomingInteractions;
-        try {
-            const existingSession = await db.findSessionByTaskId(targetRecord.task_id);
-            const existingInteractions = existingSession?.interactions
-                ? (() => { try { return JSON.parse(existingSession.interactions as string); } catch { return []; } })()
-                : [];
-
-            if (Array.isArray(existingInteractions) && existingInteractions.length > 0) {
-                if (!Array.isArray(incomingInteractions) || incomingInteractions.length < existingInteractions.length) {
-                    mergedInteractions = existingInteractions;
-                } else {
-                    mergedInteractions = incomingInteractions.map((it: any, idx: number) => {
-                        const prev = existingInteractions[idx];
-                        const contentEmpty = it?.content === '' || it?.content == null;
-                        const prevContentOk = typeof prev?.content === 'string' && prev.content.length > 0;
-                        if (contentEmpty && prevContentOk && prev?.role === it?.role) {
-                            return { ...it, content: prev.content };
-                        }
-                        return it;
-                    });
-                }
-            }
-        } catch {}
-
+    if (targetRecord.task_id && mergedInteractionsForSession) {
         await db.upsertSession(
             targetRecord.task_id,
             {
@@ -1384,14 +1533,14 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                 label: targetRecord.label,
                 user: targetRecord.user,
                 model: targetRecord.model,
-                interactions: JSON.stringify(mergedInteractions)
+                interactions: JSON.stringify(mergedInteractionsForSession)
             },
             {
                 query: targetRecord.query,
                 label: targetRecord.label,
                 user: targetRecord.user,
                 model: targetRecord.model,
-                interactions: JSON.stringify(mergedInteractions)
+                interactions: JSON.stringify(mergedInteractionsForSession)
             }
         );
     }

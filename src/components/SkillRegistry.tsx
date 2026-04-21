@@ -221,6 +221,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
   const [loading, setLoading] = useState(true);
   const [parsing, setParsing] = useState(false);
   const [parsedFlow, setParsedFlow] = useState<any>(null);
+  const [autoParsing, setAutoParsing] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -234,15 +235,34 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
         alert("Failed to load details");
         setLoading(false);
       });
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-    apiFetch(`/api/skills/${skillId}/versions/${version}/parse-flow?user=${encodeURIComponent(user || '')}`)
-      .then(res => res.json())
-      .then(d => {
-        if (d.parsed) {
-          setParsedFlow(d);
-        }
-      })
-      .catch(() => {});
+    const checkParsedFlow = () => {
+      apiFetch(`/api/skills/${skillId}/versions/${version}/parse-flow?user=${encodeURIComponent(user || '')}`)
+        .then(res => res.json())
+        .then(d => {
+          if (d.parsed) {
+            if (!d.flowJson && !d.mermaidCode) {
+              setAutoParsing(true);
+              pollTimer = setTimeout(checkParsedFlow, 3000);
+            } else {
+              setAutoParsing(false);
+              setParsedFlow(d);
+            }
+          } else {
+            setAutoParsing(false);
+          }
+        })
+        .catch(() => {
+          setAutoParsing(false);
+        });
+    };
+
+    checkParsedFlow();
+
+    return () => {
+      if (pollTimer) clearTimeout(pollTimer);
+    };
   }, [skillId, version]);
 
   const handleParseFlow = async () => {
@@ -380,6 +400,22 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                     <div style={{ flex: 1, overflow: 'auto' }}>
                       <MermaidFlowChart code={parsedFlow.mermaidCode} />
                     </div>
+                  </div>
+                ) : autoParsing ? (
+                  <div style={{ 
+                    background: '#eff6ff', 
+                    padding: '2rem', 
+                    borderRadius: '6px', 
+                    border: '1px solid #bfdbfe', 
+                    flex: 1, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    color: '#2563eb',
+                    gap: '0.5rem'
+                  }}>
+                    <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>🔄</span>
+                    正在自动解析 Skill 流程，请稍候...模型调用可能需要2-3分钟，如长时间未完成，可点击「解析流程」按钮手动重新解析
                   </div>
                 ) : (
                   <div style={{

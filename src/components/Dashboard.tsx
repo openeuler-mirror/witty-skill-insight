@@ -143,7 +143,8 @@ interface ConfigItem {
     expectedSkills?: { skill: string; version: number | null }[];
     standard_answer: string;
     root_causes?: { content: string; weight: number }[];
-    key_actions?: { content: string; weight: number }[];
+    key_actions?: { content: string; weight: number; controlFlowType?: string; condition?: string; branchLabel?: string; loopCondition?: string; expectedMinCount?: number; expectedMaxCount?: number; groupId?: string }[];
+    extractedKeyActions?: { id: string; content: string; weight: number; controlFlowType: string; condition?: string; branchLabel?: string; loopCondition?: string; expectedMinCount?: number; expectedMaxCount?: number; skillSource?: string; groupId?: string }[];
     parse_status?: string;
 }
 
@@ -1197,6 +1198,7 @@ export default function Dashboard() {
                         standard_answer: data.standard_answer || c.standard_answer,
                         root_causes: data.root_causes,
                         key_actions: data.key_actions,
+                        extractedKeyActions: data.extractedKeyActions,
                         parse_status: data.parse_status
                     } : c));
                     // Stop polling
@@ -3971,42 +3973,106 @@ export default function Dashboard() {
                                     </summary>
                                     <div style={{ background: c.bg, padding: '10px', borderRadius: '4px', border: `1px solid ${c.border}`, marginTop: '8px' }}>
                                         <div style={{ color: c.fgSecondary, fontSize: '0.8rem', marginBottom: '10px', padding: '6px 8px', background: c.bgTertiary, borderRadius: '4px' }}>
-                                            来源：从目标 Skill 的流程约束中提取并复用 · 作用：评估 Agent 是否执行了该 Skill 必需的关键步骤
+                                            {editingConfig.extractedKeyActions && (editingConfig.extractedKeyActions as any[]).length > 0
+                                                ? '来源：从 Skill 流程中自动抽取并复用 · 作用：评估 Agent 是否执行了该 Skill 必需的关键步骤'
+                                                : '来源：同一 Skill 版本共享的关键动作配置 · 作用：评估 Agent 是否执行了该 Skill 必需的关键步骤'}
                                         </div>
-                                        {(editingConfig.key_actions || []).map((item, idx) => (
-                                            <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
-                                                <input
-                                                    placeholder="内容"
-                                                    value={item.content}
-                                                    onChange={e => {
-                                                        const newItems = [...(editingConfig.key_actions || [])];
-                                                        newItems[idx].content = e.target.value;
-                                                        setEditingConfig({ ...editingConfig, key_actions: newItems });
-                                                    }}
-                                                    style={{ flex: 1, padding: '6px', color: c.fg, background: c.inputBg, border: `1px solid ${c.inputBorder}` }}
-                                                />
-                                                <input
-                                                    type="number"
-                                                    placeholder="权重"
-                                                    value={item.weight}
-                                                    onChange={e => {
-                                                        const newItems = [...(editingConfig.key_actions || [])];
-                                                        newItems[idx].weight = Number(e.target.value);
-                                                        setEditingConfig({ ...editingConfig, key_actions: newItems });
-                                                    }}
-                                                    style={{ width: '80px', padding: '6px', color: c.fg, background: c.inputBg, border: `1px solid ${c.inputBorder}` }}
-                                                />
-                                                <button
-                                                    onClick={() => {
-                                                        const newItems = (editingConfig.key_actions || []).filter((_, i) => i !== idx);
-                                                        setEditingConfig({ ...editingConfig, key_actions: newItems });
-                                                    }}
-                                                    style={{ color: c.error, padding: '0 8px', background: 'none', border: 'none', cursor: 'pointer' }}
-                                                >
-                                                    ✕
-                                                </button>
-                                            </div>
-                                        ))}
+                                        {(() => {
+                                            const cfLabelMap: Record<string, { text: string; color: string }> = {
+                                                'required': { text: '必选', color: '#38bdf8' },
+                                                'conditional': { text: '条件分支', color: '#fbbf24' },
+                                                'loop': { text: '循环', color: '#a78bfa' },
+                                                'optional': { text: '可选', color: '#94a3b8' },
+                                                'handoff': { text: '衔接', color: '#4ade80' },
+                                            };
+                                            const items = editingConfig.key_actions || [];
+                                            const elements: React.ReactNode[] = [];
+                                            let prevGroupId: string | undefined = undefined;
+
+                                            for (let idx = 0; idx < items.length; idx++) {
+                                                const item = items[idx];
+                                                const cfType = (item as any).controlFlowType || 'required';
+                                                const groupId = (item as any).groupId;
+                                                const cfInfo = cfLabelMap[cfType] || cfLabelMap['required'];
+                                                const isGrouped = cfType === 'conditional' || cfType === 'loop';
+                                                const showGroupHeader = isGrouped && groupId && groupId !== prevGroupId;
+                                                const isIndented = isGrouped && !!groupId;
+
+                                                if (showGroupHeader) {
+                                                    const groupTitle = cfType === 'conditional'
+                                                        ? ((item as any).condition || '条件分支')
+                                                        : ((item as any).loopCondition || '循环');
+                                                    elements.push(
+                                                        <div key={`group-${groupId}`} style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '6px',
+                                                            marginBottom: '4px',
+                                                            marginTop: prevGroupId ? '8px' : '0',
+                                                            padding: '4px 8px',
+                                                            background: `${cfInfo.color}10`,
+                                                            borderRadius: '4px',
+                                                            borderLeft: `3px solid ${cfInfo.color}`,
+                                                        }}>
+                                                            <span style={{ color: cfInfo.color, fontSize: '0.8rem', fontWeight: 500 }}>
+                                                                {cfType === 'conditional' ? '⎇' : '↻'} {groupTitle}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                prevGroupId = groupId;
+
+                                                elements.push(
+                                                    <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '8px', alignItems: 'center', paddingLeft: isIndented ? '20px' : '0' }}>
+                                                        <span style={{
+                                                            padding: '2px 8px',
+                                                            borderRadius: '4px',
+                                                            background: `${cfInfo.color}20`,
+                                                            color: cfInfo.color,
+                                                            fontSize: '0.75rem',
+                                                            whiteSpace: 'nowrap',
+                                                            minWidth: '56px',
+                                                            textAlign: 'center',
+                                                        }}>
+                                                            {cfInfo.text}
+                                                        </span>
+                                                        <input
+                                                            placeholder="内容"
+                                                            value={item.content}
+                                                            onChange={e => {
+                                                                const newItems = [...(editingConfig.key_actions || [])];
+                                                                newItems[idx].content = e.target.value;
+                                                                setEditingConfig({ ...editingConfig, key_actions: newItems });
+                                                            }}
+                                                            style={{ flex: 1, padding: '6px', color: c.fg, background: c.inputBg, border: `1px solid ${c.inputBorder}` }}
+                                                        />
+                                                        <input
+                                                            type="number"
+                                                            placeholder="权重"
+                                                            value={item.weight}
+                                                            onChange={e => {
+                                                                const newItems = [...(editingConfig.key_actions || [])];
+                                                                newItems[idx].weight = Number(e.target.value);
+                                                                setEditingConfig({ ...editingConfig, key_actions: newItems });
+                                                            }}
+                                                            style={{ width: '80px', padding: '6px', color: c.fg, background: c.inputBg, border: `1px solid ${c.inputBorder}` }}
+                                                        />
+                                                        <button
+                                                            onClick={() => {
+                                                                const newItems = (editingConfig.key_actions || []).filter((_, i) => i !== idx);
+                                                                setEditingConfig({ ...editingConfig, key_actions: newItems });
+                                                            }}
+                                                            style={{ color: c.error, padding: '0 8px', background: 'none', border: 'none', cursor: 'pointer' }}
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </div>
+                                                );
+                                            }
+
+                                            return elements;
+                                        })()}
                                         <button
                                             className="btn-sm"
                                             style={{ background: c.bgTertiary, color: c.fgSecondary, marginTop: '5px', border: `1px solid ${c.border}` }}

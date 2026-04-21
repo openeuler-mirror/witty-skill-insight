@@ -1,4 +1,5 @@
 import { canAccessSkill, resolveUser } from '@/lib/auth';
+import { parseSkillFlow } from '@/lib/flow-parser';
 import { db } from '@/lib/prisma';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -40,6 +41,16 @@ export async function POST(
             files,
             changeLog: changeLog || `Updated v${nextVersionNum} via Editor`
         });
+
+        parseSkillFlow(content, id, nextVersionNum, username || null)
+            .then(result => {
+                if (result.success) {
+                    console.log(`[VersionCreate] Auto-parsed flow for skill ${id} v${nextVersionNum}`);
+                } else {
+                    console.warn(`[VersionCreate] Auto-parse flow failed for skill ${id} v${nextVersionNum}: ${result.error}`);
+                }
+            })
+            .catch(e => console.warn(`[VersionCreate] Auto-parse flow error for skill ${id} v${nextVersionNum}:`, e));
 
         return NextResponse.json(newVersion);
 

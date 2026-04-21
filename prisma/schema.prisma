@@ -102,6 +102,7 @@ model Config {
   standardAnswer String
   rootCauses     String? // JSON array
   keyActions     String? // JSON array
+  extractedKeyActions String? // JSON array of ExtractedKeyAction (auto-extracted from Skill)
   user           String? // Added for user isolation
   parseStatus    String   @default("completed") // parsing | completed | failed
 
@@ -134,8 +135,8 @@ model ParsedFlow {
   version     Int
   user        String?
   
-  flowJson    String   // JSON: { steps, branches }
-  mermaidCode String   // Generated Mermaid code
+  flowJson    String?  // JSON: { steps, branches }
+  mermaidCode String?  // Generated Mermaid code
   
   parsedAt    DateTime @default(now())
   
@@ -152,7 +153,7 @@ model ExecutionMatch {
   mode            String   @default("compare")  // "compare" or "dynamic"
   matchJson       String?  // JSON: { matches, summary }
   staticMermaid   String?  // Static flow Mermaid code
-  dynamicMermaid  String   // Dynamic flow Mermaid code
+  dynamicMermaid  String?  // Dynamic flow Mermaid code
   analysisText    String?  // LLM analysis text
   extractedSteps  String?  // JSON: extracted steps from interactions
   

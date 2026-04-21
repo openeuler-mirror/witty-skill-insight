@@ -62,6 +62,20 @@ async function getLlmClient(user?: string | null) {
     };
 }
 
+function getJudgmentTimeoutMs() {
+  const raw = Number(process.env.JUDGMENT_TIMEOUT_MS || 15000);
+  if (!Number.isFinite(raw) || raw <= 0) return 15000;
+  return raw;
+}
+
+async function withTimeout<T>(p: Promise<T>, label: string): Promise<T> {
+  const ms = getJudgmentTimeoutMs();
+  return await Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)),
+  ]);
+}
+
 export interface JudgmentResult {
   is_correct: boolean;
   score: number;
@@ -71,7 +85,7 @@ export interface JudgmentResult {
 export interface JudgeCriteria {
   standard_answer_example?: string;
   root_causes?: { content: string; weight: number }[];
-  key_actions?: { content: string; weight: number }[];
+  key_actions?: { content: string; weight: number; controlFlowType?: 'required' | 'conditional' | 'loop' | 'optional' | 'handoff'; condition?: string; branchLabel?: string; loopCondition?: string; expectedMinCount?: number; expectedMaxCount?: number; groupId?: string }[];
   skill_definition?: string;
 }
 
@@ -79,7 +93,8 @@ export async function judgeAnswer(
   userQuery: string,
   criteria: JudgeCriteria,
   actualAnswer: string,
-  user?: string | null
+  user?: string | null,
+  executionSteps?: { name: string; description: string; type: string }[] | null
 ): Promise<JudgmentResult> {
   const { client, model } = await getLlmClient(user);
   if (!client || !client.apiKey) {
@@ -91,47 +106,65 @@ export async function judgeAnswer(
     const rootCauses = criteria.root_causes || [];
     const keyActions = criteria.key_actions || [];
     
-    // Build indexed lists for the prompt
     const rcList = rootCauses.map((rc, i) => ({ id: `RC-${i}`, ...rc }));
     const kaList = keyActions.map((ka, i) => ({ id: `KA-${i}`, ...ka }));
     
-    // Generate prompt
     const { generateJudgePrompt } = require('../prompts/judge-prompt');
-    const prompt = generateJudgePrompt(userQuery, actualAnswer, rcList, kaList, criteria.skill_definition);
 
-    const response = await client.chat.completions.create({
-      messages: [{ role: "user", content: prompt }],
-      model: model, 
-    });
+    let evaluations: any[] = [];
 
-    // --- DEBUG LOG ---
-    console.log(`[Judge API Debug] Model: ${model}. Received response choices:`, response?.choices?.length);
-
-    const content = response.choices?.[0]?.message?.content;
-    
-    appendLog('result_evaluation', { prompt }, { raw_output: content });
-
-    if (!content) {
-        console.error("\n[Judge API Error 🚨] LLM content is empty or undefined!");
-        console.error(">>> Full LLM Response:");
-        console.error(JSON.stringify(response, null, 2));
-        console.error("<<<\n");
-        throw new Error("No content from evaluation model");
-    }
-
-    let jsonStr = content.trim();
-    const match = jsonStr.match(/```(?:json)?\\s*([\\s\\S]*?)\\s*```/i);
-    if (match) {
-        jsonStr = match[1];
-    } else {
-        const first = jsonStr.indexOf('{');
-        const last = jsonStr.lastIndexOf('}');
-        if (first !== -1 && last !== -1 && last >= first) {
-            jsonStr = jsonStr.substring(first, last + 1);
+    if (rcList.length > 0) {
+        const rcPrompt = generateJudgePrompt(userQuery, actualAnswer, rcList, [], criteria.skill_definition, 'root_causes');
+        const rcResponse = await withTimeout(
+            client.chat.completions.create({
+                messages: [{ role: "user", content: rcPrompt }],
+                model: model,
+            }),
+            'RC Judgment API',
+        );
+        console.log(`[Judge API Debug] RC Model: ${model}. Received response choices:`, rcResponse?.choices?.length);
+        const rcContent = rcResponse.choices?.[0]?.message?.content;
+        appendLog('rc_evaluation', { prompt: rcPrompt }, { raw_output: rcContent });
+        if (rcContent) {
+            let jsonStr = rcContent.trim();
+            const m = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+            if (m) jsonStr = m[1];
+            else { const f = jsonStr.indexOf('{'); const l = jsonStr.lastIndexOf('}'); if (f !== -1 && l !== -1 && l >= f) jsonStr = jsonStr.substring(f, l + 1); }
+            try { const rcResult = JSON.parse(jsonStr); evaluations.push(...(rcResult.evaluations || [])); } catch (e) { console.warn('[Judge] Failed to parse RC result:', e); }
         }
     }
-    const result = JSON.parse(jsonStr);
-    const evaluations = result.evaluations || [];
+
+    if (kaList.length > 0) {
+        const stepsText = executionSteps && executionSteps.length > 0
+            ? executionSteps.map((s, i) => `步骤${i + 1}: [${s.type}] ${s.name} - ${s.description}`).join('\n')
+            : null;
+
+        const kaPrompt = generateJudgePrompt(
+            userQuery, 
+            stepsText || actualAnswer, 
+            [], kaList, 
+            criteria.skill_definition, 
+            'key_actions',
+            stepsText ? stepsText : null
+        );
+        const kaResponse = await withTimeout(
+            client.chat.completions.create({
+                messages: [{ role: "user", content: kaPrompt }],
+                model: model,
+            }),
+            'KA Judgment API',
+        );
+        console.log(`[Judge API Debug] KA Model: ${model}. Received response choices:`, kaResponse?.choices?.length);
+        const kaContent = kaResponse.choices?.[0]?.message?.content;
+        appendLog('ka_evaluation', { prompt: kaPrompt }, { raw_output: kaContent });
+        if (kaContent) {
+            let jsonStr = kaContent.trim();
+            const m = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+            if (m) jsonStr = m[1];
+            else { const f = jsonStr.indexOf('{'); const l = jsonStr.lastIndexOf('}'); if (f !== -1 && l !== -1 && l >= f) jsonStr = jsonStr.substring(f, l + 1); }
+            try { const kaResult = JSON.parse(jsonStr); evaluations.push(...(kaResult.evaluations || [])); } catch (e) { console.warn('[Judge] Failed to parse KA result:', e); }
+        }
+    }
     
     // --- Calculate Score in Code (to avoid LLM math errors) ---
     let totalWeightedScore = 0;
@@ -150,12 +183,99 @@ export async function judgeAnswer(
         reasonLines.push(`1. **Root Cause** [${rc.content.replace(/\n/g, ' ')}]: ${(match * 100).toFixed(0)}% match. ${explanation} (Weight: ${rc.weight})`);
     });
 
-    // Process Key Actions
-    kaList.forEach(ka => {
+    // Group key actions by groupId for conditional groups
+    const keyActionsByGroup = new Map<string, typeof kaList>();
+    const ungroupedActions: typeof kaList = [];
+
+    for (const ka of kaList) {
+        const groupId = (ka as any).groupId;
+        const cfType = (ka as any).controlFlowType || 'required';
+        
+        if (cfType === 'conditional' && groupId) {
+            if (!keyActionsByGroup.has(groupId)) {
+                keyActionsByGroup.set(groupId, []);
+            }
+            keyActionsByGroup.get(groupId)!.push(ka);
+        } else {
+            ungroupedActions.push(ka);
+        }
+    }
+
+    // Process conditional groups first (grouped by groupId)
+    for (const [groupId, groupActions] of keyActionsByGroup) {
+        // Find all evaluations for this group
+        const groupEvaluations = groupActions.map(ka => {
+            const ev = evaluations.find((e: any) => e.id === ka.id);
+            const match = ev ? Math.max(0, Math.min(1, Number(ev.match_score))) : 0;
+            const explanation = ev?.explanation || '未找到评分结果';
+            return { ka, ev, match, explanation };
+        });
+
+        // Check if any branch has a match score > 0 or is triggered
+        const triggeredBranch = groupEvaluations.find(ge => ge.match > 0 || !ge.explanation.includes('此分支未触发'));
+
+        if (triggeredBranch) {
+            // Only count the triggered branch
+            const { ka, ev, match, explanation } = triggeredBranch;
+            const branchLabel = (ka as any).branchLabel || '';
+            
+            totalWeightedScore += match * ka.weight;
+            totalWeight += ka.weight;
+            reasonLines.push(`2. **Key Action** [${ka.content.replace(/\n/g, ' ')}] (条件分支${branchLabel ? ' - ' + branchLabel : ''}): ${(match * 100).toFixed(0)}% match. ${explanation} (Weight: ${ka.weight})`);
+
+            // Log other branches as skipped
+            for (const ge of groupEvaluations) {
+                if (ge.ka.id !== triggeredBranch.ka.id) {
+                    reasonLines.push(`2. **Key Action** [${ge.ka.content.replace(/\n/g, ' ')}] (条件分支${(ge.ka as any).branchLabel ? ' - ' + (ge.ka as any).branchLabel : ''}): ${(ge.match * 100).toFixed(0)}% match. ${ge.explanation} (该分支未触发，不计入总分)`);
+                }
+            }
+        } else {
+            // No branch triggered - count the first branch as 0
+            const firstBranch = groupEvaluations[0];
+            const { ka, ev, match, explanation } = firstBranch;
+            const branchLabel = (ka as any).branchLabel || '';
+            
+            totalWeightedScore += 0 * ka.weight; 
+            totalWeight += ka.weight;
+            reasonLines.push(`2. **Key Action** [${ka.content.replace(/\n/g, ' ')}] (条件分支${branchLabel ? ' - ' + branchLabel : ''}): ${(match * 100).toFixed(0)}% match. ${explanation} (所有分支均未触发，Weight: ${ka.weight})`);
+
+            // Log other branches as skipped
+            for (let i = 1; i < groupEvaluations.length; i++) {
+                const ge = groupEvaluations[i];
+                reasonLines.push(`2. **Key Action** [${ge.ka.content.replace(/\n/g, ' ')}] (条件分支${(ge.ka as any).branchLabel ? ' - ' + (ge.ka as any).branchLabel : ''}): ${(ge.match * 100).toFixed(0)}% match. ${ge.explanation} (该分支未触发，不计入总分)`);
+            }
+        }
+    }
+
+    // Process ungrouped key actions
+    ungroupedActions.forEach(ka => {
         const ev = evaluations.find((e: any) => e.id === ka.id);
         const match = ev ? Math.max(0, Math.min(1, Number(ev.match_score))) : 0;
         const explanation = ev?.explanation || '未找到评分结果';
-        
+        const cfType = (ka as any).controlFlowType || 'required';
+
+        if (cfType === 'optional') {
+            reasonLines.push(`2. **Key Action** [${ka.content.replace(/\n/g, ' ')}] (可选): ${(match * 100).toFixed(0)}% match. ${explanation} (Weight: 0, 不扣分)`);
+            return;
+        }
+
+        if (cfType === 'handoff') {
+            totalWeightedScore += match * ka.weight;
+            totalWeight += ka.weight;
+            reasonLines.push(`2. **Key Action** [${ka.content.replace(/\n/g, ' ')}] (衔接): ${(match * 100).toFixed(0)}% match. ${explanation} (Weight: ${ka.weight})`);
+            return;
+        }
+
+        if (cfType === 'loop') {
+            const loopCondition = (ka as any).loopCondition || '';
+            const minCount = (ka as any).expectedMinCount;
+            const maxCount = (ka as any).expectedMaxCount;
+            totalWeightedScore += match * ka.weight;
+            totalWeight += ka.weight;
+            reasonLines.push(`2. **Key Action** [${ka.content.replace(/\n/g, ' ')}] (循环${loopCondition ? ' - ' + loopCondition : ''}): ${(match * 100).toFixed(0)}% match. ${explanation} (Weight: ${ka.weight}, 预期次数: ${minCount ?? '?'}~${maxCount ?? '?'})`);
+            return;
+        }
+
         totalWeightedScore += match * ka.weight;
         totalWeight += ka.weight;
         
@@ -203,6 +323,8 @@ export async function judgeAnswer(
   } catch (error) {
 
     console.error("LLM Judgment Error:", error);
+    const msg = String((error as any)?.message || '');
+    if (msg.includes('timeout')) return { is_correct: false, score: 0, reason: "Judgment API failed: timeout" };
     return { is_correct: false, score: 0, reason: "Judgment API failed" };
   }
 }
@@ -338,10 +460,13 @@ export async function analyzeEvaluationItems(
         try {
             const prompt = generateSkillIssuePrompt(skillDef, item, userQuery, actualAnswer, conversationHistory);
             
-            const response = await client.chat.completions.create({
-                messages: [{ role: "user", content: prompt }],
-                model: model,
-            });
+            const response = await withTimeout(
+                client.chat.completions.create({
+                    messages: [{ role: "user", content: prompt }],
+                    model: model,
+                }),
+                'Skill issue analysis API',
+            );
             
             const content = response.choices?.[0]?.message?.content;
             if (!content) {
@@ -439,10 +564,13 @@ export async function analyzeFailures(
         const { generateFailureAnalysisPrompt } = require('../prompts/failure-analysis-prompt');
         const prompt = generateFailureAnalysisPrompt(history);
 
-        const response = await client.chat.completions.create({
-            messages: [{ role: "user", content: prompt }],
-            model: model, 
-        });
+        const response = await withTimeout(
+            client.chat.completions.create({
+                messages: [{ role: "user", content: prompt }],
+                model: model,
+            }),
+            'Failure analysis API',
+        );
 
         const content = response.choices?.[0]?.message?.content;
         
@@ -907,11 +1035,14 @@ export async function analyzeSession(input: any[], user?: string | null): Promis
              const { generateExtractionPrompt } = require('../prompts/extraction-prompt');
              const prompt = generateExtractionPrompt(history);
 
-             const response = await client.chat.completions.create({
-                 messages: [{ role: "user", content: prompt }],
-                 model: model, 
-                 temperature: 0.1 // Low temperature for extraction
-             });
+             const response = await withTimeout(
+                 client.chat.completions.create({
+                     messages: [{ role: "user", content: prompt }],
+                     model: model,
+                     temperature: 0.1 // Low temperature for extraction
+                 }),
+                 'Session extraction API',
+             );
 
              const content = response.choices[0].message.content;
              if (content) {

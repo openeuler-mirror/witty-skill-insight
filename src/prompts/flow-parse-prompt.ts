@@ -5,7 +5,10 @@ export function generateFlowParsePrompt(skillContent: string): string {
 给定一个 Skill 定义文档（SKILL.md），你的任务是：
 1. 提取预期的执行流程/步骤序列
 2. 识别每个步骤应该完成什么（不一定是具体工具）
-3. 注意任何条件分支或可选步骤
+3. 注意任何条件分支、循环或可选步骤
+4. 识别循环模式（"逐项处理"、"重试直到"、"遍历"、"对每个...执行"等）
+5. 识别可选步骤（"如果需要则"、"可选地"、"视情况"等）
+6. 识别多路条件分支（if/else、根据输入类型走不同路径等）
 
 Skill 定义：
 ---
@@ -44,6 +47,17 @@ ${skillContent}
 - 同一操作多次执行（可能因为某些报错）应总结成一个步骤
 - 每个步骤都应该有独立存在的价值
 
+五、控制流识别规则
+1. 线性步骤：直接描述的顺序操作，isOptional 设为 false
+2. 可选步骤：包含"如果需要则"、"可选地"、"视情况"等表述的步骤，isOptional 设为 true
+3. 条件分支：包含"如果...则..."、"根据...选择"、"当...时执行"等表述的步骤
+   - 将条件判断步骤放在 branches 之前
+   - 在 conditionalGroups 中描述分支条件和各分支包含的步骤
+   - 支持多路分支（不限于 if/else 二元分支）
+4. 循环：包含"逐项处理"、"遍历"、"对每个...执行"、"重试直到"等表述的步骤
+   - 将循环体步骤放在 steps 中
+   - 在 loopGroups 中描述循环条件、循环体步骤和预期次数范围
+
 请只用 JSON 对象回复，格式如下：
 {
   "steps": [
@@ -62,8 +76,43 @@ ${skillContent}
       "falseStepId": "step-y"
     }
   ],
+  "conditionalGroups": [
+    {
+      "id": "cg-1",
+      "condition": "根据故障类型选择诊断路径",
+      "branches": [
+        {
+          "label": "网络故障",
+          "stepIds": ["step-3a"]
+        },
+        {
+          "label": "磁盘故障",
+          "stepIds": ["step-3b"]
+        },
+        {
+          "label": "内存故障",
+          "stepIds": ["step-3c"]
+        }
+      ]
+    }
+  ],
+  "loopGroups": [
+    {
+      "id": "lg-1",
+      "loopCondition": "对每个受影响的服务执行健康检查",
+      "bodyStepIds": ["step-5a", "step-5b"],
+      "expectedMinCount": 1,
+      "expectedMaxCount": 10
+    }
+  ],
   "summary": "整体流程的简要总结"
 }
+
+注意：
+- conditionalGroups 和 loopGroups 是可选字段，如果没有条件分支或循环，可以省略
+- branches 字段保留用于简单的 if/else 二元分支，conditionalGroups 用于更复杂的多路分支
+- 如果同时存在 branches 和 conditionalGroups，优先使用 conditionalGroups
+- loopGroups 的 expectedMinCount 和 expectedMaxCount 应根据 Skill 描述合理估计
 `;
 }
 

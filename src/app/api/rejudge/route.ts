@@ -98,7 +98,19 @@ export async function POST(request: Request) {
          criteria.standard_answer_example = cfg.standard_answer;
     }
 
-    const judgment = await judgeAnswer(query, criteria, existingRecord.finalResult || '', actionUser);
+    let executionSteps: { name: string; description: string; type: string }[] | null = null;
+    try {
+        const matchRecord = await db.findExecutionMatch(existingRecord.taskId || existingRecord.uploadId || '');
+        if (matchRecord?.extractedSteps) {
+            executionSteps = typeof matchRecord.extractedSteps === 'string' 
+                ? JSON.parse(matchRecord.extractedSteps) 
+                : matchRecord.extractedSteps;
+        }
+    } catch (e) {
+        console.warn('[Rejudge] Failed to load execution steps for KA evaluation:', e);
+    }
+
+    const judgment = await judgeAnswer(query, criteria, existingRecord.finalResult || '', actionUser, executionSteps);
     const score = typeof judgment?.score === 'number' ? judgment.score : 0;
     
     console.log(`[Rejudge] Judgment result - score: ${score}, is_correct: ${judgment?.is_correct}, reason length: ${judgment?.reason?.length || 0}`);

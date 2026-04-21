@@ -93,6 +93,10 @@ function createPrismaCompatibleWrapper(adapter: DatabaseAdapter): any {
             },
             findMany: async (args: any) => {
                 return adapter.findExecutions(args.where, args.orderBy);
+            },
+            update: async (args: any) => {
+                if (args.where?.id) return adapter.updateExecution(args.where.id, args.data);
+                return null;
             }
         }
     };

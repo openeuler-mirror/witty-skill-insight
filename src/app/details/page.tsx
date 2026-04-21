@@ -122,15 +122,30 @@ function parseEvaluationItemsFromReason(judgmentReason: string): EvaluationItem[
             continue;
         }
         
-        const kaMatch = line.match(/\*\*Key Action\*\*\s*\[(.*?)\]\s*.*?:\s*(\d+)%\s*match\.\s*(.+?)\s*\(Weight:\s*([\d.]+)\)/);
-        if (kaMatch) {
+        // 匹配有 Weight 的 Key Action
+        const kaMatchWithWeight = line.match(/\*\*Key Action\*\*\s*\[(.*?)\]\s*.*?:\s*(\d+)%\s*match\.\s*(.+?)\s*\(Weight:\s*([\d.]+)\)/);
+        if (kaMatchWithWeight) {
             items.push({
                 id: `KA-${itemIndex.ka++}`,
                 type: 'key_action',
-                content: kaMatch[1].replace(/\.{3}$/, ''),
-                match_score: parseInt(kaMatch[2]) / 100,
-                explanation: kaMatch[3].trim(),
-                weight: parseFloat(kaMatch[4])
+                content: kaMatchWithWeight[1].replace(/\.{3}$/, ''),
+                match_score: parseInt(kaMatchWithWeight[2]) / 100,
+                explanation: kaMatchWithWeight[3].trim(),
+                weight: parseFloat(kaMatchWithWeight[4])
+            });
+            continue;
+        }
+        
+        // 匹配不计入总分的 Key Action（没有 Weight）
+        const kaMatchSkipped = line.match(/\*\*Key Action\*\*\s*\[(.*?)\]\s*.*?:\s*(\d+)%\s*match\.\s*(.+?)\s*\(该分支未触发，不计入总分\)/);
+        if (kaMatchSkipped) {
+            items.push({
+                id: `KA-${itemIndex.ka++}`,
+                type: 'key_action',
+                content: kaMatchSkipped[1].replace(/\.{3}$/, ''),
+                match_score: parseInt(kaMatchSkipped[2]) / 100,
+                explanation: kaMatchSkipped[3].trim(),
+                weight: 0  // weight 设为 0，表示不计入总分
             });
         }
     }
@@ -548,11 +563,13 @@ const RenderInteractionList = ({
                             const latencyStr = latencyVal < 1000 ? `${latencyVal.toFixed(0)}ms` : `${(latencyVal / 1000).toFixed(2)}s`;
 
                             let role = 'unknown';
+                            let displayRole = 'unknown';
                             let contentSummary = '';
 
                             if (kind === 'tool') {
                                 const tc = original;
                                 role = `tool:${tc.function?.name || tc.name || 'unknown'}`;
+                                displayRole = role;
                                 const out = tc.output ?? (tc.state && tc.state.output);
                                 if (typeof out === 'string') contentSummary = out;
                                 else if (out != null) contentSummary = JSON.stringify(out);
@@ -561,6 +578,7 @@ const RenderInteractionList = ({
                                 const step = original;
                                 if (step.responseMessage) {
                                     role = step.responseMessage.role || 'assistant';
+                                    displayRole = role;
                                     const content = step.responseMessage.content;
                                     if (typeof content === 'string') contentSummary = content;
                                     else if (content) contentSummary = JSON.stringify(content);
@@ -572,6 +590,11 @@ const RenderInteractionList = ({
                                 }
                                 if (step.role && role === 'unknown') {
                                     role = step.role;
+                                    displayRole = role;
+                                }
+                                if (role === 'subagent') {
+                                    const subName = step.subagent_name || step.agent;
+                                    if (subName) displayRole = `subagent(${subName})`;
                                 }
                             }
 
@@ -620,7 +643,7 @@ const RenderInteractionList = ({
                                                 {kind === 'tool' ? `#${parentIndex}.${toolIndex}` : `#${parentIndex}`}
                                             </span>
                                             <span style={{ fontWeight: 'bold', color: roleColor, textTransform: 'capitalize' }}>
-                                                {role}
+                                                {displayRole}
                                             </span>
                                             {isTool && (
                                                 <span style={{
@@ -1993,7 +2016,7 @@ function DetailPage() {
                                                 );
                                             }
                                             return (
-                                                <div style={{ background: 'var(--card-bg)', borderRadius: '6px', border: '1px solid var(--border)', overflowX: 'visible' }}>
+                                                <div style={{ background: 'var(--card-bg)', borderRadius: '6px', border: '1px solid var(--border)', overflowX: 'auto', maxHeight: '600px', overflowY: 'auto' }}>
                                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', minWidth: '950px' }}>
                                                         <thead>
                                                             <tr style={{ background: 'var(--background-secondary)' }}>
@@ -2018,18 +2041,20 @@ function DetailPage() {
                                                                     return siContent && evContent && (siContent === evContent || evContent.includes(siContent));
                                                                 });
 
-                                                                const deduction = (1 - evalItem.match_score) * evalItem.weight;
+                                                                const isSkipped = evalItem.weight === 0;
+                                                                const deduction = isSkipped ? 0 : (1 - evalItem.match_score) * evalItem.weight;
 
                                                                 return (
                                                                     <tr
                                                                         key={idx}
                                                                         id={`eval-item-${taskId}-${evalItem.id}`}
                                                                         style={{
-                                                                            background: idx % 2 === 0 ? 'var(--card-bg)' : 'var(--background-secondary)',
-                                                                            transition: 'background 0.2s'
+                                                                            background: isSkipped ? 'rgba(148, 163, 184, 0.1)' : idx % 2 === 0 ? 'var(--card-bg)' : 'var(--background-secondary)',
+                                                                            transition: 'background 0.2s',
+                                                                            opacity: isSkipped ? 0.7 : 1
                                                                         }}
-                                                                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(56, 189, 248, 0.05)'; }}
-                                                                        onMouseLeave={(e) => { e.currentTarget.style.background = idx % 2 === 0 ? 'var(--card-bg)' : 'var(--background-secondary)'; }}
+                                                                        onMouseEnter={(e) => { e.currentTarget.style.background = isSkipped ? 'rgba(148, 163, 184, 0.15)' : 'rgba(56, 189, 248, 0.05)'; }}
+                                                                        onMouseLeave={(e) => { e.currentTarget.style.background = isSkipped ? 'rgba(148, 163, 184, 0.1)' : idx % 2 === 0 ? 'var(--card-bg)' : 'var(--background-secondary)'; }}
                                                                     >
                                                                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                                                                             <span style={{
@@ -2039,7 +2064,8 @@ function DetailPage() {
                                                                                 borderRadius: '4px',
                                                                                 fontSize: '0.75rem',
                                                                                 fontWeight: 'bold',
-                                                                                whiteSpace: 'nowrap'
+                                                                                whiteSpace: 'nowrap',
+                                                                                opacity: isSkipped ? 0.6 : 1
                                                                             }}>
                                                                                 {evalItem.id}
                                                                             </span>
@@ -2051,7 +2077,7 @@ function DetailPage() {
                                                                         </td>
                                                                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                                                                             <span style={{
-                                                                                color: evalItem.match_score >= 1 ? '#4ade80' : evalItem.match_score >= 0.5 ? '#fbbf24' : '#f87171',
+                                                                                color: isSkipped ? '#94a3b8' : evalItem.match_score >= 1 ? '#4ade80' : evalItem.match_score >= 0.5 ? '#fbbf24' : '#f87171',
                                                                                 fontWeight: 'bold',
                                                                                 whiteSpace: 'nowrap'
                                                                             }}>
@@ -2059,16 +2085,35 @@ function DetailPage() {
                                                                             </span>
                                                                         </td>
                                                                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center', color: 'var(--foreground-secondary)' }}>
-                                                                            {evalItem.weight.toFixed(1)}
+                                                                            {isSkipped ? (
+                                                                                <span style={{ 
+                                                                                    fontSize: '0.75rem', 
+                                                                                    color: '#64748b',
+                                                                                    fontStyle: 'italic'
+                                                                                }}>
+                                                                                    不计入
+                                                                                </span>
+                                                                            ) : (
+                                                                                evalItem.weight.toFixed(1)
+                                                                            )}
                                                                         </td>
                                                                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
-                                                                            <span style={{
-                                                                                color: deduction > 0 ? '#f87171' : '#4ade80',
-                                                                                fontWeight: 'bold',
-                                                                                whiteSpace: 'nowrap'
-                                                                            }}>
-                                                                                -{deduction.toFixed(2)}
-                                                                            </span>
+                                                                            {isSkipped ? (
+                                                                                <span style={{ 
+                                                                                    color: '#64748b', 
+                                                                                    fontSize: '0.8rem'
+                                                                                }}>
+                                                                                    -
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span style={{
+                                                                                    color: deduction > 0 ? '#f87171' : '#4ade80',
+                                                                                    fontWeight: 'bold',
+                                                                                    whiteSpace: 'nowrap'
+                                                                                }}>
+                                                                                    -{deduction.toFixed(2)}
+                                                                                </span>
+                                                                            )}
                                                                         </td>
                                                                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>
                                                                             {relatedSkillIssue && (

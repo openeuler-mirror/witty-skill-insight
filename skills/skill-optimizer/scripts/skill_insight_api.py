@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import sys
 
@@ -10,13 +11,14 @@ except Exception:
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
+logger = logging.getLogger(__name__)
+
 _env_loaded = False
 _base_url_cache = None
 _headers_cache = None
 
 
 def _ensure_env_loaded():
-    """延迟加载环境变量"""
     global _env_loaded
     if not _env_loaded:
         from constants import ENV_FILE, GLOBAL_ENV_FILE
@@ -31,7 +33,6 @@ def _ensure_env_loaded():
 
 
 def _get_base_url():
-    """获取 API 基础 URL，延迟加载环境变量"""
     global _base_url_cache
 
     if _base_url_cache is not None:
@@ -61,7 +62,6 @@ def _get_base_url():
 
 
 def _get_headers():
-    """获取请求头，延迟加载环境变量"""
     global _headers_cache
 
     if _headers_cache is not None:
@@ -77,9 +77,6 @@ def _get_headers():
 
 
 def get_skill_logs(skill: str, skill_version: int = None, limit: int = 20):
-    """
-    Get execution logs for a specific skill version.
-    """
     base_url = _get_base_url()
     headers = _get_headers()
 
@@ -95,29 +92,30 @@ def get_skill_logs(skill: str, skill_version: int = None, limit: int = 20):
     if skill_version is not None:
         params["skill_version"] = skill_version
 
-    print(f"\n[3] Executing Get Logs Request...")
-    print(f"GET {url}")
-    print(f"Params: {json.dumps(params, indent=2, ensure_ascii=False)}")
+    logger.debug(f"GET {url}")
+    logger.debug(f"Params: skill={skill}, limit={limit}")
 
     try:
         import requests
 
         response = requests.get(url, params=params, headers=headers)
-        print(f"Status Code: {response.status_code}")
+        logger.debug(f"Status Code: {response.status_code}")
         try:
             result = response.json()
             if isinstance(result, list):
-                print(f"Response Body Length: {len(result)}")
+                logger.debug(f"Response Body Length: {len(result)}")
                 return result
             else:
-                print(f"Unexpected response format (expected list): {result}")
+                logger.warning(f"Unexpected response format (expected list): {result}")
                 return []
         except json.JSONDecodeError:
-            print(f"Response Body (Text): {response.text}")
+            logger.warning(f"Response Body (Text): {response.text}")
+            return []
     except Exception as e:
-        print(f"Error executing get logs request: {e}")
+        logger.error(f"Error executing get logs request: {e}")
+        return []
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
     print(f"Target Base URL: {_get_base_url()}")
-    # get_skill_logs("void-gateway-sop")

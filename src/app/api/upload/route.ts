@@ -1,6 +1,8 @@
 import { readConfig, saveExecutionRecord } from '@/lib/data-service';
+import { analyzeDynamicOnly } from '@/lib/flow-parser';
 import { analyzeFailures, analyzeSession, extractSkillsFromClaudeSession, extractSkillsFromOpenClawSession, extractSkillsFromOpencodeSession, extractSkillsWithVersionsFromClaudeSession, extractSkillsWithVersionsFromOpenClawSession, extractSkillsWithVersionsFromOpencodeSession, InvokedSkill, judgeAnswer, normalizeInteractions } from '@/lib/judge';
 import { db, prisma } from '@/lib/prisma';
+import { debounceByKey } from '@/lib/upload-analysis-debouncer';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
@@ -134,8 +136,16 @@ export async function POST(request: Request) {
         console.warn(`[Upload-API] Quick initial save failed:`, e);
     }
 
-    processUploadAsync(data, username, normalized, interactions).catch(e => {
-        console.error('[Upload-API] Async analysis failed:', e);
+    const debounceMs = Number(process.env.UPLOAD_ASYNC_DEBOUNCE_MS || 15000);
+    const safeDebounceMs = Number.isFinite(debounceMs) && debounceMs >= 0 ? debounceMs : 15000;
+    const taskKey = String(data.task_id || '');
+    debounceByKey(taskKey, safeDebounceMs, () => {
+        const clonedData = JSON.parse(JSON.stringify(data));
+        const clonedNormalized = JSON.parse(JSON.stringify(normalized));
+        const clonedInteractions = JSON.parse(JSON.stringify(interactions));
+        processUploadAsync(clonedData, username, clonedNormalized, clonedInteractions).catch(e => {
+            console.error('[Upload-API] Async analysis failed:', e);
+        });
     });
 
     return NextResponse.json({ 
@@ -224,6 +234,21 @@ async function processUploadAsync(data: any, username: any, normalized: any, int
          }
     }
 
+    data.skip_evaluation = true;
+    data.force_judgment = false;
+    await saveExecutionRecord(data);
+
+    try {
+        const dynamicResult = await analyzeDynamicOnly(data.task_id, username);
+        if (dynamicResult.success) {
+            console.log(`[Upload-Async] Auto-parsed dynamic flow for ${data.task_id}`);
+        } else {
+            console.warn(`[Upload-Async] Auto-parse dynamic flow failed for ${data.task_id}: ${dynamicResult.error}`);
+        }
+    } catch (e) {
+        console.warn(`[Upload-Async] Auto-parse dynamic flow error for ${data.task_id}:`, e);
+    }
+
     if (data.query && data.final_result) {
         const criteria: any = { skill_definition: skillDef };
         let cfg = undefined;
@@ -238,7 +263,20 @@ async function processUploadAsync(data: any, username: any, normalized: any, int
         } catch (e) { console.warn("Config load error", e); }
 
         if (cfg) {
-            const judgmentResult = await judgeAnswer(data.query, criteria, data.final_result, username);
+            let executionSteps: { name: string; description: string; type: string }[] | null = null;
+            try {
+                const matchRecord = await db.findExecutionMatch(data.task_id);
+                if (matchRecord?.extractedSteps) {
+                    executionSteps = typeof matchRecord.extractedSteps === 'string' 
+                        ? JSON.parse(matchRecord.extractedSteps) 
+                        : matchRecord.extractedSteps;
+                    console.log(`[Upload-Async] Found ${executionSteps?.length || 0} execution steps for KA evaluation`);
+                }
+            } catch (e) {
+                console.warn(`[Upload-Async] Failed to load execution steps for KA evaluation:`, e);
+            }
+
+            const judgmentResult = await judgeAnswer(data.query, criteria, data.final_result, username, executionSteps);
             data.is_answer_correct = judgmentResult.is_correct;
             data.answer_score = judgmentResult.score;
             data.judgment_reason = judgmentResult.reason || 'Judged by Evaluation Model';

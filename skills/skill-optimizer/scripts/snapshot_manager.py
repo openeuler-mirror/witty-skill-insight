@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Optional, List
 
 class SnapshotManager:
-    def __init__(self, skill_dir: Path):
+    def __init__(self, skill_dir: Path, snapshots_dir: Optional[Path] = None):
         self.skill_dir = skill_dir.resolve()
-        self.snapshots_dir = self.skill_dir / "snapshots"
+        self.snapshots_dir = (snapshots_dir.resolve() if snapshots_dir else self.skill_dir / "snapshots")
 
     def _parse_version(self, version_str: str) -> tuple[int, int]:
         """Parse version string like 'v1' or 'v1.2' into (major, minor)."""
@@ -212,6 +212,11 @@ class SnapshotManager:
         target_dir = self.snapshots_dir / target_version
         if not target_dir.exists():
             return False
+
+        _skip_on_revert = {
+            'meta.json', 'diagnoses.json', 'OPTIMIZATION_REPORT.md',
+            'AUXILIARY_META.json',
+        }
             
         # Clear current skill dir contents except snapshots and hidden dirs
         for item in self.skill_dir.iterdir():
@@ -222,9 +227,9 @@ class SnapshotManager:
             else:
                 item.unlink()
                 
-        # Copy target version contents back
+        # Copy target version contents back (excluding process artifacts)
         for item in target_dir.iterdir():
-            if item.name == 'meta.json':
+            if item.name in _skip_on_revert:
                 continue
             if item.is_dir():
                 shutil.copytree(item, self.skill_dir / item.name, dirs_exist_ok=True)
