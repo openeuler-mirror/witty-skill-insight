@@ -148,13 +148,26 @@ interface ConfigItem {
     parse_status?: string;
 }
 
+type OutcomeSharedKeyAction = NonNullable<ConfigItem['key_actions']>[number];
+type OutcomeExtractedKeyAction = NonNullable<ConfigItem['extractedKeyActions']>[number];
+
+interface OutcomeKeyActionSummaryItem {
+    key: 'required' | 'conditional' | 'loop' | 'optional' | 'handoff';
+    label: string;
+    count: number;
+    color: string;
+}
+
 interface OutcomeConfigGroup {
     key: string;
     skill: string;
     skillVersion: number | null;
     configs: ConfigItem[];
     datasetTypes: ConfigDatasetType[];
-    sharedKeyActions: { content: string; weight: number }[];
+    sharedKeyActions: OutcomeSharedKeyAction[];
+    sharedExtractedKeyActions: OutcomeExtractedKeyAction[];
+    sharedKeyActionSource: 'flow' | 'shared';
+    sharedControlFlowSummary: OutcomeKeyActionSummaryItem[];
     hasGenericScenario: boolean;
 }
 
@@ -313,11 +326,48 @@ const sortOutcomeScenarioConfigs = (items: ConfigItem[]) => [...items].sort((a, 
     return (queryA || '').localeCompare(queryB || '', 'zh-CN');
 });
 
+const buildOutcomeKeyActionSummary = (items: OutcomeSharedKeyAction[]): OutcomeKeyActionSummaryItem[] => {
+    const meta: Record<OutcomeKeyActionSummaryItem['key'], { label: string; color: string }> = {
+        required: { label: '必选', color: '#38bdf8' },
+        conditional: { label: '条件分支', color: '#fbbf24' },
+        loop: { label: '循环', color: '#a78bfa' },
+        optional: { label: '可选', color: '#94a3b8' },
+        handoff: { label: '衔接', color: '#4ade80' },
+    };
+
+    const counts: Record<OutcomeKeyActionSummaryItem['key'], number> = {
+        required: 0,
+        conditional: 0,
+        loop: 0,
+        optional: 0,
+        handoff: 0,
+    };
+
+    for (const item of items) {
+        const cfType = item.controlFlowType || 'required';
+        const key = (cfType in counts ? cfType : 'required') as OutcomeKeyActionSummaryItem['key'];
+        counts[key] += 1;
+    }
+
+    return (Object.keys(meta) as OutcomeKeyActionSummaryItem['key'][])
+        .map(key => ({
+            key,
+            label: meta[key].label,
+            count: counts[key],
+            color: meta[key].color,
+        }))
+        .filter(item => item.count > 0);
+};
+
 const buildOutcomeConfigGroup = (configs: ConfigItem[]): OutcomeConfigGroup | null => {
     if (configs.length === 0) return null;
     const sortedConfigs = sortOutcomeScenarioConfigs(configs);
     const first = sortedConfigs[0];
-    const sharedKeyActions = sortedConfigs.find(config => (config.key_actions || []).length > 0)?.key_actions || [];
+    const sourceConfig = sortedConfigs.find(config => (config.extractedKeyActions || []).length > 0)
+        || sortedConfigs.find(config => (config.key_actions || []).length > 0)
+        || first;
+    const sharedKeyActions = sourceConfig?.key_actions || [];
+    const sharedExtractedKeyActions = sourceConfig?.extractedKeyActions || [];
 
     return {
         key: getOutcomeGroupKey(first.skill, first.skillVersion),
@@ -326,6 +376,9 @@ const buildOutcomeConfigGroup = (configs: ConfigItem[]): OutcomeConfigGroup | nu
         configs: sortedConfigs,
         datasetTypes: Array.from(new Set(sortedConfigs.map(config => normalizeConfigDatasetType(config.dataset_type)))),
         sharedKeyActions,
+        sharedExtractedKeyActions,
+        sharedKeyActionSource: sharedExtractedKeyActions.length > 0 ? 'flow' : 'shared',
+        sharedControlFlowSummary: buildOutcomeKeyActionSummary(sharedKeyActions),
         hasGenericScenario: sortedConfigs.some(config => !normalizeConfigQuery(config.query)),
     };
 };
@@ -1925,8 +1978,28 @@ export default function Dashboard() {
                                     )}
                                 </div>
                                 <div style={{ color: '#94a3b8', fontSize: '0.83rem', lineHeight: 1.6 }}>
-                                    共享关键动作：{group.sharedKeyActions.length} 项 · {group.hasGenericScenario ? '包含通用基准' : '暂无通用基准'}
+                                    共享关键动作：{group.sharedKeyActions.length} 项 · {group.sharedKeyActionSource === 'flow' ? '来自 Skill 流程自动抽取' : '来自共享关键动作配置'} · {group.hasGenericScenario ? '包含通用基准' : '暂无通用基准'}
                                 </div>
+                                {group.sharedControlFlowSummary.length > 0 && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                                        {group.sharedControlFlowSummary.map(item => (
+                                            <span
+                                                key={`${group.key}-${item.key}`}
+                                                style={{
+                                                    padding: '2px 8px',
+                                                    borderRadius: '999px',
+                                                    background: `${item.color}20`,
+                                                    border: `1px solid ${item.color}33`,
+                                                    color: item.color,
+                                                    fontSize: '0.72rem',
+                                                    fontWeight: 600,
+                                                }}
+                                            >
+                                                {item.label} {item.count}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                                 {scenarioPreview.length > 0 && (
                                     <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
                                         业务场景：{scenarioPreview.join('、')}{hiddenScenarioCount > 0 ? ` 等 ${scenarioCount} 个场景` : ''}
@@ -3661,8 +3734,31 @@ export default function Dashboard() {
                                                 </div>
                                                 <div style={{ marginTop: '4px', color: c.fgMuted, fontSize: '0.82rem', lineHeight: 1.6 }}>
                                                     共 {currentOutcomeGroup.configs.length} 个业务场景，关键动作共享 {currentOutcomeGroup.sharedKeyActions.length} 项。
+                                                    {currentOutcomeGroup.sharedKeyActions.length > 0
+                                                        ? ` ${currentOutcomeGroup.sharedKeyActionSource === 'flow' ? '这些动作来自 Skill 流程自动抽取。' : '这些动作来自当前 Skill 版本的共享配置。'}`
+                                                        : ''}
                                                     {currentOutcomeGroup.hasGenericScenario ? ' 当前包含通用基准场景。' : ' 当前尚未配置通用基准场景。'}
                                                 </div>
+                                                {currentOutcomeGroup.sharedControlFlowSummary.length > 0 && (
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                                                        {currentOutcomeGroup.sharedControlFlowSummary.map(item => (
+                                                            <span
+                                                                key={`modal-${item.key}`}
+                                                                style={{
+                                                                    padding: '2px 8px',
+                                                                    borderRadius: '999px',
+                                                                    background: `${item.color}20`,
+                                                                    border: `1px solid ${item.color}33`,
+                                                                    color: item.color,
+                                                                    fontSize: '0.72rem',
+                                                                    fontWeight: 600,
+                                                                }}
+                                                            >
+                                                                {item.label} {item.count}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                             {!editingConfig.id && (
                                                 <span
