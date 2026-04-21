@@ -7,6 +7,7 @@ import { deriveOpencodeExecutionFields } from './opencode-derived-metrics';
 import { chooseExecutionLabel } from './label-utils';
 import { parseLabelSkillVersionBinding } from './label-skill-binding';
 import { extractKeyActionsFromFlow, mergeKeyActionsFromMultipleSkills, type ExtractedKeyAction, type ParsedFlowResult } from './flow-parser';
+import { mergeSessionInteractionsMonotonic } from './session-interactions-merge';
 
 export interface InvokedSkill {
     name: string;
@@ -468,19 +469,7 @@ export async function saveExecutionRecord(data: ExecutionRecord): Promise<{ succ
                 : [];
 
             if (Array.isArray(existingInteractions) && existingInteractions.length > 0) {
-                if (!Array.isArray(incomingInteractions) || incomingInteractions.length < existingInteractions.length) {
-                    mergedInteractionsForSession = existingInteractions;
-                } else {
-                    mergedInteractionsForSession = incomingInteractions.map((it: any, idx: number) => {
-                        const prev = existingInteractions[idx];
-                        const contentEmpty = it?.content === '' || it?.content == null;
-                        const prevContentOk = typeof prev?.content === 'string' && prev.content.length > 0;
-                        if (contentEmpty && prevContentOk && prev?.role === it?.role) {
-                            return { ...it, content: prev.content };
-                        }
-                        return it;
-                    });
-                }
+                mergedInteractionsForSession = mergeSessionInteractionsMonotonic(existingInteractions, incomingInteractions);
             }
         } catch {}
 
