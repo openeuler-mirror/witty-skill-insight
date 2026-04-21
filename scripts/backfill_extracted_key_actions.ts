@@ -38,6 +38,21 @@ function parseArgs() {
   let write = false;
   const includeSkills = new Set<string>();
   const excludeSkills = new Set<string>();
+  const includeVersions = new Set<string>();
+  const excludeVersions = new Set<string>();
+
+  const parseVersionArg = (value: unknown): number | null | undefined => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim().toLowerCase();
+      if (!trimmed) return undefined;
+      if (trimmed === 'null') return null;
+    }
+
+    const version = normalizeOptionalSkillVersion(value);
+    return version == null ? undefined : version;
+  };
+
+  const toVersionFilterKey = (value: number | null) => (value == null ? 'null' : String(value));
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -62,9 +77,21 @@ function parseArgs() {
       i += 1;
       continue;
     }
+    if (arg === '--include-version') {
+      const version = parseVersionArg(args[i + 1]);
+      if (version !== undefined) includeVersions.add(toVersionFilterKey(version));
+      i += 1;
+      continue;
+    }
+    if (arg === '--exclude-version') {
+      const version = parseVersionArg(args[i + 1]);
+      if (version !== undefined) excludeVersions.add(toVersionFilterKey(version));
+      i += 1;
+      continue;
+    }
   }
 
-  return { user, write, includeSkills, excludeSkills };
+  return { user, write, includeSkills, excludeSkills, includeVersions, excludeVersions };
 }
 
 function getKeyActionFlowTargets(config: RawConfigRecord): FlowTarget[] {
@@ -196,7 +223,7 @@ async function deriveTargetActions(
 }
 
 async function main() {
-  const { user, write, includeSkills, excludeSkills } = parseArgs();
+  const { user, write, includeSkills, excludeSkills, includeVersions, excludeVersions } = parseArgs();
   const cache = new Map<string, ParsedSkillCacheValue>();
 
   const where = user ? { user } : {};
@@ -208,10 +235,17 @@ async function main() {
     }
 
     const skill = normalizeConfigSkillName(config.skill);
+    const versionFilterKey = config.skillVersion == null ? 'null' : String(config.skillVersion);
     if (includeSkills.size > 0 && !includeSkills.has(skill)) {
       return false;
     }
     if (excludeSkills.has(skill)) {
+      return false;
+    }
+    if (includeVersions.size > 0 && !includeVersions.has(versionFilterKey)) {
+      return false;
+    }
+    if (excludeVersions.has(versionFilterKey)) {
       return false;
     }
 
