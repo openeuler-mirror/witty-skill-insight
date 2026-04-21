@@ -175,8 +175,10 @@ export async function parseSkillFlow(
       skillId,
       version,
       user: user || null,
-      flowJson: null,
-      mermaidCode: null
+      // Use empty strings for the "parsing" placeholder so legacy SQLite
+      // schemas with NOT NULL columns remain compatible.
+      flowJson: '',
+      mermaidCode: ''
     });
 
     const prompt = generateFlowParsePrompt(skillContent);
