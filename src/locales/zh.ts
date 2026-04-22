@@ -441,6 +441,8 @@ export const zh = {
     saveFailed: '保存失败',
     saveError: '保存出错',
     deleteConfirm: '确定删除此配置?',
+    reparseFailed: '重新解析失败',
+    reparseError: '重新解析错误',
     export: '导出数据集',
     import: '导入数据集',
     noConfig: '暂无数据集配置',

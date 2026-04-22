@@ -920,6 +920,7 @@ export default function Dashboard() {
     const [isSavingConfig, setIsSavingConfig] = useState(false);
     const [configAnswerMode, setConfigAnswerMode] = useState<'manual' | 'document'>('manual');
     const [configDocumentFile, setConfigDocumentFile] = useState<File | null>(null);
+    const [showAddMenu, setShowAddMenu] = useState(false);
     const pollingTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
     // Cleanup polling timers on unmount
@@ -976,18 +977,122 @@ export default function Dashboard() {
         });
     }, [configs, pollConfigStatus]);
 
+    type ControlFlowType = 'required' | 'conditional' | 'loop' | 'optional' | 'handoff';
+
+    const handleAddAction = (type: ControlFlowType) => {
+        const newActions: any[] = [...(editingConfig.key_actions || [])];
+        
+        switch (type) {
+            case 'required':
+                newActions.push({
+                    id: `action-${Date.now()}`,
+                    content: '',
+                    weight: 1,
+                    controlFlowType: 'required'
+                });
+                break;
+                
+            case 'conditional':
+                const groupId = `cg-manual-${Date.now()}`;
+                newActions.push({
+                    id: `action-${Date.now()}`,
+                    content: '',
+                    weight: 1,
+                    controlFlowType: 'conditional',
+                    groupId: groupId,
+                    condition: '条件描述',
+                    branchLabel: '分支A'
+                });
+                break;
+                
+            case 'loop':
+                const loopGroupId = `lg-manual-${Date.now()}`;
+                newActions.push({
+                    id: `action-${Date.now()}`,
+                    content: '',
+                    weight: 1,
+                    controlFlowType: 'loop',
+                    groupId: loopGroupId,
+                    loopCondition: '循环条件',
+                    expectedMinCount: 1,
+                    expectedMaxCount: 10
+                });
+                break;
+                
+            case 'optional':
+                newActions.push({
+                    id: `action-${Date.now()}`,
+                    content: '',
+                    weight: 0,
+                    controlFlowType: 'optional'
+                });
+                break;
+                
+            case 'handoff':
+                newActions.push({
+                    id: `action-${Date.now()}`,
+                    content: '衔接描述',
+                    weight: 1,
+                    controlFlowType: 'handoff'
+                });
+                break;
+        }
+        
+        setEditingConfig({ ...editingConfig, key_actions: newActions });
+        setShowAddMenu(false);
+    };
+
+    const handleAddToGroup = (groupId: string, cfType: ControlFlowType) => {
+        const newActions = [...(editingConfig.key_actions || [])];
+        
+        let lastGroupIndex = -1;
+        for (let i = newActions.length - 1; i >= 0; i--) {
+            if ((newActions[i] as any).groupId === groupId) {
+                lastGroupIndex = i;
+                break;
+            }
+        }
+        
+        const newAction: any = {
+            id: `action-${Date.now()}`,
+            content: '',
+            weight: 1,
+            controlFlowType: cfType,
+            groupId: groupId
+        };
+        
+        if (cfType === 'conditional' && lastGroupIndex >= 0) {
+            const lastAction = newActions[lastGroupIndex] as any;
+            newAction.condition = lastAction.condition;
+            newAction.branchLabel = lastAction.branchLabel;
+        }
+        
+        if (cfType === 'loop' && lastGroupIndex >= 0) {
+            const lastAction = newActions[lastGroupIndex] as any;
+            newAction.loopCondition = lastAction.loopCondition;
+            newAction.expectedMinCount = lastAction.expectedMinCount;
+            newAction.expectedMaxCount = lastAction.expectedMaxCount;
+        }
+        
+        if (lastGroupIndex >= 0) {
+            newActions.splice(lastGroupIndex + 1, 0, newAction);
+        } else {
+            newActions.push(newAction);
+        }
+        
+        setEditingConfig({ ...editingConfig, key_actions: newActions });
+    };
+
 
     const saveConfig = async () => {
 if (!editingConfig.query?.trim()) return alert(t('config.questionRequired'));
-        if (!editingConfig.id) {
-            const trimmedQuery = editingConfig.query.trim();
-            const isDuplicate = configs.some(c => c.query.trim() === trimmedQuery);
-            if (isDuplicate) {
-                return alert(t('config.questionDuplicate'));
-            }
-            // 自动 trim 问题
-            editingConfig.query = trimmedQuery;
+        
+        const trimmedQuery = editingConfig.query.trim();
+        const isDuplicate = configs.some(c => c.query.trim() === trimmedQuery && c.id !== editingConfig.id);
+        if (isDuplicate) {
+            return alert(t('config.questionDuplicate'));
         }
+        editingConfig.query = trimmedQuery;
 
         setIsSavingConfig(true);
 
@@ -1082,6 +1187,30 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
         });
         if (res.ok) setConfigs(newConfigs);
     };
+
+    const reparseConfig = async (id: string) => {
+        try {
+            const res = await apiFetch('/api/config/reparse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, user })
+            });
+
+            if (res.ok) {
+                setConfigs(prev => prev.map(c => 
+                    c.id === id ? { ...c, parse_status: 'parsing' } : c
+                ));
+                pollConfigStatus(id);
+            } else {
+                const err = await res.json();
+                alert(t('config.reparseFailed') + `: ${err.error || 'Unknown error'}`);
+            }
+        } catch (e: any) {
+            console.error('Reparse error:', e);
+            alert(t('config.reparseError') + ': ' + e.message);
+        }
+    };
+
     const allFrameworks = useMemo(() => Array.from(new Set(rawData.map(d => d.framework))).sort(), [rawData]);
 
     const allQueries = useMemo(() => Array.from(new Set(rawData.map(d => d.query))).sort(), [rawData]);
@@ -2656,12 +2785,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                             padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
                                             background: c.errorSubtle, color: c.error, border: '1px solid rgba(239, 68, 68, 0.25)'
                                         }}>✕ {t('dashboard.config.failed')}</span>
-                                    ) : (
-                                        <span style={{
-                                            padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
-                                            background: c.successSubtle, color: c.success, border: '1px solid rgba(74, 222, 128, 0.25)'
-                                        }}>✓ 完成</span>
-                                    )}
+                                    ) : null}
                                 </div>
                                 {/* 操作按钮 */}
                                 <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
@@ -2730,6 +2854,22 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                     >
                                         删除
                                     </button>
+                                    <button
+                                        onClick={() => reparseConfig(cfg.id)}
+                                        style={{
+                                            padding: '5px 12px',
+                                            background: c.warningSubtle,
+                                            color: c.warning,
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.8rem',
+                                            fontWeight: 500,
+                                            transition: 'background 0.2s'
+                                        }}
+                                    >
+                                        重新解析
+                                    </button>
                                 </div>
                             </div>
                         ))}
@@ -2756,9 +2896,8 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                             <textarea
                                 value={editingConfig.query || ''}
                                 onChange={e => setEditingConfig({ ...editingConfig, query: e.target.value })}
-                                disabled={!!editingConfig.id}
                                 placeholder={t('dashboard.config.questionPlaceholder')}
-                                style={{ width: '100%', padding: '10px', minHeight: '60px', opacity: editingConfig.id ? 0.7 : 1, cursor: editingConfig.id ? 'not-allowed' : 'text', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
+                                style={{ width: '100%', padding: '10px', minHeight: '60px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
                             />
                         </div>
 
@@ -3132,6 +3271,22 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                                             <span style={{ color: cfInfo.color, fontSize: '0.8rem', fontWeight: 500 }}>
                                                                 {cfType === 'conditional' ? '⎇' : '↻'} {groupTitle}
                                                             </span>
+                                                            <button
+                                                                onClick={() => handleAddToGroup(groupId, cfType)}
+                                                                style={{
+                                                                    marginLeft: 'auto',
+                                                                    padding: '2px 8px',
+                                                                    background: cfInfo.color,
+                                                                    color: '#fff',
+                                                                    border: 'none',
+                                                                    borderRadius: '3px',
+                                                                    cursor: 'pointer',
+                                                                    fontSize: '0.7rem',
+                                                                    fontWeight: 500
+                                                                }}
+                                                            >
+                                                                + 添加到组内
+                                                            </button>
                                                         </div>
                                                     );
                                                 }
@@ -3188,16 +3343,75 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
 
                                             return elements;
                                         })()}
-                                        <button
-                                            className="btn-sm"
-                                            style={{ background: c.bgTertiary, color: c.fgSecondary, marginTop: '5px', border: `1px solid ${c.border}` }}
-                                            onClick={() => setEditingConfig({
-                                                ...editingConfig,
-                                                key_actions: [...(editingConfig.key_actions || []), { content: '', weight: 1 }]
-                                            })}
-                                        >
-                                            + 添加关键动作
-                                        </button>
+                                        <div style={{ position: 'relative', display: 'inline-block', marginTop: '5px' }}>
+                                            <button
+                                                className="btn-sm"
+                                                style={{ background: c.bgTertiary, color: c.fgSecondary, border: `1px solid ${c.border}` }}
+                                                onClick={() => setShowAddMenu(!showAddMenu)}
+                                            >
+                                                + 添加关键动作 ▼
+                                            </button>
+                                            {showAddMenu && (
+                                                <>
+                                                    <div
+                                                        style={{
+                                                            position: 'fixed',
+                                                            top: 0,
+                                                            left: 0,
+                                                            right: 0,
+                                                            bottom: 0,
+                                                            zIndex: 999
+                                                        }}
+                                                        onClick={() => setShowAddMenu(false)}
+                                                    />
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        top: '100%',
+                                                        left: 0,
+                                                        background: c.bg,
+                                                        border: `1px solid ${c.border}`,
+                                                        borderRadius: '6px',
+                                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                                        zIndex: 1000,
+                                                        minWidth: '200px',
+                                                        marginTop: '4px',
+                                                        overflow: 'hidden'
+                                                    }}>
+                                                        {[
+                                                            { type: 'required' as ControlFlowType, icon: '➕', label: '添加必选动作' },
+                                                            { type: 'conditional' as ControlFlowType, icon: '⎇', label: '添加条件分支组' },
+                                                            { type: 'loop' as ControlFlowType, icon: '↻', label: '添加循环组' },
+                                                            { type: 'optional' as ControlFlowType, icon: '○', label: '添加可选动作' },
+                                                            { type: 'handoff' as ControlFlowType, icon: '→', label: '添加衔接动作' },
+                                                        ].map(({ type, icon, label }) => (
+                                                            <div
+                                                                key={type}
+                                                                onClick={() => handleAddAction(type)}
+                                                                style={{
+                                                                    padding: '10px 16px',
+                                                                    cursor: 'pointer',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '10px',
+                                                                    transition: 'background 0.15s',
+                                                                    color: c.fg,
+                                                                    fontSize: '0.9rem'
+                                                                }}
+                                                                onMouseEnter={e => {
+                                                                    e.currentTarget.style.background = c.bgSecondary;
+                                                                }}
+                                                                onMouseLeave={e => {
+                                                                    e.currentTarget.style.background = 'transparent';
+                                                                }}
+                                                            >
+                                                                <span style={{ fontSize: '1rem' }}>{icon}</span>
+                                                                <span>{label}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
                                 </details>
                             </>

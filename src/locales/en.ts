@@ -441,6 +441,8 @@ export const en = {
     saveFailed: 'Save failed',
     saveError: 'Save error',
     deleteConfirm: 'Are you sure to delete this config?',
+    reparseFailed: 'Reparse failed',
+    reparseError: 'Reparse error',
     export: 'Export Dataset',
     import: 'Import Dataset',
     noConfig: 'No dataset configurations',
