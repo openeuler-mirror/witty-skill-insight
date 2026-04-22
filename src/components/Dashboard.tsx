@@ -4,7 +4,9 @@ import { createPortal } from 'react-dom';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { SkillLinks } from './SkillLink';
 import { useTheme, useThemeColors } from '@/lib/theme-context';
+import { useLocale } from '@/lib/locale-context';
 import { apiFetch, getApiUrl } from '@/lib/api';
+import { LanguageSwitch } from './LanguageSwitch';
 
 
 // --- Types ---
@@ -133,13 +135,13 @@ const hasMetricValue = (d: Execution, metric: BestWorstMetric): boolean => {
     }
 };
 
-const getMetricLabel = (metric: BestWorstMetric): string => {
+const getMetricLabel = (metric: BestWorstMetric, t: (key: string) => string): string => {
     switch (metric) {
-        case 'latency': return '时延';
-        case 'accuracy': return '准确率';
-        case 'tokens': return '令牌数';
-        case 'cost': return '成本';
-        case 'recall': return '召回率';
+        case 'latency': return t('metrics.latency');
+        case 'accuracy': return t('metrics.accuracy');
+        case 'tokens': return t('metrics.tokens');
+        case 'cost': return t('metrics.cost');
+        case 'recall': return t('metrics.recall');
     }
 };
 
@@ -244,7 +246,7 @@ const calculateSkillLift = (records: Execution[], skillLabel: string): SkillLift
             passNoSkill,
             evaluatedSkillCount,
             evaluatedBaselineCount,
-            reason: '当前数据不足以完成 技能提升计算。'
+            reason: '当前数据不足以完成技能提升计算。'
         };
     }
 
@@ -350,13 +352,14 @@ import { useAuth } from '@/lib/auth-context';
 import SkillRegistry from './SkillRegistry';
 import UserGuide, { GuideStep } from './UserGuide';
 import { useUserGuide } from '@/lib/use-user-guide';
-import { getFilteredSteps } from '@/lib/guide-config';
+import { getFilteredStepsConfig, GuideStepConfig } from '@/lib/guide-config';
 
 // --- Main Component ---
 export default function Dashboard() {
     const { user, apiKey } = useAuth();
     const [isOrgMode, setIsOrgMode] = useState(false);
     const { theme, toggleTheme, isDark } = useTheme();
+    const { locale, toggleLocale, t } = useLocale();
     const c = useThemeColors();
     const [localApiKey, setLocalApiKey] = useState<string | null>(null);
 
@@ -374,14 +377,27 @@ export default function Dashboard() {
 
     useEffect(() => {
         if (guideState) {
-            const filtered = getFilteredSteps(
+            const filteredConfigs = getFilteredStepsConfig(
                 guideState.completedSteps,
                 guideState.skippedSteps
             );
             
-            // Generate setup commands for welcome step
-            const stepsWithCommands = filtered.map(step => {
-                if (step.id === 'welcome' && apiKey && typeof window !== 'undefined') {
+            // Convert configs to GuideSteps with translations
+            const stepsWithCommands: GuideStep[] = filteredConfigs.map(config => {
+                const step: GuideStep = {
+                    id: config.id,
+                    target: config.target,
+                    title: t(config.titleKey),
+                    content: t(config.contentKey),
+                    position: config.position,
+                    action: config.action,
+                    actionLabel: config.actionLabelKey ? t(config.actionLabelKey) : undefined,
+                    linkUrl: config.linkUrl,
+                    linkText: config.linkTextKey ? t(config.linkTextKey) : undefined,
+                };
+                
+                // Generate setup commands for welcome step
+                if (config.id === 'welcome' && apiKey && typeof window !== 'undefined') {
                     const host = window.location.host;
                     const protocol = window.location.protocol;
                     const baseUrl = `${protocol}//${host}`;
@@ -404,7 +420,7 @@ export default function Dashboard() {
             
             setGuideSteps(stepsWithCommands);
         }
-    }, [guideState, apiKey]);
+    }, [guideState, apiKey, t]);
 
     // Setup local state for apiKey after mount to avoid hydration mismatch
     useEffect(() => {
@@ -759,7 +775,7 @@ export default function Dashboard() {
 
     // --- Actions ---
     const handleDelete = async (record: Execution) => {
-        if (!confirm('确定要删除这条记录吗?')) return;
+        if (!confirm(t('dashboard.detail.deleteConfirm'))) return;
         try {
             const res = await apiFetch(`/api/data?user=${encodeURIComponent(user || '')}`, {
                 method: 'DELETE',
@@ -767,9 +783,9 @@ export default function Dashboard() {
                 body: JSON.stringify(record)
             });
             if (res.ok) fetchData();
-            else alert('删除失败');
+            else alert(t('dashboard.detail.deleteFailed'));
         } catch (e) {
-            alert('删除出错');
+            alert(t('dashboard.detail.deleteError'));
         }
     };
 
@@ -798,7 +814,7 @@ export default function Dashboard() {
             if (!res.ok) {
                 console.error('Feedback save failed');
             } else {
-                alert('保存成功');
+                alert(t('dashboard.feedback.feedbackSaved'));
             }
         } catch (e) {
             console.error('Feedback error', e);
@@ -809,7 +825,7 @@ export default function Dashboard() {
     const handleRejudge = async (record: Execution) => {
         const id = record.upload_id || record.task_id || '';
         if (!id) return;
-        if (!confirm('确定要重新评估这条记录吗?')) return;
+        if (!confirm(t('dashboard.detail.rejudgeConfirm'))) return;
 
         console.log('Rejudging ID:', id); 
         setRejudgingIds(prev => {
@@ -829,9 +845,9 @@ export default function Dashboard() {
                 const reason = data.record?.judgment_reason || '';
                 const noMatch = reason.includes('未找到匹配的评测配置');
                 if (noMatch) {
-                    alert(`重评完成: 未找到匹配的评测配置，Score 已归零。请在「数据集管理」中为该 query 添加完全一致的条目后再重评。`);
+                    alert(t('dashboard.detail.rejudgeNoConfig'));
                 } else {
-                    alert(`重评完成: Score ${data.record.answer_score?.toFixed(2)}`);
+                    alert(t('dashboard.detail.rejudgeComplete', { score: data.record.answer_score?.toFixed(2) || '0.00' }));
                 }
 
                 // Update local state immediately
@@ -864,7 +880,7 @@ export default function Dashboard() {
                 alert(errorMsg);
             }
         } catch (e) {
-            alert('重评请求出错');
+            alert(t('dashboard.detail.rejudgeError'));
         } finally {
             setRejudgingIds(prev => {
                 const next = new Set(prev);
@@ -892,10 +908,10 @@ export default function Dashboard() {
                 setEditingLabelId(null);
                 fetchData();
             } else {
-                alert('更新标签失败');
+                alert(t('dashboard.detail.updateLabelFailed'));
             }
         } catch (e) {
-            alert('更新标签出错');
+            alert(t('dashboard.detail.updateLabelError'));
         }
     };
 
@@ -962,14 +978,12 @@ export default function Dashboard() {
 
 
     const saveConfig = async () => {
-        if (!editingConfig.query?.trim()) return alert('问题不能为空');
-
-        // 新增模式下校验问题是否已存在（trim 后比较，防止前后空格绕过）
+if (!editingConfig.query?.trim()) return alert(t('config.questionRequired'));
         if (!editingConfig.id) {
             const trimmedQuery = editingConfig.query.trim();
             const isDuplicate = configs.some(c => c.query.trim() === trimmedQuery);
             if (isDuplicate) {
-                return alert('该问题已存在于数据集中，请修改后再保存');
+                return alert(t('config.questionDuplicate'));
             }
             // 自动 trim 问题
             editingConfig.query = trimmedQuery;
@@ -982,11 +996,11 @@ export default function Dashboard() {
                 // Validate: need standard answer OR document
                 if (configAnswerMode === 'manual' && !editingConfig.standard_answer?.trim()) {
                     setIsSavingConfig(false);
-                    return alert('请填写标准答案');
+                    return alert(t('config.standardAnswerRequired'));
                 }
                 if (configAnswerMode === 'document' && !configDocumentFile) {
                     setIsSavingConfig(false);
-                    return alert('请上传案例文档');
+                    return alert(t('config.documentUpload'));
                 }
 
                 let res: Response;
@@ -1030,28 +1044,28 @@ export default function Dashboard() {
                     setConfigAnswerMode('manual');
                 } else {
                     const err = await res.json();
-                    alert(`保存失败: ${err.error || 'Unknown error'}`);
-                }
-            } else {
-                let newConfigs = [...configs];
-                newConfigs = newConfigs.map(c => c.id === editingConfig.id ? { ...c, ...editingConfig } as ConfigItem : c);
-
-                const res = await apiFetch('/api/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ configs: newConfigs, user })
-                });
-                if (res.ok) {
-                    setConfigs(newConfigs);
-                    setIsEditModalOpen(false);
-                    setEditingConfig({});
+alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
+                    }
                 } else {
-                    alert('保存失败');
+                    let newConfigs = [...configs];
+                    newConfigs = newConfigs.map(c => c.id === editingConfig.id ? { ...c, ...editingConfig } as ConfigItem : c);
+
+                    const res = await apiFetch('/api/config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ configs: newConfigs, user })
+                    });
+                    if (res.ok) {
+                        setConfigs(newConfigs);
+                        setIsEditModalOpen(false);
+                        setEditingConfig({});
+                    } else {
+                        alert(t('config.saveFailed'));
+                    }
                 }
-            }
-        } catch (e: any) {
-            console.error(e);
-            alert('保存出错: ' + e.message);
+            } catch (e: any) {
+                console.error(e);
+                alert(t('config.saveError') + ': ' + e.message);
         } finally {
             setIsSavingConfig(false);
         }
@@ -1059,7 +1073,7 @@ export default function Dashboard() {
 
 
     const deleteConfig = async (id: string) => {
-        if (!confirm('确定删除此配置?')) return;
+        if (!confirm(t('config.deleteConfirm'))) return;
         const newConfigs = configs.filter(c => c.id !== id);
         const res = await apiFetch('/api/config', {
             method: 'POST',
@@ -1441,8 +1455,8 @@ export default function Dashboard() {
             <header className="header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <h1 className="title" style={{ marginBottom: 0 }}>Skill-insight</h1>
-                        <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)', letterSpacing: '1px' }}>智能体技能评估、分析与优化</span>
+                        <h1 className="title" style={{ marginBottom: 0 }}>{t('app.title')}</h1>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)', letterSpacing: '1px' }}>{t('app.subtitle')}</span>
                     </div>
 
                     {/* Main Navigation Tabs */}
@@ -1451,19 +1465,19 @@ export default function Dashboard() {
                             className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
                             onClick={() => setActiveTab('dashboard')}
                         >
-                            数据概览
+                            {t('nav.dashboard')}
                         </button>
                         <button
                             className={`tab-btn ${activeTab === 'config' ? 'active' : ''}`}
                             onClick={() => setActiveTab('config')}
                         >
-                            数据集管理
+                            {t('nav.dataset')}
                         </button>
                         <button
                             className={`tab-btn ${activeTab === 'skill' ? 'active' : ''}`}
                             onClick={() => setActiveTab('skill')}
                         >
-                            技能管理
+                            {t('nav.skill')}
                         </button>
                     </div>
                 </div>
@@ -1472,25 +1486,26 @@ export default function Dashboard() {
                         <button
                             className="theme-toggle-btn"
                             onClick={toggleTheme}
-                            title={isDark ? '切换到浅色主题' : '切换到深色主题'}
+                            title={isDark ? t('theme.switchToLight') : t('theme.switchToDark')}
                         >
                             {isDark ? '☀️' : '🌙'}
                         </button>
+                        <LanguageSwitch />
                         <select value={timeFilter} onChange={(e) => setTimeFilter(e.target.value)}>
-                            <option value="all">全部时间</option>
-                            <option value="24h">24H</option>
-                            <option value="3h">3H</option>
-                            <option value="1h">1H</option>
+                            <option value="all">{t('dashboard.timeFilter.all')}</option>
+                            <option value="24h">{t('dashboard.timeFilter.24h')}</option>
+                            <option value="3h">{t('dashboard.timeFilter.3h')}</option>
+                            <option value="1h">{t('dashboard.timeFilter.1h')}</option>
                         </select>
                         {allConfigs.length > 0 ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px 8px', background: 'var(--background-secondary)' }}>
-                                <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)' }}>模型:</span>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)' }}>{t('settings.modelLabel')}:</span>
                                 <select
                                     value={activeConfigId || 'none'}
                                     onChange={(e) => activateConfig(e.target.value)}
                                     style={{ background: 'transparent', color: 'var(--foreground-secondary)', border: 'none', maxWidth: '140px', outline: 'none', cursor: 'pointer' }}
                                 >
-                                    <option value="none">未配置模型</option>
+                                    <option value="none">{t('settings.notConfigured')}</option>
                                     {allConfigs.map(cfg => (
                                         <option key={cfg.id} value={cfg.id}>{cfg.name}</option>
                                     ))}
@@ -1499,7 +1514,7 @@ export default function Dashboard() {
                                 <button
                                     onClick={() => setShowSettingsModal(true)}
                                     style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '0', fontSize: '1rem' }}
-                                    title="Manage Configurations"
+                                    title={t('settings.manageModelConfig')}
                                 >
                                     ⚙️
                                 </button>
@@ -1515,7 +1530,7 @@ export default function Dashboard() {
                                 }}
                                 onClick={() => setShowSettingsModal(true)}
                             >
-                                ⚙️ Eval Config
+                                {t('settings.evalConfig')}
                             </button>
                         )}
                     </div>
@@ -1541,7 +1556,7 @@ export default function Dashboard() {
                         {!editingConfigId && (
                             <>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
-                                    <h3 style={{ margin: 0, color: c.fg }}>管理模型配置</h3>
+                                    <h3 style={{ margin: 0, color: c.fg }}>{t('settings.manageModelConfig')}</h3>
                                     <button onClick={() => setShowSettingsModal(false)} style={{ background: 'transparent', border: 'none', color: c.fgSecondary, fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
                                 </div>
 
@@ -1560,8 +1575,8 @@ export default function Dashboard() {
                                             }}>
                                                 <div>
                                                     <div style={{ fontWeight: 'bold', color: activeConfigId === config.id ? '#2563eb' : '#1e293b' }}>
-                                                        {config.name} {activeConfigId === config.id && '(Active)'}
-                                                        {isDefault && <span style={{ marginLeft: '8px', fontSize: '0.8rem', color: c.fgSecondary }}>📋 Default (Read-only)</span>}
+                                                        {config.name} {activeConfigId === config.id && `(${t('common.active')})`}
+                                                        {isDefault && <span style={{ marginLeft: '8px', fontSize: '0.8rem', color: c.fgSecondary }}>{t('common.default')}</span>}
                                                     </div>
                                                     <div style={{ fontSize: '0.8rem', color: c.fgSecondary }}>
                                                         {config.provider} • {config.model}
@@ -1575,7 +1590,7 @@ export default function Dashboard() {
                                                             style={{ padding: '4px 8px', fontSize: '0.8rem' }}
                                                             onClick={() => activateConfig(config.id)}
                                                         >
-                                                            Activate
+                                                            {t('common.activate')}
                                                         </button>
                                                     )}
                                                     {!isDefault && (
@@ -1589,14 +1604,14 @@ export default function Dashboard() {
                                                                     setSettingsStatus(null);
                                                                 }}
                                                             >
-                                                                Edit
+                                                                {t('common.edit')}
                                                             </button>
                                                             <button
                                                                 className="btn-secondary"
                                                                 style={{ padding: '4px 8px', fontSize: '0.8rem', color: c.error, borderColor: c.error }}
                                                                 onClick={() => deleteEvalConfig(config.id)}
                                                             >
-                                                                Del
+                                                                {t('common.del')}
                                                             </button>
                                                         </>
                                                     )}
@@ -1612,7 +1627,7 @@ export default function Dashboard() {
                                     onClick={() => {
                                         setTempConfig({
                                             id: 'new',
-                                            name: '新配置',
+                                            name: t('settings.newConfig'),
                                             provider: 'deepseek',
                                             model: 'deepseek-chat',
                                             apiKey: '',
@@ -1622,7 +1637,7 @@ export default function Dashboard() {
                                         setSettingsStatus(null);
                                     }}
                                 >
-                                    + 添加新配置
+                                    + {t('settings.addNewConfig')}
                                 </button>
                             </>
                         )}
@@ -1631,7 +1646,7 @@ export default function Dashboard() {
                         {editingConfigId && (
                             <>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
-                                    <h3 style={{ margin: 0, color: c.fg }}>{editingConfigId === 'new' ? '新配置' : '编辑'}</h3>
+                                    <h3 style={{ margin: 0, color: c.fg }}>{editingConfigId === 'new' ? t('settings.newConfig') : t('settings.editConfig')}</h3>
                                     <button
                                         onClick={() => setEditingConfigId(null)}
                                         style={{ background: 'transparent', border: 'none', color: c.fgSecondary, fontSize: '0.9rem', cursor: 'pointer' }}
@@ -1763,7 +1778,7 @@ export default function Dashboard() {
             {activeTab === 'dashboard' && (
                 <>
                     {/* 1. Global Cards */}
-                    <h2 className="section-title">全景概览</h2>
+                    <h2 className="section-title">{t('dashboard.overview')}</h2>
                     <div className="grid">
                         {allFrameworks.map((fw, idx) => {
                             const fwData = filteredData.filter(d => d.framework === fw);
@@ -1789,11 +1804,11 @@ export default function Dashboard() {
                             return (
                                 <div className="card" key={fw} style={{ borderLeft: `4px solid ${(isDark ? CHART_COLORS_DARK : CHART_COLORS)[idx % (isDark ? CHART_COLORS_DARK : CHART_COLORS).length]}` }}>
                                     <div className="card-title" style={{ color: (isDark ? CHART_COLORS_DARK : CHART_COLORS)[idx % (isDark ? CHART_COLORS_DARK : CHART_COLORS).length], fontSize: '0.9375rem', fontWeight: 600 }}>{fw}</div>
-                                    <div className="stat-value">{fwData.length} <small style={{ fontSize: '1rem', color: 'var(--foreground-muted)' }}>执行数</small></div>
+                                    <div className="stat-value">{fwData.length} <small style={{ fontSize: '1rem', color: 'var(--foreground-muted)' }}>{t('metrics.executionCount')}</small></div>
                                     <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.2rem' }}>
                                         {/* Latency */}
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)', textTransform: 'uppercase' }}>时延</span>
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)', textTransform: 'uppercase' }}>{t('metrics.latency')}</span>
                                             <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--foreground)' }}>{formatLatency(avgLat)}</span>
                                         </div>
                                         {/* Token */}
@@ -1805,14 +1820,14 @@ export default function Dashboard() {
                                     <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid var(--border)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.2rem' }}>
                                         {/* Accuracy */}
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)' }}>准确率</span>
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)' }}>{t('metrics.accuracy')}</span>
                                             <span style={{ fontSize: '1.5rem', fontWeight: 700, color: !hasEvaluatedData ? 'var(--foreground-muted)' : (avgScore > 0.8 ? 'var(--success)' : 'var(--warning)') }}>
                                                 {hasEvaluatedData ? `${(avgScore * 100).toFixed(1)}%` : '--'}
                                             </span>
                                         </div>
                                         {/* Skill Recall Rate */}
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)' }}>技能召回率</span>
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)' }}>{t('metrics.skillRecallRate')}</span>
                                             <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--warning)' }}>
                                                 {skillRecallRate.toFixed(1)}%
                                             </span>
@@ -1824,13 +1839,13 @@ export default function Dashboard() {
                     </div>
 
                     {/* 2. Charts (Split 4 ways) */}
-                    <h2 className="section-title">对比分析</h2>
+                    <h2 className="section-title">{t('dashboard.comparison')}</h2>
                     <div className="analysis-controls">
                         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                             {['single', 'latest_10', 'all'].map(m => (
                                 <label key={m} style={{ cursor: 'pointer', color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                     <input type="radio" checked={comparisonMode === m} onChange={() => setComparisonMode(m as any)} />
-                                    {m === 'latest_10' ? '最新10问' : m === 'all' ? '所有' : '单问题'}
+                                    {m === 'latest_10' ? t('dashboard.comparisonMode.latest10') : m === 'all' ? t('dashboard.comparisonMode.all') : t('dashboard.comparisonMode.single')}
                                 </label>
                             ))}
                         </div>
@@ -1841,20 +1856,20 @@ export default function Dashboard() {
                         )}
 
                         <div style={{ marginLeft: '10px', display: 'flex', gap: '8px', borderLeft: '1px solid var(--border)', paddingLeft: '10px' }}>
-                            <span style={{ color: 'var(--foreground-secondary)', fontSize: '0.9rem', display: 'flex', alignItems: 'center' }}>分类:</span>
+                            <span style={{ color: 'var(--foreground-secondary)', fontSize: '0.9rem', display: 'flex', alignItems: 'center' }}>{t('dashboard.groupBy')}:</span>
                             <button
                                 className={`tab-btn-sm ${comparisonDimension === 'framework' ? 'active' : ''}`}
                                 onClick={() => setComparisonDimension('framework')}
                                 style={{ padding: '2px 8px', fontSize: '0.8rem', background: comparisonDimension === 'framework' ? 'var(--primary)' : 'transparent', color: comparisonDimension === 'framework' ? '#ffffff' : 'var(--foreground-secondary)', border: '1px solid var(--primary)' }}
                             >
-                                框架
+                                {t('dashboard.dimension.framework')}
                             </button>
                             <button
                                 className={`tab-btn-sm ${comparisonDimension === 'model' ? 'active' : ''}`}
                                 onClick={() => setComparisonDimension('model')}
                                 style={{ padding: '2px 8px', fontSize: '0.8rem', background: comparisonDimension === 'model' ? 'var(--primary)' : 'transparent', color: comparisonDimension === 'model' ? '#ffffff' : 'var(--foreground-secondary)', border: '1px solid var(--primary)' }}
                             >
-                                模型
+                                {t('dashboard.dimension.model')}
                             </button>
                         </div>
 
@@ -1868,13 +1883,13 @@ export default function Dashboard() {
                                         // Let's default to empty means ALL for now, or we force selection.
                                     }
                                 }} />
-                                按标签分类
+                                {t('dashboard.byLabel')}
                             </label>
 
                             {comparisonGroupByLabel && (
                                 <div style={{ position: 'relative', display: 'inline-block' }}>
                                     <div className="dropdown-trigger" style={{ background: 'var(--dropdown-bg)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--dropdown-border)', minWidth: '150px', color: 'var(--foreground)' }}>
-                                        {selectedComparisonLabels.length === 0 ? '所有标签' : `已选 ${selectedComparisonLabels.length} 个`}
+                                        {selectedComparisonLabels.length === 0 ? t('dashboard.allLabels') : t('dashboard.selectedCount', { count: selectedComparisonLabels.length.toString() })}
                                         <span style={{ float: 'right', fontSize: '0.8rem' }}>▼</span>
                                     </div>
                                     <div className="dropdown-content" style={{
@@ -1887,7 +1902,7 @@ export default function Dashboard() {
                                             <input type="checkbox"
                                                 checked={selectedComparisonLabels.length === 0}
                                                 onChange={() => setSelectedComparisonLabels([])}
-                                            /> <span style={{ marginLeft: '4px' }}>所有标签</span>
+                                            /> <span style={{ marginLeft: '4px' }}>{t('dashboard.allLabels')}</span>
                                         </label>
                                         <hr style={{ borderColor: 'var(--border)', margin: '4px 0' }} />
                                         {comparisonAvailableLabels.map(l => (
@@ -1920,21 +1935,21 @@ export default function Dashboard() {
                                         Tag: <span style={{ color: c.primary }}>{group.label}</span>
                                     </h3>
                                     <div className="analysis-grid">
-                                        <ChartLayout title="平均时延" unit="m" dataKey="lat" data={group.data} frameworks={comparisonSeries} yFormatter={(v) => (v / 60000).toFixed(2) + 'm'} />
-                                        <ChartLayout title="平均消耗" dataKey="tok" data={group.data} frameworks={comparisonSeries} yFormatter={formatTokens} />
-                                        <ChartLayout title="平均准确率" dataKey="score" unit="" data={group.data} frameworks={comparisonSeries} />
-                                            <ChartLayout title="平均技能召回率" dataKey="recall" unit="%" data={group.data} frameworks={comparisonSeries} yFormatter={(v) => Number(v).toFixed(1) + '%'} />
+<ChartLayout title={t('dashboard.table.latency')} unit="m" dataKey="lat" data={group.data} frameworks={comparisonSeries} yFormatter={(v) => (v / 60000).toFixed(2) + 'm'} />
+                                        <ChartLayout title={t('metrics.tokens')} dataKey="tok" data={group.data} frameworks={comparisonSeries} yFormatter={formatTokens} />
+                                        <ChartLayout title={t('metrics.accuracy')} dataKey="score" unit="" data={group.data} frameworks={comparisonSeries} />
+                                        <ChartLayout title={t('metrics.skillRecallRate')} dataKey="recall" unit="%" data={group.data} frameworks={comparisonSeries} yFormatter={(v) => Number(v).toFixed(1) + '%'} />
                                     </div>
                                 </div>
                             ))}
-                            {comparisonData.length === 0 && <div className="card" style={{ textAlign: 'center', padding: '2rem', color: c.fgSecondary }}>无数据</div>}
+                            {comparisonData.length === 0 && <div className="card" style={{ textAlign: 'center', padding: '2rem', color: c.fgSecondary }}>{t('common.noData')}</div>}
                         </div>
                     ) : (
                         // Default View
                         comparisonData.length > 0 ? (
                             <div className="analysis-grid">
                                 <ChartLayout
-                                    title={<span>平均时延 <CustomTooltip content="基于选中查询的所有执行结果计算出的平均总响应耗时（分钟）" /></span>}
+                                    title={<span>{t('metrics.avgLatency')} <CustomTooltip content={t('dashboard.tooltip.avgLatency')} /></span>}
                                     dataKey="lat"
                                     unit="m"
                                     data={comparisonData}
@@ -1942,7 +1957,7 @@ export default function Dashboard() {
                                     yFormatter={(v) => (v / 60000).toFixed(2) + 'm'}
                                 />
                                 <ChartLayout
-                                    title={<span>平均消耗 <CustomTooltip content="基于选中查询的所有执行结果计算出的平均令牌消耗总额" /></span>}
+                                    title={<span>{t('metrics.avgTokens')} <CustomTooltip content={t('dashboard.tooltip.avgConsumption')} /></span>}
                                     dataKey="tok"
                                     unit=""
                                     data={comparisonData}
@@ -1950,14 +1965,14 @@ export default function Dashboard() {
                                     yFormatter={formatTokens}
                                 />
                                 <ChartLayout
-                                    title={<span>平均准确率 <CustomTooltip content={<div>基于LLM评估所有执行结果与期望答案的差异，计算出的0-1分值的平均值，1表示完全正确。<br />"--"表示评估失败，可能是由于模型未配置（请在首页左上角的设置中配置 LLM）或者数据项未配置。</div>} /></span>}
+                                    title={<span>{t('metrics.avgAccuracy')} <CustomTooltip content={<div>{t('dashboard.tooltip.avgAccuracy')}</div>} /></span>}
                                     dataKey="score"
                                     unit=""
                                     data={comparisonData}
                                     frameworks={comparisonSeries}
                                 />
                                 <ChartLayout
-                                    title={<span>平均技能召回率 <CustomTooltip content={<div>基于执行结果是否使用了预期技能计算出的百分比，表示正确调用技能的比例。<br />这是全局指标，反映技能路由的准确性。</div>} /></span>}
+                                    title={<span>{t('metrics.avgSkillRecall')} <CustomTooltip content={<div>{t('dashboard.drillDown.avgSkillRecall')}</div>} /></span>}
                                     dataKey="recall"
                                     unit="%"
                                     data={comparisonData}
@@ -1966,28 +1981,28 @@ export default function Dashboard() {
                                 />
                             </div>
                         ) : (
-                            <div className="card" style={{ textAlign: 'center', padding: '2rem', color: c.fgSecondary }}>无数据</div>
+                            <div className="card" style={{ textAlign: 'center', padding: '2rem', color: c.fgSecondary }}>{t('common.noData')}</div>
                         )
                     )}
 
 
                     {/* 3. Single Query Drill-down */}
-                    <h2 className="section-title">单问题详情</h2>
+                    <h2 className="section-title">{t('dashboard.singleQueryDetail')}</h2>
                     <div className="analysis-controls">
                         <select value={selectedFramework} onChange={e => setSelectedFramework(e.target.value)}>
-                            <option value="">选择框架</option>
+                            <option value="">{t('dashboard.selectFramework')}</option>
                             {allFrameworks.map(f => <option key={f} value={f}>{f}</option>)}
                         </select>
                         <select value={selectedQuery} onChange={e => setSelectedQuery(e.target.value)} style={{ flex: 1 }}>
-                            <option value="">选择问题</option>
+                            <option value="">{t('dashboard.selectQuery')}</option>
                             {filteredQueries.map(q => <option key={q} value={q}>{q.substring(0, 80)}</option>)}
                         </select>
                         <select value={bestWorstMetric} onChange={e => setBestWorstMetric(e.target.value as BestWorstMetric)} style={{ fontSize: '0.9rem' }}>
-                            <option value="latency">最好/最差指标: 时延</option>
-                            <option value="accuracy">最好/最差指标: 准确率</option>
-                            <option value="tokens">最好/最差指标: Token</option>
-                            <option value="cost">最好/最差指标: 成本</option>
-                            <option value="recall">最好/最差指标: 召回率</option>
+                            <option value="latency">{t('dashboard.drillDown.bestWorstMetric')}: {t('metrics.latency')}</option>
+                            <option value="accuracy">{t('dashboard.drillDown.bestWorstMetric')}: {t('metrics.accuracy')}</option>
+                            <option value="tokens">{t('dashboard.drillDown.bestWorstMetric')}: {t('metrics.tokens')}</option>
+                            <option value="cost">{t('dashboard.drillDown.bestWorstMetric')}: {t('metrics.cost')}</option>
+                            <option value="recall">{t('dashboard.drillDown.bestWorstMetric')}: {t('metrics.recall')}</option>
                         </select>
                         <div style={{ marginLeft: '10px', display: 'flex', alignItems: 'center', gap: '20px' }}>
                             <label style={{ cursor: 'pointer', color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -1995,7 +2010,7 @@ export default function Dashboard() {
                                     setDrillDownGroupByLabel(e.target.checked);
                                     if (e.target.checked) setDrillDownGroupByModel(false);
                                 }} />
-                                按标签分类
+                                {t('dashboard.byLabel')}
                             </label>
 
                             <label style={{ cursor: 'pointer', color: 'var(--foreground)', display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -2003,13 +2018,13 @@ export default function Dashboard() {
                                     setDrillDownGroupByModel(e.target.checked);
                                     if (e.target.checked) setDrillDownGroupByLabel(false);
                                 }} />
-                                按模型分类
+                                {t('dashboard.byModel')}
                             </label>
 
                             {drillDownGroupByLabel && (
                                 <div className="dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
                                     <div className="dropdown-trigger" style={{ background: 'var(--dropdown-bg)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--dropdown-border)', minWidth: '150px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--foreground)' }}>
-                                        {selectedDrillDownLabels.length === 0 ? '所有标签' : `已选 ${selectedDrillDownLabels.length} 个`}
+                                        {selectedDrillDownLabels.length === 0 ? t('dashboard.allLabels') : t('dashboard.selectedCount', { count: selectedDrillDownLabels.length.toString() })}
                                         <span style={{ fontSize: '0.8rem', marginLeft: '8px' }}>▼</span>
                                     </div>
                                     <div className="dropdown-content" style={{
@@ -2023,7 +2038,7 @@ export default function Dashboard() {
                                             <input type="checkbox"
                                                 checked={selectedDrillDownLabels.length === 0}
                                                 onChange={() => setSelectedDrillDownLabels([])}
-                                            /> <span style={{ marginLeft: '4px' }}>所有标签</span>
+                                            /> <span style={{ marginLeft: '4px' }}>{t('dashboard.allLabels')}</span>
                                         </label>
                                         <hr style={{ borderColor: 'var(--border)', margin: '4px 0' }} />
                                         {drillDownAvailableLabels.map(l => (
@@ -2047,7 +2062,7 @@ export default function Dashboard() {
                             {drillDownGroupByModel && (
                                 <div className="dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
                                     <div className="dropdown-trigger" style={{ background: 'var(--dropdown-bg)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', border: '1px solid var(--dropdown-border)', minWidth: '150px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--foreground)' }}>
-                                        {selectedDrillDownModels.length === 0 ? '所有模型' : `已选 ${selectedDrillDownModels.length} 个`}
+                                        {selectedDrillDownModels.length === 0 ? t('dashboard.allModels') : t('dashboard.selectedCount', { count: selectedDrillDownModels.length.toString() })}
                                         <span style={{ fontSize: '0.8rem', marginLeft: '8px' }}>▼</span>
                                     </div>
                                     <div className="dropdown-content" style={{
@@ -2061,7 +2076,7 @@ export default function Dashboard() {
                                             <input type="checkbox"
                                                 checked={selectedDrillDownModels.length === 0}
                                                 onChange={() => setSelectedDrillDownModels([])}
-                                            /> <span style={{ marginLeft: '4px' }}>所有模型</span>
+                                            /> <span style={{ marginLeft: '4px' }}>{t('dashboard.allModels')}</span>
                                         </label>
                                         <hr style={{ borderColor: 'var(--border)', margin: '4px 0' }} />
                                         {drillDownAvailableModels.map(m => (
@@ -2147,7 +2162,7 @@ export default function Dashboard() {
                                         <div key={val} style={{ marginBottom: '2rem' }}>
                                             <div style={{ marginBottom: '0.5rem' }}>
                                                 <h3 style={{ margin: 0, color: c.primary, fontSize: '1.1rem' }}>
-                                                    {drillDownGroupByLabel ? '标签：' : '模型：'} {val}
+                                                    {drillDownGroupByLabel ? `${t('dashboard.table.label')}: ` : `${t('dashboard.table.model')}: `} {val}
                                                 </h3>
                                             </div>
                                             <div className="grid"style={{display: 'grid', 
@@ -2157,9 +2172,9 @@ export default function Dashboard() {
                                                 {/* Stats Card */}
                                                 <div className="card" style={{ gridColumn: 'span 2' }}>
                                                     <div className="card-title">
-                                                        平均表现
+                                                        {t('dashboard.avgPerformance')}
                                                         <span style={{ fontSize: '0.85rem', color: c.fgMuted, fontWeight: 'normal', marginLeft: '8px' }}>
-                                                            (基于 {counts} 条记录)
+                                                            ({t('dashboard.basedOnRecords', { count: counts.toString() })})
                                                         </span>
                                                     </div>
                                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', textAlign: 'center' }}>
@@ -2176,11 +2191,11 @@ export default function Dashboard() {
                                                             <div className="text-xl font-bold" style={{ color: avgSc > 0.8 ? '#4ade80' : '#fbbf24' }}>{avgSc.toFixed(2)}</div>
                                                         </div>
                                                         <div>
-                                                            <div className="text-sm text-slate-400">平均成本 <CustomTooltip content="根据默认定价或自定义（custom-models.json）定价估算得出。" /></div>
+                                                            <div className="text-sm text-slate-400">{t('metrics.avgCost')} <CustomTooltip content={t('dashboard.tooltip.avgCostDetailed')} /></div>
                                                             <div className="text-xl font-bold" style={groupAvgCost == null ? { color: c.fgSecondary } : {}}>{groupAvgCost != null ? formatCost(groupAvgCost) : 'N/A'}</div>
                                                         </div>
                                                         <div>
-                                                            <div className="text-sm text-slate-400">CPSR <CustomTooltip content={"单次成功解决成本：每次任务成功解决的平均开销。\n计算公式：（总成本）÷（成功解决的运行次数）"} /></div>
+                                                            <div className="text-sm text-slate-400">{t('metrics.cpsr')} <CustomTooltip content={t('dashboard.tooltip.cpsrDetailed')} /></div>
                                                             <div className="text-xl font-bold" style={{ color: groupCpsr != null ? '#38bdf8' : '#64748b' }}>{groupCpsr != null ? formatCost(groupCpsr) : 'N/A'}</div>
                                                         </div>
                                                     </div>
@@ -2190,7 +2205,7 @@ export default function Dashboard() {
                                                 <>
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
-                                                        <div className="card-title text-green-400" style={{ fontSize: '0.85rem' }}>最好表现（{isMetricLowerBetter(bestWorstMetric) ? '最小' : '最大'} {getMetricLabel(bestWorstMetric)}）</div>
+                                                        <div className="card-title text-green-400" style={{ fontSize: '0.85rem' }}>{t('metrics.best')}（{isMetricLowerBetter(bestWorstMetric) ? t('dashboard.drillDown.bestRecord') : t('dashboard.drillDown.worstRecord')} {getMetricLabel(bestWorstMetric, t)}）</div>
                                                         <div className="text-xl font-bold">{getMetricFormattedValue(best, bestWorstMetric)}</div>
                                                         <div className="text-sm text-slate-400 mt-2" style={{ fontSize: '0.75rem' }}>
                                                             Token: {formatTokens(best.tokens)} | Score: {best.answer_score?.toFixed(2) || '-'} <br />
@@ -2200,18 +2215,18 @@ export default function Dashboard() {
                                                     <div style={{ fontSize: '0.75rem', color: c.primary, cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
                                                         const url = `${basePath}/details?framework=${encodeURIComponent(best.framework)}&expandTaskId=${best.task_id || best.upload_id}`;
                                                         window.open(url, '_blank');
-                                                    }}>查看 &gt;</div>
+                                                    }}>{t('common.view')} &gt;</div>
                                                 </div>
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
-                                                        <div className="card-title text-red-400" style={{ fontSize: '0.85rem' }}>最差表现（{isMetricLowerBetter(bestWorstMetric) ? '最大' : '最小'} {getMetricLabel(bestWorstMetric)}）</div>
+                                                        <div className="card-title text-red-400" style={{ fontSize: '0.85rem' }}>{t('metrics.worst')}（{isMetricLowerBetter(bestWorstMetric) ? t('dashboard.drillDown.worstRecord') : t('dashboard.drillDown.bestRecord')} {getMetricLabel(bestWorstMetric, t)}）</div>
                                                         <div className="text-xl font-bold">{getMetricFormattedValue(worst, bestWorstMetric)}</div>
                                                         <div className="text-sm text-slate-400 mt-2" style={{ fontSize: '0.75rem' }}>
                                                             Token: {formatTokens(worst.tokens)} | Score: {worst.answer_score?.toFixed(2) || '-'} <br />
                                                             Cost: {formatCost(worst.cost) || '-'} | Latency: {formatLatency(worst.latency)}
                                                         </div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.75rem', color: c.primary, cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(worst.framework)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>查看 &gt;</div>
+                                                    <div style={{ fontSize: '0.75rem', color: c.primary, cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => window.open(`${basePath}/details?framework=${encodeURIComponent(worst.framework)}&expandTaskId=${worst.task_id || worst.upload_id}`, '_blank')}>{t('common.view')} &gt;</div>
                                                 </div>
                                                 </>
                                                 ) : (
@@ -2224,8 +2239,8 @@ export default function Dashboard() {
                                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                                     <div>
                                                         <div className="card-title text-purple-400" style={{ fontSize: '0.85rem' }}>
-                                                            技能提升
-                                                            <CustomTooltip content={"表示启用当前 Skill 标签后，相对 without-skill 基线带来的成功率提升。\n计算公式：(skill_success_rate - no_skill_success_rate) / (1 - no_skill_success_rate)\n其中：skill_success_rate 为当前标签下已评测记录的成功率；no_skill_success_rate 为 without-skill 基线下已评测记录的成功率。\n仅在同时存在已评测的当前标签数据和 without-skill 基线数据时才计算。"} />
+                                                            {t('dashboard.drillDown.skillLift')}
+                                                            <CustomTooltip content={t('dashboard.drillDown.skillLiftTooltip')} />
                                                         </div>
                                                         <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
                                                             <div style={{ marginBottom: '0.5rem' }}>
@@ -2248,12 +2263,12 @@ export default function Dashboard() {
                                                         </div>
                                                     </div>
                                                         <div style={{ fontSize: '0.75rem', color: c.fgSecondary }}>
-                                                        当前标签成功率：{skillLiftMetrics.passSkill == null ? 'N/A' : `${(skillLiftMetrics.passSkill * 100).toFixed(1)}%`}
+                                                        {t('dashboard.drillDown.currentSuccessRate')}：{skillLiftMetrics.passSkill == null ? 'N/A' : `${(skillLiftMetrics.passSkill * 100).toFixed(1)}%`}
                                                         <br />
-                                                        基线成功率：{skillLiftMetrics.passNoSkill == null ? 'N/A' : `${(skillLiftMetrics.passNoSkill * 100).toFixed(1)}%`}
+                                                        {t('dashboard.drillDown.baselineSuccessRate')}：{skillLiftMetrics.passNoSkill == null ? 'N/A' : `${(skillLiftMetrics.passNoSkill * 100).toFixed(1)}%`}
                                                     </div>
                                                         <div style={{ fontSize: '0.75rem', color: c.fgSecondary, marginTop: '0.5rem', textAlign: 'left', whiteSpace: 'pre-wrap' }}>
-                                                        {skillLiftMetrics.reason || '基于 without-skill 基线计算。'}
+                                                        {skillLiftMetrics.reason || t('dashboard.drillDown.basedOnBaseline')}
                                                         </div>
                                                 </div>
                                                 )}
@@ -2268,34 +2283,34 @@ export default function Dashboard() {
                                 {/* Stats Card */}
                                 <div className="card" style={{ gridColumn: 'span 2' }}>
                                     <div className="card-title">
-                                        平均表现
+                                        {t('dashboard.avgPerformance')}
                                         <span style={{ fontSize: '0.9rem', color: c.fgMuted, fontWeight: 'normal', marginLeft: '8px' }}>
-                                            (基于 {singleQueryStats.count} 条记录)
+                                            ({t('dashboard.basedOnRecords', { count: singleQueryStats.count.toString() })})
                                         </span>
                                     </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', textAlign: 'center' }}>
                                         <div>
-                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>平均时延</div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>{t('metrics.avgLatency')}</div>
                                             <div style={{ fontSize: '1.25rem', fontWeight: 700, color: c.fg }}>{formatLatency(singleQueryStats.avgLatency)}</div>
                                         </div>
                                         <div>
-                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>平均 Token</div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>{t('metrics.avgTokens')}</div>
                                             <div style={{ fontSize: '1.25rem', fontWeight: 700, color: c.fg }}>{formatTokens(singleQueryStats.avgTokens)}</div>
                                         </div>
                                         <div>
-                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>平均技能召回率</div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>{t('metrics.avgSkillRecall')}</div>
                                             <div style={{ fontSize: '1.25rem', fontWeight: 700, color: c.fg }}>{singleQueryStats.querySkillRecallRate?.toFixed(2)}%</div>
                                         </div>
                                         <div>
-                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>平均准确率</div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>{t('metrics.avgAccuracy')}</div>
                                             <div style={{ fontSize: '1.25rem', fontWeight: 700, color: singleQueryStats.avgAnsScore > 0.8 ? c.success : c.warning }}>{singleQueryStats.avgAnsScore.toFixed(2)}</div>
                                         </div>
                                         <div>
-                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>平均成本 <CustomTooltip content="根据默认定价或自定义（custom-models.json）定价估算得出。" /></div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>{t('metrics.avgCost')} <CustomTooltip content={t('dashboard.tooltip.avgCostDetailed')} /></div>
                                             <div style={{ fontSize: '1.25rem', fontWeight: 700, color: c.fg, ...singleQueryStats.avgCost == null ? { color: c.fgSecondary } : {} }}>{singleQueryStats.avgCost != null ? formatCost(singleQueryStats.avgCost) : 'N/A'}</div>
                                         </div>
                                         <div>
-                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>CPSR<CustomTooltip content={"单次成功解决成本：每次任务成功解决的平均开销。\n计算公式：（总成本）÷（成功解决的运行次数）"} /></div>
+                                            <div style={{ fontSize: '0.875rem', color: c.fgMuted }}>{t('metrics.cpsr')}<CustomTooltip content={t('dashboard.tooltip.cpsrDetailed')} /></div>
                                             <div style={{ fontSize: '1.25rem', fontWeight: 700, color: singleQueryStats.cpsr != null ? c.primary : c.fgSecondary }}>{singleQueryStats.cpsr != null ? formatCost(singleQueryStats.cpsr) : 'N/A'}</div>
                                         </div>
                                     </div>
@@ -2306,7 +2321,7 @@ export default function Dashboard() {
                                 <>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
-                                        <div className="card-title text-green-400">最好表现（{isMetricLowerBetter(bestWorstMetric) ? '最小' : '最大'} {getMetricLabel(bestWorstMetric)}）</div>
+                                        <div className="card-title text-green-400">{t('metrics.best')}（{isMetricLowerBetter(bestWorstMetric) ? t('dashboard.drillDown.bestRecord') : t('dashboard.drillDown.worstRecord')} {getMetricLabel(bestWorstMetric, t)}）</div>
                                         <div className="text-2xl font-bold">{getMetricFormattedValue(singleQueryStats.best, bestWorstMetric)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
                                             Token: {formatTokens(singleQueryStats.best.tokens)} | Cost: {formatCost(singleQueryStats.best.cost) || '-'} | Latency: {formatLatency(singleQueryStats.best.latency)} <br />
@@ -2317,11 +2332,11 @@ export default function Dashboard() {
                                         const best = singleQueryStats.best;
                                         if (!best) return;
                                         window.open(`${basePath}/details?framework=${encodeURIComponent(best.framework)}&expandTaskId=${best.task_id || best.upload_id}`, '_blank');
-                                    }}>查看 &gt;</div>
+                                    }}>{t('common.view')} &gt;</div>
                                 </div>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
-                                        <div className="card-title text-red-400">最差表现（{isMetricLowerBetter(bestWorstMetric) ? '最大' : '最小'} {getMetricLabel(bestWorstMetric)}）</div>
+                                        <div className="card-title text-red-400">{t('metrics.worst')}（{isMetricLowerBetter(bestWorstMetric) ? t('dashboard.drillDown.worstRecord') : t('dashboard.drillDown.bestRecord')} {getMetricLabel(bestWorstMetric, t)}）</div>
                                         <div className="text-2xl font-bold">{getMetricFormattedValue(singleQueryStats.worst, bestWorstMetric)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
                                             Token: {formatTokens(singleQueryStats.worst.tokens)} | Cost: {formatCost(singleQueryStats.worst.cost) || '-'} | Latency: {formatLatency(singleQueryStats.worst.latency)} <br />
@@ -2333,52 +2348,52 @@ export default function Dashboard() {
                                         if (!worst) return;
                                         const url = `${basePath}/details?framework=${encodeURIComponent(worst.framework)}&expandTaskId=${worst.task_id || worst.upload_id}`;
                                         window.open(url, '_blank');
-                                    }}>查看 &gt;</div>
+                                    }}>{t('common.view')} &gt;</div>
                                 </div>
                                 </>
                                 ) : (
                                 <div className="card" style={{ textAlign: 'center', padding: '2rem', color: c.fgMuted }}>
-                                    该指标暂无有效数据
+                                    {t('common.noData')}
                                 </div>
                                 )}
                             </div>
                         ) : (
                             <div className="card" style={{ textAlign: 'center', padding: '2rem', color: c.fgMuted }}>
-                                {selectedQuery ? '该组合下暂无数据' : '请选择一个问题进行分析'}
+                                {selectedQuery ? t('dashboard.noDataForCombination') : t('dashboard.selectQueryPrompt')}
                             </div>
                         )
                     )}
 
                     {/* 4. Records Table */}
-                    <h2 className="section-title">执行记录</h2>
+                    <h2 className="section-title">{t('metrics.record')}</h2>
 
                     {/* Table Filters */}
                     <div className="analysis-controls" style={{ marginBottom: '1rem' }}>
                         <select value={tableFramework} onChange={e => setTableFramework(e.target.value)} style={{ fontSize: '0.9rem' }}>
-                            <option value="">所有框架</option>
+                            <option value="">{t('dashboard.table.allFrameworks')}</option>
                             {allFrameworks.map(f => <option key={f} value={f}>{f}</option>)}
                         </select>
 
                         <select value={tableLabel} onChange={e => setTableLabel(e.target.value)} style={{ fontSize: '0.9rem' }}>
-                            <option value="">所有标签</option>
+                            <option value="">{t('dashboard.table.allLabels')}</option>
                             {allLabels.map(l => <option key={l} value={l}>{l}</option>)}
                         </select>
 
                         <select value={tableModel} onChange={e => setTableModel(e.target.value)} style={{ fontSize: '0.9rem' }}>
-                            <option value="">所有模型</option>
+                            <option value="">{t('dashboard.table.allModels')}</option>
                             {allModels.map(m => <option key={m} value={m}>{m}</option>)}
                         </select>
 
                         <input
                             type="text"
-                            placeholder="搜索问题..."
+                            placeholder={t('dashboard.table.filterPlaceholder')}
                             value={tableQuery}
                             onChange={e => setTableQuery(e.target.value)}
                             style={{ padding: '0.5rem', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: '4px', color: 'var(--foreground)', minWidth: '250px' }}
                         />
 
                         <span style={{ marginLeft: 'auto', color: 'var(--foreground-secondary)', fontSize: '0.9rem' }}>
-                            共有 {tableFilteredData.length} 条数据
+                            {t('dashboard.table.totalRecords', { count: tableFilteredData.length.toString() })}
                         </span>
                     </div>
 
@@ -2386,16 +2401,16 @@ export default function Dashboard() {
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead style={{ textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)' }}>
                                 <tr>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '130px' }}>时间</th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '90px' }}>框架</th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap', maxWidth: '200px' }}>用户输入</th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '100px' }}><span>时延 <CustomTooltip content="从请求发出到收到最终完整回复的总耗时" /></span></th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '80px' }}><span>Token <CustomTooltip content="输入 Prompt 与输出 Completion 的 Token 总和" /></span></th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '80px' }}><span>准确率 <CustomTooltip content={<div>基于LLM评估Agent真实运行结果与期望答案的差异，给出0-1分值，1表示完全正确。<br />"--"表示评估失败，可能是由于模型未配置（请在首页左上角的设置中配置 LLM）或者数据项未配置。</div>} /></span></th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '90px' }}><span>预估花费 <CustomTooltip content="根据默认定价或自定义（custom-models.json）定价估算得出" /></span></th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '100px' }}>模型</th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '90px' }}>标签</th>
-                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '120px' }}>操作</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '130px' }}>{t('dashboard.table.timestamp')}</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '90px' }}>{t('dashboard.table.framework')}</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', maxWidth: '200px' }}>{t('dashboard.table.userInput')}</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '100px' }}><span>{t('dashboard.table.latency')} <CustomTooltip content={t('dashboard.tooltip.totalLatency')} /></span></th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '80px' }}><span>{t('dashboard.table.tokens')} <CustomTooltip content={t('dashboard.tooltip.totalTokens')} /></span></th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '80px' }}><span>{t('metrics.accuracy')} <CustomTooltip content={<div>{t('dashboard.tooltip.accuracyDetailed')}</div>} /></span></th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '90px' }}><span>{t('dashboard.table.estimatedCost')} <CustomTooltip content={t('dashboard.tooltip.estimatedCost')} /></span></th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '100px' }}>{t('dashboard.table.model')}</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '90px' }}>{t('dashboard.table.label')}</th>
+                                    <th className="p-2" style={{ whiteSpace: 'nowrap', width: '120px' }}>{t('dashboard.table.actions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2467,7 +2482,7 @@ export default function Dashboard() {
                                                         const url = `${basePath}/details?framework=${encodeURIComponent(row.framework)}&expandTaskId=${recordId}`;
                                                         window.open(url, '_blank');
                                                     }} className="btn-sm" style={{ background: 'var(--primary)' }}>
-                                                        详情
+                                                        {t('dashboard.table.detail')}
                                                     </button>
                                                     <button
                                                         onClick={() => handleRejudge(row)}
@@ -2494,14 +2509,14 @@ export default function Dashboard() {
                                                                     animation: 'spin 1s linear infinite',
                                                                     display: 'inline-block'
                                                                 }}></span>
-                                                                <span>评估中...</span>
+                                                                <span>{t('dashboard.table.evaluating')}</span>
                                                             </>
                                                         ) : (
-                                                            '重评'
+                                                            t('dashboard.table.rejudge')
                                                         )}
                                                     </button>
                                                     <button onClick={() => handleDelete(row)} className="btn-sm" style={{ background: c.error }}>
-                                                        删
+                                                        {t('dashboard.table.delete')}
                                                     </button>
                                                 </div>
                                             </td>
@@ -2542,7 +2557,7 @@ export default function Dashboard() {
                     <div style={{ marginTop: '0.5rem', padding: '0.5rem', textAlign: 'center' }}>
                         <p style={{ margin: 0, fontSize: '0.9rem', color: c.fgMuted, lineHeight: 1.6 }}>
                             <a href="https://atomgit.com/openeuler/witty-skill-insight" target="_blank" rel="noopener noreferrer" style={{ color: c.fgMuted, textDecoration: 'underline', textUnderlineOffset: '3px' }}>
-                                你的 ⭐ Star 是前进动力，📢 Issue 使产品更稳，🚀 PR 让功能更强。
+                                {t('dashboard.promotion')}
                             </a>
                         </p>
                     </div>
@@ -2553,19 +2568,19 @@ export default function Dashboard() {
             {activeTab === 'config' && (
                 <div className="config-container">
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
-                        <h2 className="section-title" style={{ marginBottom: 0 }}>数据集管理</h2>
+                        <h2 className="section-title" style={{ marginBottom: 0 }}>{t('nav.dataset')}</h2>
                         <button
                             onClick={() => { setEditingConfig({}); setConfigAnswerMode('manual'); setConfigDocumentFile(null); setIsEditModalOpen(true) }}
                             className="btn-primary"
                             style={{ padding: '8px 20px', fontSize: '0.9rem', borderRadius: '6px' }}
                         >
-                            + 新增数据项
+                            + {t('config.addQuestion')}
                         </button>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {Array.isArray(configs) && configs.length === 0 && (
                             <div className="card" style={{ textAlign: 'center', padding: '3rem', color: c.fgSecondary }}>
-                                暂无数据项，点击上方"+ 新增数据项"开始添加
+                                {t('config.noConfig')}
                             </div>
                         )}
                         {Array.isArray(configs) && configs.map(cfg => (
@@ -2605,7 +2620,7 @@ export default function Dashboard() {
                                         overflow: 'hidden',
                                         textOverflow: 'ellipsis'
                                     }}>
-                                        {(cfg.standard_answer || '').length > 100 ? (cfg.standard_answer || '').substring(0, 100) + '...' : (cfg.standard_answer || '暂无标准答案')}
+                                        {(cfg.standard_answer || '').length > 100 ? (cfg.standard_answer || '').substring(0, 100) + '...' : (cfg.standard_answer || t('dashboard.config.noStandardAnswer'))}
                                     </div>
                                      {(cfg.expectedSkills && cfg.expectedSkills.length > 0) ? (
                                         <div style={{
@@ -2613,7 +2628,7 @@ export default function Dashboard() {
                                             fontSize: '0.75rem',
                                             marginTop: '2px'
                                         }}>
-                                            预期技能: {cfg.expectedSkills.map(s => `${s.skill}${s.version !== null && s.version !== undefined ? ` (v${s.version})` : ''}`).join(', ')}
+                                            {t('dashboard.config.expectedSkill')}: {cfg.expectedSkills.map(s => `${s.skill}${s.version !== null && s.version !== undefined ? ` (v${s.version})` : ''}`).join(', ')}
                                         </div>
                                     ) : cfg.skill && (
                                         <div style={{
@@ -2621,7 +2636,7 @@ export default function Dashboard() {
                                             fontSize: '0.75rem',
                                             marginTop: '2px'
                                         }}>
-                                            预期技能: {cfg.skill}{cfg.skillVersion !== null && cfg.skillVersion !== undefined ? ` (v${cfg.skillVersion})` : ''}
+                                            {t('dashboard.config.expectedSkill')}: {cfg.skill}{cfg.skillVersion !== null && cfg.skillVersion !== undefined ? ` (v${cfg.skillVersion})` : ''}
                                         </div>
                                     )}
                                 </div>
@@ -2634,13 +2649,13 @@ export default function Dashboard() {
                                             background: c.warningSubtle, color: c.warning, border: '1px solid rgba(251, 191, 36, 0.25)'
                                         }}>
                                             <span style={{ width: '10px', height: '10px', border: '1.5px solid #fbbf24', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', display: 'inline-block' }}></span>
-                                            解析中
+                                            {t('dashboard.config.parsing')}
                                         </span>
                                     ) : cfg.parse_status === 'failed' ? (
                                         <span style={{
                                             padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
                                             background: c.errorSubtle, color: c.error, border: '1px solid rgba(239, 68, 68, 0.25)'
-                                        }}>✕ 失败</span>
+                                        }}>✕ {t('dashboard.config.failed')}</span>
                                     ) : (
                                         <span style={{
                                             padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
@@ -2733,16 +2748,16 @@ export default function Dashboard() {
             {isEditModalOpen && (
                 <div className="modal-overlay" onClick={() => setIsEditModalOpen(false)}>
                     <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ maxHeight: '90vh', overflowY: 'auto', maxWidth: '900px', width: '66vw', minWidth: '500px', flexDirection: 'column' }}>
-                        <h3>{editingConfig.id ? '数据项详情' : '新增数据项'}</h3>
+                        <h3>{editingConfig.id ? t('dashboard.config.editTitle') : t('dashboard.config.addTitle')}</h3>
 
                         {/* 问题 - 始终突出显示 */}
                         <div className="form-group">
-                            <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>问题<span style={{ color: c.error }}>*</span></label>
+                            <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>{t('dashboard.config.question')}<span style={{ color: c.error }}>*</span></label>
                             <textarea
                                 value={editingConfig.query || ''}
                                 onChange={e => setEditingConfig({ ...editingConfig, query: e.target.value })}
                                 disabled={!!editingConfig.id}
-                                placeholder="请输入需要评估的问题..."
+                                placeholder={t('dashboard.config.questionPlaceholder')}
                                 style={{ width: '100%', padding: '10px', minHeight: '60px', opacity: editingConfig.id ? 0.7 : 1, cursor: editingConfig.id ? 'not-allowed' : 'text', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
                             />
                         </div>
@@ -2750,7 +2765,7 @@ export default function Dashboard() {
                         {!editingConfig.id ? (                            <>
                                 {/* 标准答案 - 突出显示 */}
                                 <div className="form-group">
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>标准答案 <span style={{ color: c.error }}>*</span></label>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>{t('dashboard.config.standardAnswer')} <span style={{ color: c.error }}>*</span></label>
                                     <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
                                         <button
                                             onClick={() => { setConfigAnswerMode('manual'); setConfigDocumentFile(null); }}
@@ -2766,7 +2781,7 @@ export default function Dashboard() {
                                                 transition: 'all 0.2s'
                                             }}
                                         >
-                                            ✏️ 手动填写
+                                            ✏️ {t('config.answerMode.manual')}
                                         </button>
                                         <button
                                             onClick={() => setConfigAnswerMode('document')}
@@ -2782,7 +2797,7 @@ export default function Dashboard() {
                                                 transition: 'all 0.2s'
                                             }}
                                         >
-                                            📄 上传案例文档
+                                            📄 {t('config.answerMode.document')}
                                         </button>
                                     </div>
 
@@ -2790,7 +2805,7 @@ export default function Dashboard() {
                                         <textarea
                                             value={editingConfig.standard_answer || ''}
                                             onChange={e => setEditingConfig({ ...editingConfig, standard_answer: e.target.value })}
-                                            placeholder="请填写该问题的标准答案..."
+                                            placeholder={t('dashboard.config.standardAnswerPlaceholder')}
                                             style={{ width: '100%', padding: '10px', minHeight: '150px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.9rem' }}
                                         />
                                     ) : (
@@ -2833,7 +2848,7 @@ export default function Dashboard() {
                                             ) : (
                                                 <div>
                                                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📁</div>
-                                                    <div style={{ color: c.fgMuted }}>点击或拖拽上传案例文档</div>
+                                                    <div style={{ color: c.fgMuted }}>{t('dashboard.config.dragUpload')}</div>
                                                     <div style={{ color: c.fgSecondary, fontSize: '0.8rem', marginTop: '4px' }}>
                                                         支持 .txt, .md, .pdf 格式
                                                     </div>
@@ -2845,7 +2860,7 @@ export default function Dashboard() {
 
                                 {/* Expected Skills (Optional) */}
                                 <div className="form-group" style={{ marginTop: '1rem' }}>
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>预期技能 <span style={{ color: c.fgSecondary, fontWeight: 400 }}>（可选）</span></label>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>{t('dashboard.config.expectedSkillOptional')}</label>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                         {(editingConfig.expectedSkills || []).map((item, index) => (
                                             <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -2857,7 +2872,7 @@ export default function Dashboard() {
                                                         newSkills[index] = { ...newSkills[index], skill: e.target.value };
                                                         setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
                                                     }}
-                                                    placeholder="技能名称"
+                                                    placeholder={t('config.skillNamePlaceholder')}
                                                     style={{ flex: 2, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
                                                 />
                                             <input
@@ -2872,7 +2887,7 @@ export default function Dashboard() {
                                                     };
                                                     setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
                                                 }}
-                                                placeholder="版本 (默认: 0)"
+                                                placeholder={t('config.versionPlaceholder')}
                                                 style={{ flex: 1, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
                                             />
                                             <button
@@ -2895,14 +2910,14 @@ export default function Dashboard() {
                                         }}
                                         style={{ padding: '8px', background: c.primarySubtle, color: c.primary, border: `1px dashed ${c.primary}`, borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
                                     >
-                                        + 添加预期技能
+                                        {t('dashboard.config.addExpectedSkill')}
                                     </button>
                                 </div>
                             </div>
 
                             <div style={{ marginTop: '1rem', padding: '12px 16px', background: c.primarySubtle, border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: c.fgMuted, fontSize: '0.85rem' }}>
                                 <p style={{ margin: 0 }}>
-                                    💡 保存后，系统将基于标准答案自动提取<strong style={{ color: c.linkHover }}>关键观点</strong>（回答中必须包含的核心信息）和<strong style={{ color: c.linkHover }}>关键动作</strong>（Agent 必须执行的操作步骤），用于后续的细致评估打分。此过程在后台执行，无需等待。
+                                    💡 {t('dashboard.config.autoExtractHint')}
                                 </p>
                             </div>
                         </>
@@ -2919,7 +2934,7 @@ export default function Dashboard() {
 
                                 {/* Expected Skills (Optional) */}
                                 <div className="form-group" style={{ marginTop: '1rem' }}>
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>预期技能 <span style={{ color: c.fgSecondary, fontWeight: 400 }}>（可选）</span></label>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>{t('dashboard.config.expectedSkillOptional')}</label>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                         {(editingConfig.expectedSkills || []).map((item, index) => (
                                             <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -2931,7 +2946,7 @@ export default function Dashboard() {
                                                         newSkills[index] = { ...newSkills[index], skill: e.target.value };
                                                         setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
                                                     }}
-                                                    placeholder="技能名称"
+                                                    placeholder={t('config.skillNamePlaceholder')}
                                                     style={{ flex: 2, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
                                                 />
                                                 <input
@@ -2946,7 +2961,7 @@ export default function Dashboard() {
                                                         };
                                                         setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
                                                     }}
-                                                    placeholder="版本 (默认: 0)"
+                                                    placeholder={t('config.versionPlaceholder')}
                                                     style={{ flex: 1, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
                                                 />
                                                 <button
@@ -2969,7 +2984,7 @@ export default function Dashboard() {
                                             }}
                                             style={{ padding: '8px', background: c.primarySubtle, color: c.primary, border: `1px dashed ${c.primary}`, borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
                                         >
-                                            + 添加预期技能
+                                            {t('dashboard.config.addExpectedSkill')}
                                         </button>
                                     </div>
                                 </div>
@@ -3004,7 +3019,7 @@ export default function Dashboard() {
                                         {(editingConfig.root_causes || []).map((item, idx) => (
                                             <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
                                                 <input
-                                                    placeholder="内容"
+                                                    placeholder={t('config.contentPlaceholder')}
                                                     value={item.content}
                                                     onChange={e => {
                                                         const newItems = [...(editingConfig.root_causes || [])];
@@ -3015,7 +3030,7 @@ export default function Dashboard() {
                                                 />
                                                 <input
                                                     type="number"
-                                                    placeholder="权重"
+                                                    placeholder={t('config.weightPlaceholder')}
                                                     value={item.weight}
                                                     onChange={e => {
                                                         const newItems = [...(editingConfig.root_causes || [])];
@@ -3074,16 +3089,16 @@ export default function Dashboard() {
                                     <div style={{ background: c.bg, padding: '10px', borderRadius: '4px', border: `1px solid ${c.border}`, marginTop: '8px' }}>
                                         <div style={{ color: c.fgSecondary, fontSize: '0.8rem', marginBottom: '10px', padding: '6px 8px', background: c.bgTertiary, borderRadius: '4px' }}>
                                             {editingConfig.extractedKeyActions && (editingConfig.extractedKeyActions as any[]).length > 0
-                                                ? '来源：从 Skill 流程中自动抽取 · 作用：评估 Agent 是否执行了所有必要的操作步骤'
-                                                : '来源：从标准答案中自动提取 · 作用：评估 Agent 是否执行了所有必要的操作步骤'}
+                                                ? t('config.keyActionsSourceSkill')
+                                                : t('config.keyActionsSourceAnswer')}
                                         </div>
                                         {(() => {
                                             const cfLabelMap: Record<string, { text: string; color: string }> = {
-                                                'required': { text: '必选', color: '#38bdf8' },
-                                                'conditional': { text: '条件分支', color: '#fbbf24' },
-                                                'loop': { text: '循环', color: '#a78bfa' },
-                                                'optional': { text: '可选', color: '#94a3b8' },
-                                                'handoff': { text: '衔接', color: '#4ade80' },
+                                                'required': { text: t('config.controlFlow.required'), color: '#38bdf8' },
+                                                'conditional': { text: t('config.controlFlow.conditional'), color: '#fbbf24' },
+                                                'loop': { text: t('config.controlFlow.loop'), color: '#a78bfa' },
+                                                'optional': { text: t('config.controlFlow.optional'), color: '#94a3b8' },
+                                                'handoff': { text: t('config.controlFlow.handoff'), color: '#4ade80' },
                                             };
                                             const items = editingConfig.key_actions || [];
                                             const elements: React.ReactNode[] = [];
@@ -3100,8 +3115,8 @@ export default function Dashboard() {
 
                                                 if (showGroupHeader) {
                                                     const groupTitle = cfType === 'conditional'
-                                                        ? ((item as any).condition || '条件分支')
-                                                        : ((item as any).loopCondition || '循环');
+                                                        ? ((item as any).condition || t('config.controlFlow.conditional'))
+                                                        : ((item as any).loopCondition || t('config.controlFlow.loop'));
                                                     elements.push(
                                                         <div key={`group-${groupId}`} style={{
                                                             display: 'flex',
@@ -3138,7 +3153,7 @@ export default function Dashboard() {
                                                             {cfInfo.text}
                                                         </span>
                                                         <input
-                                                            placeholder="内容"
+                                                            placeholder={t('config.contentPlaceholder')}
                                                             value={item.content}
                                                             onChange={e => {
                                                                 const newItems = [...(editingConfig.key_actions || [])];
@@ -3149,7 +3164,7 @@ export default function Dashboard() {
                                                         />
                                                         <input
                                                             type="number"
-                                                            placeholder="权重"
+                                                            placeholder={t('config.weightPlaceholder')}
                                                             value={item.weight}
                                                             onChange={e => {
                                                                 const newItems = [...(editingConfig.key_actions || [])];
@@ -3203,7 +3218,7 @@ export default function Dashboard() {
                                     transition: 'all 0.2s'
                                 }}
                             >
-                                取消
+                                {t('common.cancel')}
                             </button>
                             <button
                                 onClick={saveConfig}
@@ -3221,7 +3236,7 @@ export default function Dashboard() {
                                     boxShadow: isSavingConfig ? 'none' : '0 2px 8px rgba(56, 189, 248, 0.25)'
                                 }}
                             >
-                                {isSavingConfig ? '保存中...' : '保存'}
+                                {isSavingConfig ? t('common.loading') : t('common.save')}
                             </button>
                         </div>
                     </div >
@@ -3396,7 +3411,7 @@ export default function Dashboard() {
                                     <textarea
                                         value={feedbackComment}
                                         onChange={(e) => setFeedbackComment(e.target.value)}
-                                        placeholder="添加评论 （可选）..."
+                                        placeholder={t('config.commentPlaceholder')}
                                         style={{ flex: 1, minHeight: '60px', padding: '8px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '4px', fontSize: '0.9rem' }}
                                     />
                                     <button
@@ -3506,7 +3521,7 @@ export default function Dashboard() {
                                                         handleSuccess();
                                                     } catch (err) {
                                                         console.error('Fallback: Oops, unable to copy', err);
-                                                        alert('复制失败，请手动复制');
+                                                        alert(t('common.copyFailed'));
                                                     }
                                                     document.body.removeChild(textArea);
                                                 }
@@ -3547,7 +3562,7 @@ export default function Dashboard() {
                                     <div>
                                         <h4 style={{ margin: '0 0 0.25rem 0', color: c.fg, fontSize: '0.95rem' }}>新手引导</h4>
                                         <p style={{ margin: 0, fontSize: '0.8rem', color: c.fgMuted }}>
-                                            {guideState?.guideDisabled ? '引导已关闭' : '引导已开启'}
+                                            {guideState?.guideDisabled ? 'Guide Disabled' : 'Guide Enabled'}
                                         </p>
                                     </div>
                                     <button
@@ -3598,7 +3613,7 @@ export default function Dashboard() {
                                             fontSize: '0.85rem',
                                         }}
                                     >
-                                        {guideState?.guideDisabled ? '启用引导' : '重新开始引导'}
+                                        {guideState?.guideDisabled ? t('guide.buttons.enableGuide') : t('guide.buttons.restartGuide')}
                                     </button>
                                 </div>
                             </div>

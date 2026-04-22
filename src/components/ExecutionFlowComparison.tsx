@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/api'
 import { useTheme, useThemeColors } from '@/lib/theme-context';
+import { useLocale } from '@/lib/locale-context';
 
 interface ExecutionFlowComparisonProps {
   executionId: string;
@@ -58,6 +59,7 @@ export default function ExecutionFlowComparison({
   const [componentExpanded, setComponentExpanded] = useState(false);
   const [autoParsing, setAutoParsing] = useState(false);
   const { isDark } = useTheme();
+  const { t } = useLocale();
   const c = useThemeColors();
 
 
@@ -117,10 +119,10 @@ export default function ExecutionFlowComparison({
           matchedAt: new Date().toISOString()
         });
       } else {
-        setError(result.error || '分析失败');
+        setError(result.error || t('flow.analysisFailed'));
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : '网络错误';
+      const message = e instanceof Error ? e.message : t('errors.networkError');
       setError(message);
     } finally {
       setAnalyzing(false);
@@ -129,7 +131,7 @@ export default function ExecutionFlowComparison({
 
   const handleCompareAnalyze = async () => {
     if (!actualSkillId) {
-      setError('该执行记录未关联 Skill，无法进行 Skill 对比。请使用"流程解析"功能。');
+      setError(t('flow.noSkillForComparison'));
       return;
     }
 
@@ -163,10 +165,10 @@ export default function ExecutionFlowComparison({
           usedSkillVersion: result.usedSkillVersion
         });
       } else {
-        setError(result.error || '分析失败');
+        setError(result.error || t('flow.analysisFailed'));
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : '网络错误';
+      const message = e instanceof Error ? e.message : t('errors.networkError');
       setError(message);
     } finally {
       setAnalyzing(false);
@@ -192,11 +194,11 @@ export default function ExecutionFlowComparison({
       onClick={() => setComponentExpanded(!componentExpanded)}
       >
         <h4 style={{ color: c.primary, margin: 0, fontSize: '0.95rem' }}>
-          📊 执行流程分析
+          {t('flow.executionFlowAnalysis')}
         </h4>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           <span style={{ color: c.fgMuted, fontSize: '0.8rem', marginRight: '0.5rem' }}>
-            {componentExpanded ? '收起' : '展开'}
+            {componentExpanded ? t('details.collapse') : t('details.expand')}
           </span>
           <button
             style={{
@@ -229,7 +231,7 @@ export default function ExecutionFlowComparison({
               gap: '0.5rem'
             }}>
               <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>🔄</span>
-              正在自动解析执行轨迹，请稍候...模型调用需要2-3分钟，如长时间未完成，可点击按钮手动重新解析
+              {t('flow.autoParsingExecution')}
             </div>
           )}
           <div style={{ 
@@ -253,7 +255,7 @@ export default function ExecutionFlowComparison({
                   fontSize: '0.85rem'
                 }}
               >
-                {analyzing && analyzeMode === 'dynamic' ? '分析中...' : '流程解析'}
+                {analyzing && analyzeMode === 'dynamic' ? t('flow.analyzing') : t('flow.flowParse')}
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setAutoParsing(false); handleCompareAnalyze(); }}
@@ -269,7 +271,7 @@ export default function ExecutionFlowComparison({
                   fontSize: '0.85rem'
                 }}
               >
-                {analyzing && analyzeMode === 'compare' ? '对比中...' : 'Skill对比'}
+                {analyzing && analyzeMode === 'compare' ? t('flow.comparing') : t('flow.skillComparison')}
               </button>
             </div>
           </div>
@@ -292,7 +294,7 @@ export default function ExecutionFlowComparison({
               {matchData.mode === 'compare' && matchData.dynamicMermaid ? (
                 <div style={{ marginBottom: '1rem' }}>
                   <h5 style={{ color: c.fgMuted, margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>
-                    执行流程对比 {matchData.usedSkillName && `(${matchData.usedSkillName} v${matchData.usedSkillVersion})`}
+                    {t('flow.executionFlowComparison')} {matchData.usedSkillName && `(${matchData.usedSkillName} v${matchData.usedSkillVersion})`}
                   </h5>
                   <div style={{ 
                     background: c.bg, 
@@ -309,7 +311,7 @@ export default function ExecutionFlowComparison({
               ) : (
                 <div style={{ marginBottom: '1rem' }}>
                   <h5 style={{ color: c.fgMuted, margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>
-                    执行轨迹
+                    {t('flow.executionTrace')}
                   </h5>
                   <div style={{ 
                     background: c.bg, 
@@ -345,16 +347,16 @@ export default function ExecutionFlowComparison({
                       marginBottom: '1rem'
                     }}>
                       <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.85rem' }}>
-                        <span style={{ color: c.success }}>✅ 符合预期：{summary.matchedSteps || 0}</span>
-                        <span style={{ color: c.warning }}>⚠️ 部分偏离：{summary.partialSteps || 0}</span>
-                        <span style={{ color: c.error }}>❌ 非预期调用：{summary.unexpectedSteps || 0}</span>
-                        <span style={{ color: c.fgMuted }}>⭕ 跳过：{summary.skippedSteps || 0}</span>
+                        <span style={{ color: c.success }}>✅ {t('flow.matchedSteps')}：{summary.matchedSteps || 0}</span>
+                        <span style={{ color: c.warning }}>⚠️ {t('flow.status.partial')}：{summary.partialSteps || 0}</span>
+                        <span style={{ color: c.error }}>❌ {t('flow.status.unexpected')}：{summary.unexpectedSteps || 0}</span>
+                        <span style={{ color: c.fgMuted }}>⭕ {t('flow.status.skipped')}：{summary.skippedSteps || 0}</span>
                       </div>
                       <div style={{ marginLeft: 'auto', fontSize: '0.8rem', color: c.fgSecondary }}>
-                        对话轮数: {matchData.interactionCount}
+                        {t('flow.interactionCount')}: {matchData.interactionCount}
                         {matchData.hasUpdate && (
                           <span style={{ color: c.warning, marginLeft: '0.5rem' }}>
-                            (有更新)
+                            {t('flow.hasUpdates')}
                           </span>
                         )}
                       </div>
@@ -376,7 +378,7 @@ export default function ExecutionFlowComparison({
                     onClick={() => setAnalysisExpanded(!analysisExpanded)}
                   >
                     <h5 style={{ color: c.fgMuted, margin: 0, fontSize: '0.85rem' }}>
-                      问题步骤分析
+                      {t('flow.problemStepAnalysis')}
                     </h5>
                     <button
                       style={{
@@ -389,7 +391,7 @@ export default function ExecutionFlowComparison({
                         fontSize: '0.8rem'
                       }}
                     >
-                      {analysisExpanded ? '收起 ▲' : '展开 ▼'}
+                      {analysisExpanded ? t('details.collapse') + ' ▲' : t('details.expand') + ' ▼'}
                     </button>
                   </div>
                   {analysisExpanded && (
@@ -407,7 +409,7 @@ export default function ExecutionFlowComparison({
                             color: c.fgSecondary,
                             fontSize: '0.9rem'
                           }}>
-                            暂无问题步骤
+                            {t('flow.noProblemSteps')}
                           </div>
                         );
                       }
@@ -422,15 +424,15 @@ export default function ExecutionFlowComparison({
                             color: c.success,
                             fontSize: '0.9rem'
                           }}>
-                            ✅ 执行流程完全符合预期，无问题步骤
+                            {t('flow.allStepsMatched')}
                           </div>
                         );
                       }
                       
                       const statusLabel: Record<string, { text: string; color: string }> = {
-                        'partial': { text: '部分偏离', color: c.warning },
-                        'unexpected': { text: '非预期调用', color: c.error },
-                        'skipped': { text: '跳过', color: c.fgMuted }
+                        'partial': { text: t('flow.status.partial'), color: c.warning },
+                        'unexpected': { text: t('flow.status.unexpected'), color: c.error },
+                        'skipped': { text: t('flow.status.skipped'), color: c.fgMuted }
                       };
 
                       const controlFlowLabel: Record<string, { text: string; color: string }> = {
@@ -469,12 +471,12 @@ export default function ExecutionFlowComparison({
                           }}>
                             <thead>
                               <tr style={{ background: c.bgSecondary }}>
-                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}`, width: '80px' }}>对话轮数</th>
-                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}`, width: '120px' }}>步骤名称</th>
-                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}`, width: '110px' }}>状态</th>
-                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}`, width: '90px' }}>控制流</th>
-                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}` }}>问题描述</th>
-                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}` }}>改进建议</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}`, width: '80px' }}>{t('flow.interactionCount')}</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}`, width: '120px' }}>{t('flow.stepName')}</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}`, width: '110px' }}>{t('flow.stepStatus')}</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}`, width: '90px' }}>{t('flow.controlFlow')}</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}` }}>{t('flow.problemDescription')}</th>
+                                <th style={{ padding: '0.75rem', textAlign: 'left', color: c.fgMuted, borderBottom: `1px solid ${c.border}` }}>{t('details.evalTable.improvementSuggestion')}</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -543,10 +545,10 @@ export default function ExecutionFlowComparison({
               padding: '2rem'
             }}>
               <div style={{ marginBottom: '0.5rem' }}>
-                <strong>执行流程</strong>：根据执行数据生成轨迹图，无需关联 Skill
+                <strong>{t('flow.executionFlowHint')}</strong>
               </div>
               <div>
-                <strong>Skill对比</strong>：与已解析的 Skill 流程进行对比分析
+                <strong>{t('flow.skillComparisonHint')}</strong>
               </div>
             </div>
           )}
@@ -558,6 +560,7 @@ export default function ExecutionFlowComparison({
 
 function MermaidRenderer({ code }: { code: string }) {
   const { isDark } = useTheme();
+  const { t } = useLocale();
   const c = useThemeColors();
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string>('');
@@ -582,7 +585,7 @@ function MermaidRenderer({ code }: { code: string }) {
         setError('');
       } catch (e) {
         console.error('Mermaid render error:', e);
-        setError('渲染失败');
+        setError(t('flow.renderFailed'));
       }
     };
     if (code) renderMermaid();
@@ -593,7 +596,7 @@ function MermaidRenderer({ code }: { code: string }) {
   }
 
   if (!svg) {
-    return <div style={{ color: c.fgSecondary }}>加载中...</div>;
+    return <div style={{ color: c.fgSecondary }}>{t('flow.analyzing')}</div>;
   }
 
   return (

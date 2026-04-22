@@ -3,6 +3,7 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTheme, useThemeColors } from '@/lib/theme-context';
+import { useLocale } from '@/lib/locale-context';
 
 export interface GuideStep {
     id: string;
@@ -59,15 +60,16 @@ function GuideBubble({
     const bubbleRef = useRef<HTMLDivElement>(null);
     const mounted = typeof window !== 'undefined';
     const { isDark } = useTheme();
+    const { t } = useLocale();
     const c = useThemeColors();
 
 
     const handleCopy = (text: string) => {
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(text).then(() => {
-                alert('复制成功！');
+                alert(t('common.copySuccess'));
             }).catch(() => {
-                alert('复制失败，请手动复制');
+                alert(t('common.copyFailed'));
             });
         } else {
             const textArea = document.createElement("textarea");
@@ -80,10 +82,10 @@ function GuideBubble({
             textArea.select();
             try {
                 document.execCommand('copy');
-                alert('复制成功！');
+                alert(t('common.copySuccess'));
             } catch (err) {
                 console.error('Fallback: Fallback: Oops, unable to copy', err);
-                alert('复制失败，请手动复制');
+                alert(t('common.copyFailed'));
             }
             document.body.removeChild(textArea);
         }
@@ -336,7 +338,7 @@ function GuideBubble({
                             marginBottom: '12px',
                             lineHeight: 1.5
                         }}>
-                            为了让客户端能够连接到平台并上报数据，需要配置客户端环境。请根据您的操作系统选择以下命令执行：
+                            {t('guide.setup.description')}
                         </div>
                         
                         <div style={{ marginBottom: '10px' }}>
@@ -394,7 +396,7 @@ function GuideBubble({
                                         e.currentTarget.style.background = 'rgba(56, 189, 248, 0.2)';
                                     }}
                                 >
-                                    复制
+                                    {t('guide.buttons.copy')}
                                 </button>
                             </div>
                         </div>
@@ -454,7 +456,7 @@ function GuideBubble({
                                         e.currentTarget.style.background = 'rgba(56, 189, 248, 0.2)';
                                     }}
                                 >
-                                    复制
+                                    {t('guide.buttons.copy')}
                                 </button>
                             </div>
                         </div>
@@ -473,7 +475,7 @@ function GuideBubble({
                                     fontWeight: 600,
                                     marginBottom: '6px'
                                 }}>
-                                    🔑 您的密钥
+                                    {t('guide.setup.yourApiKey')}
                                 </div>
                                 <div style={{ 
                                     position: 'relative'
@@ -521,7 +523,7 @@ function GuideBubble({
                                     fontSize: '0.75rem',
                                     lineHeight: 1.4
                                 }}>
-                                    执行上述命令时，系统会提示您输入 密钥，请复制上面的 Key 粘贴到终端中。
+                                    {t('guide.setup.apiKeyHint')}
                                 </div>
                             </div>
                         )}
@@ -560,7 +562,7 @@ function GuideBubble({
                                 fontSize: '0.85rem',
                             }}
                         >
-                            上一步
+                            {t('guide.buttons.prev')}
                         </button>
                     )}
                     
@@ -599,7 +601,7 @@ function GuideBubble({
                                 fontWeight: 600,
                             }}
                         >
-                            下一步
+                            {t('guide.buttons.next')}
                         </button>
                     ) : (
                         <button
@@ -615,7 +617,7 @@ function GuideBubble({
                                 fontWeight: 600,
                             }}
                         >
-                            完成
+                            {t('guide.buttons.done')}
                         </button>
                     )}
 
@@ -631,7 +633,7 @@ function GuideBubble({
                             fontSize: '0.8rem',
                         }}
                     >
-                        跳过
+                        {t('guide.buttons.skip')}
                     </button>
                 </div>
 
@@ -653,7 +655,7 @@ function GuideBubble({
                             }}
                             style={{ accentColor: '#38bdf8' }}
                         />
-                        不再显示指引
+                        {t('guide.buttons.dontShow')}
                     </label>
                 </div>
             </div>

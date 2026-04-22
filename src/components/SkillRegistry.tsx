@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth-context';
+import { useLocale } from '@/lib/locale-context';
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/api'
 import { useTheme, useThemeColors } from '@/lib/theme-context';
@@ -37,6 +38,7 @@ interface SkillVersion {
 function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
   const { apiKey } = useAuth();
     const { isDark } = useTheme();
+    const { t } = useLocale();
     const c = useThemeColors();
 
   const [syncing, setSyncing] = useState(false);
@@ -45,7 +47,7 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
 
   const handleSyncFromEnterprise = async () => {
     setSyncing(true);
-    setSyncProgress('正在从企业同步技能...');
+    setSyncProgress(t('skill.syncingProgress'));
     setSyncResult(null);
     
     try {
@@ -56,7 +58,7 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
       
       const result = await res.json();
       if (res.ok) {
-        setSyncProgress('同步完成！');
+        setSyncProgress(t('skill.syncComplete'));
         setSyncResult(result);
         onSuccess();
       } else {
@@ -65,7 +67,7 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
       }
     } catch (err: any) {
       setSyncProgress(`同步出错: ${err.message}`);
-      alert('同步出错');
+      alert(t('skill.syncError'));
     } finally {
       setSyncing(false);
     }
@@ -75,11 +77,10 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
     <div className="upload-card">
       <div style={{ fontSize: '3rem', marginBottom: '1rem', color: c.fgMuted }}>🔄</div>
       <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', color: c.fg }}>
-        从'skill市场--我的skill'同步
+        {t('skill.syncFromEnterprise')}
       </h3>
       <p style={{ color: c.fgSecondary, marginBottom: '1.5rem', maxWidth: '400px', fontSize: '0.9rem', lineHeight: 1.5 }}>
-        从'skill市场--我的skill'自动拉取所有技能。
-        <br />同版本号skill将被覆盖。
+        {t('skill.syncDescription')}
       </p>
       
       <button
@@ -91,7 +92,7 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
           cursor: syncing ? 'not-allowed' : 'pointer'
         }}
       >
-        {syncing ? '同步中...' : '开始同步'}
+        {syncing ? t('skill.syncing') : t('skill.syncStart')}
       </button>
       
       {syncProgress && (
@@ -102,10 +103,10 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
       
       {syncResult && (
         <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#e4e4e7', borderRadius: '0.5rem' }}>
-          <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>同步结果：</div>
-          <div>总技能数: {syncResult.totalSkills}</div>
-          <div style={{ color: c.success }}>成功: {syncResult.successCount}</div>
-          <div style={{ color: c.error }}>失败: {syncResult.failedCount}</div>
+          <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>{t('skill.syncResult')}</div>
+          <div>{t('skill.totalSkillsCount')}: {syncResult.totalSkills}</div>
+          <div style={{ color: c.success }}>{t('skill.successCount')}: {syncResult.successCount}</div>
+          <div style={{ color: c.error }}>{t('skill.failedCount')}: {syncResult.failedCount}</div>
           
           {syncResult.failedCount > 0 && (
             <details style={{ marginTop: '0.5rem' }}>
@@ -127,6 +128,7 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
 
 function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
   const { isDark } = useTheme();
+  const { t } = useLocale();
   const c = useThemeColors();
   const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
@@ -138,7 +140,7 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
     if (!files || files.length === 0) return;
 
     setUploading(true);
-    setLogs(['Preparing upload...']);
+    setLogs([t('skill.preparingUpload')]);
 
     const formData = new FormData();
     if (user) formData.append('user', user);
@@ -157,7 +159,7 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
       const result = await res.json();
       if (res.ok) {
         setLogs(prev => [...prev, 'Upload successful!', `Skill: ${result.skill.name} (v${result.version.version})`]);
-        alert('技能上传成功！');
+        alert(t('skill.uploadSuccess'));
         onSuccess();
       } else {
         setLogs(prev => [...prev, `Error: ${result.error}`]);
@@ -165,7 +167,7 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
       }
     } catch (err: any) {
       setLogs(prev => [...prev, `Network Error: ${err.message}`]);
-      alert('上传出错');
+      alert(t('skill.uploadError'));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -175,11 +177,11 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
   return (
     <div className="upload-card">
       <div style={{ fontSize: '3rem', marginBottom: '1rem', color: c.fgMuted }}>📂</div>
-      <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', color: c.fg }}>上传 Skill</h3>
+      <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', color: c.fg }}>{t('skill.uploadTitle')}</h3>
       <p style={{ color: c.fgSecondary, marginBottom: '1.5rem', maxWidth: '400px', fontSize: '0.9rem', lineHeight: 1.5 }}>
-        选择包含 <code>SKILL.md</code>的文件夹。
-        <br /><span style={{ color: c.warning }}>注意: 请上传整个文件夹</span>
-        <br /><span style={{ color: c.error, fontWeight: 'bold' }}>重要: 文件夹名称不得包含中文字符。</span>
+        {t('skill.uploadDescription')}
+        <br /><span style={{ color: c.warning }}>{t('skill.uploadNote1')}</span>
+        <br /><span style={{ color: c.error, fontWeight: 'bold' }}>{t('skill.uploadNote2')}</span>
       </p>
 
       <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -188,7 +190,7 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
           style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', fontSize: '1rem' }}
           onClick={() => fileInputRef.current?.click()}
         >
-          <span>选择文件夹</span>
+          <span>{t('skill.selectFolder')}</span>
         </button>
         <input
           ref={fileInputRef}
@@ -215,6 +217,7 @@ function SkillUpload({ onSuccess }: { onSuccess: () => void }) {
 
 function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: string, version: number, onClose: () => void }) {
   const { isDark } = useTheme();
+  const { t } = useLocale();
   const c = useThemeColors();
   const { user } = useAuth();
   const [detail, setDetail] = useState<any>(null);
@@ -286,7 +289,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
         alert(`解析失败: ${result.error}`);
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : '未知错误';
+      const message = e instanceof Error ? e.message : t('skill.versions.unknownError');
       alert(`解析出错: ${message}`);
     } finally {
       setParsing(false);
@@ -314,7 +317,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                 fontSize: '0.9rem'
               }}
             >
-              {parsing ? '解析中...' : (parsedFlow ? '重新解析' : '解析流程')}
+              {parsing ? t('skill.versions.parsing') : (parsedFlow ? t('skill.versions.reparsing') : t('skill.versions.parseFlow'))}
             </button>
             <button 
               onClick={onClose} 
@@ -416,7 +419,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                     gap: '0.5rem'
                   }}>
                     <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>🔄</span>
-                    正在自动解析 Skill 流程，请稍候...模型调用可能需要2-3分钟，如长时间未完成，可点击「解析流程」按钮手动重新解析
+                    {t('flow.autoParsingSkill')}
                   </div>
                 ) : (
                   <div style={{ 
@@ -464,7 +467,7 @@ function MermaidFlowChart({ code }: { code: string }) {
         setError('');
       } catch (e) {
         console.error('Mermaid render error:', e);
-        setError('流程图渲染失败');
+        setError('Flow diagram render failed');
       }
     };
     if (code) renderMermaid();
@@ -799,6 +802,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
 
 function SkillCatalog({ refresh }: { refresh: number }) {
   const { isDark } = useTheme();
+  const { t } = useLocale();
   const c = useThemeColors();
   const { user } = useAuth();
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -901,12 +905,12 @@ function SkillCatalog({ refresh }: { refresh: number }) {
         border: `1px solid ${c.border}`
       }}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: '0.875rem', color: c.fgSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill 总数</span>
+          <span style={{ fontSize: '0.875rem', color: c.fgSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{t('skill.totalSkills')}</span>
           <span style={{ fontSize: '2.5rem', fontWeight: 700, color: c.fg, lineHeight: 1 }}>{totalSkills}</span>
         </div>
         <div style={{ width: '1px', background: '#e4e4e7' }}></div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: '0.875rem', color: c.fgSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>已上传 Skill</span>
+          <span style={{ fontSize: '0.875rem', color: c.fgSecondary, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{t('skill.uploadedSkills')}</span>
           <span style={{ fontSize: '2.5rem', fontWeight: 700, color: c.success, lineHeight: 1 }}>{uploadedSkills}</span>
         </div>
       </div>
@@ -968,7 +972,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
                   transition: 'all 0.2s'
                 }}
               >
-                {skill.isUploaded ? '☁️ 激活' : '☁️ 未激活'}
+                {skill.isUploaded ? t('skill.catalog.uploadToggle') : t('skill.catalog.uploadNotActive')}
               </button>
 
               <button
@@ -976,7 +980,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
                 className="btn-manage"
               >
                 <span>⚙️</span>
-                <span>版本管理</span>
+                <span>{t('skill.catalog.manage')}</span>
               </button>
               <button
                 onClick={() => handleDelete(skill.id)}
@@ -993,8 +997,8 @@ function SkillCatalog({ refresh }: { refresh: number }) {
         {skills.length === 0 && (
           <div className="upload-card" style={{ gridColumn: '1 / -1', background: 'transparent', borderStyle: 'dashed' }}>
             <div style={{ fontSize: '3rem', marginBottom: '1rem', opacity: 0.3 }}>📦</div>
-            <p style={{ color: c.fgSecondary, fontSize: '1.2rem' }}>无 skill</p>
-            <p style={{ color: c.fgMuted, fontSize: '0.9rem', marginTop: '0.5rem' }}>上传 skill</p>
+            <p style={{ color: c.fgSecondary, fontSize: '1.2rem' }}>{t('skill.noSkill')}</p>
+            <p style={{ color: c.fgMuted, fontSize: '0.9rem', marginTop: '0.5rem' }}>{t('skill.uploadSkill')}</p>
           </div>
         )}
       </div>
@@ -1011,6 +1015,7 @@ function SkillCatalog({ refresh }: { refresh: number }) {
 }
 
 export default function SkillRegistry() {
+  const { t } = useLocale();
   const [activeTab, setActiveTab] = useState<'catalog' | 'upload'>('catalog');
   const [refreshKey, setRefreshKey] = useState(0);
   const [isEnterpriseMode, setIsEnterpriseMode] = useState(false);
@@ -1032,13 +1037,13 @@ export default function SkillRegistry() {
           onClick={() => setActiveTab('catalog')}
           className={`nav-tab-item ${activeTab === 'catalog' ? 'active' : ''}`}
         >
-          Skill 管理
+          {t('nav.catalog')}
         </button>
         <button
           onClick={() => setActiveTab('upload')}
           className={`nav-tab-item ${activeTab === 'upload' ? 'active' : ''}`}
         >
-          上传 Skill
+          {t('nav.upload')}
         </button>
       </div>
 

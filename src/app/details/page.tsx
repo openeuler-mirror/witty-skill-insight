@@ -7,6 +7,7 @@ import ExecutionFlowComparison from '@/components/ExecutionFlowComparison';
 import { SkillLinks } from '@/components/SkillLink';
 import { useAuth } from '@/lib/auth-context';
 import { useTheme, useThemeColors } from '@/lib/theme-context';
+import { useLocale } from '@/lib/locale-context';
 import { apiFetch } from '@/lib/api';
 
 const Line = dynamic(() => import('recharts').then(mod => mod.Line), { ssr: false });
@@ -362,6 +363,7 @@ const RenderInteractionList = ({
     onStepClick: (index: number) => void
 }) => {
     const { isDark } = useTheme();
+    const { t } = useLocale();
     const c = useThemeColors();
     if (!interactions || !Array.isArray(interactions) || interactions.length === 0) return null;
 
@@ -526,7 +528,7 @@ const RenderInteractionList = ({
                     >
                         {isExpanded ? '▼' : '▶'}
                     </button>
-                    <h4 style={headerStyle}>执行步骤（Trace）</h4>
+                    <h4 style={headerStyle}>{t('details.executionStepsTrace')}</h4>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.8rem', color: 'var(--foreground-muted)' }}>Sort by:</span>
@@ -543,9 +545,9 @@ const RenderInteractionList = ({
                             outline: 'none'
                         }}
                     >
-                        <option value="default">执行顺序</option>
-                        <option value="latency_desc">时延</option>
-                        <option value="tokens_desc">Tokens</option>
+                        <option value="default">{t('details.sortOptions.executionOrder')}</option>
+                        <option value="latency_desc">{t('details.sortOptions.latencyDesc')}</option>
+                        <option value="tokens_desc">{t('details.sortOptions.tokensDesc')}</option>
                     </select>
                 </div>
             </div>
@@ -750,6 +752,7 @@ function DetailPage() {
     const searchParams = useSearchParams();
     const { user } = useAuth();
     const { theme, toggleTheme, isDark } = useTheme();
+    const { t } = useLocale();
     const c = useThemeColors();
     const query = searchParams.get('query') || '';
     const framework = searchParams.get('framework') || '';
@@ -1101,14 +1104,14 @@ function DetailPage() {
             });
             const json = await res.json();
             if (!res.ok) {
-                setQuerySaveStatus({ id: taskId, status: 'error', msg: json.error || '保存失败' });
+                setQuerySaveStatus({ id: taskId, status: 'error', msg: json.error || t('details.saveFailed') });
                 return;
             }
             const reason = json.record?.judgment_reason || '';
             const noMatch = reason.includes('未找到匹配的评测配置');
             const msg = noMatch
-                ? '已保存，但未找到匹配的评测配置，Score 已归零。请在「数据集管理」中为该 query 添加完全一致的条目。'
-                : (json.message || '已保存');
+                ? t('details.savedNoConfig')
+                : (json.message || t('details.saved'));
             setQuerySaveStatus({ id: taskId, status: 'ok', msg });
             setEditingQueryFor(null);
             setEditQueryValue('');
@@ -1135,7 +1138,7 @@ function DetailPage() {
                 setAllData(filtered);
             }
         } catch (e) {
-            setQuerySaveStatus({ id: taskId, status: 'error', msg: '网络错误' });
+            setQuerySaveStatus({ id: taskId, status: 'error', msg: t('details.networkError') });
         }
     };
 
@@ -1167,10 +1170,10 @@ function DetailPage() {
             });
             const json = await res.json();
             if (!res.ok) {
-                setResultSaveStatus({ id: taskId, status: 'error', msg: json.error || '保存失败' });
+                setResultSaveStatus({ id: taskId, status: 'error', msg: json.error || t('details.saveFailed') });
                 return;
             }
-            const msg = json.message || '已保存，正在后台重新评估';
+            const msg = json.message || t('details.savedReevaluating');
             setResultSaveStatus({ id: taskId, status: 'ok', msg });
             setEditingResultFor(null);
             setEditResultValue('');
@@ -1181,7 +1184,7 @@ function DetailPage() {
                         return {
                             ...item,
                             final_result: val,
-                            judgment_reason: '结果评估中...'
+                            judgment_reason: t('details.evaluatingResult')
                         };
                     }
                     return item;
@@ -1190,7 +1193,7 @@ function DetailPage() {
                 console.error('Error updating local data:', updateError);
             }
         } catch (e) {
-            setResultSaveStatus({ id: taskId, status: 'error', msg: '网络错误' });
+            setResultSaveStatus({ id: taskId, status: 'error', msg: t('details.networkError') });
         }
     };
 
@@ -1208,10 +1211,10 @@ function DetailPage() {
             if (res.ok) {
                 setEditResultValue(json.content || '');
             } else {
-                alert('解析文档失败: ' + (json.error || 'Unknown error'));
+                alert(t('details.parseDocumentFailed') + ': ' + (json.error || 'Unknown error'));
             }
         } catch (err: any) {
-            alert('解析文档异常: ' + err.message);
+            alert(t('details.parseDocumentError') + ': ' + err.message);
         }
     };
 
@@ -1350,7 +1353,7 @@ function DetailPage() {
                         else state.selectedLabels.delete(val);
 
                         if (labelTextObj) {
-                            labelTextObj.innerText = state.selectedLabels.size === 0 ? '全部筛选' : \`已选 \${state.selectedLabels.size} 个\`;
+                            labelTextObj.innerText = state.selectedLabels.size === 0 ? '${t('details.allFilters')}' : \`${t('details.selectedFilters', { count: '' })}\${state.selectedLabels.size}\`;
                         }
                         updateVisibility();
                     };
@@ -1361,7 +1364,7 @@ function DetailPage() {
                     clearBtn.onclick = () => {
                         state.selectedLabels.clear();
                         document.querySelectorAll('.filter-label-checkbox').forEach(c => c.checked = false);
-                        if (labelTextObj) labelTextObj.innerText = 'All Filter';
+                        if (labelTextObj) labelTextObj.innerText = '${t('details.allFilters')}';
                         updateVisibility();
                         if (labelMenu) labelMenu.style.display = 'none';
                     }
@@ -1409,9 +1412,9 @@ function DetailPage() {
                     padding: '3rem'
                 }}>
                     <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⚠️</div>
-                    <h2 style={{ color: c.warning, marginBottom: '1rem' }}>缺少必要参数</h2>
+                    <h2 style={{ color: c.warning, marginBottom: '1rem' }}>{t('details.missingParams')}</h2>
                     <p style={{ color: c.fgSecondary, marginBottom: '1.5rem' }}>
-                        请通过 <code style={{ background: c.bgTertiary, padding: '2px 8px', borderRadius: '4px' }}>expandTaskId</code> 参数访问此页面
+                        {t('details.missingParamsHint')}
                     </p>
                     <button
                         onClick={() => router.push('/')}
@@ -1425,7 +1428,7 @@ function DetailPage() {
                             cursor: 'pointer'
                         }}
                     >
-                        返回首页
+                        {t('details.backToHome')}
                     </button>
                 </div>
             </div>
@@ -1445,9 +1448,9 @@ function DetailPage() {
                     padding: '3rem'
                 }}>
                     <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔍</div>
-                    <h2 style={{ color: c.error, marginBottom: '1rem' }}>未找到记录</h2>
+                    <h2 style={{ color: c.error, marginBottom: '1rem' }}>{t('details.recordNotFound')}</h2>
                     <p style={{ color: c.fgSecondary, marginBottom: '1.5rem' }}>
-                        未找到 ID 为 <code style={{ background: c.bgTertiary, padding: '2px 8px', borderRadius: '4px' }}>{expandTaskId}</code> 的记录
+                        {t('details.recordNotFoundForId', { id: expandTaskId || '' })}
                     </p>
                     <button
                         onClick={() => router.push('/')}
@@ -1461,7 +1464,7 @@ function DetailPage() {
                             cursor: 'pointer'
                         }}
                     >
-                        返回首页
+                        {t('details.backToHome')}
                     </button>
                 </div>
             </div>
@@ -1502,7 +1505,7 @@ function DetailPage() {
                     <button
                         className="theme-toggle-btn"
                         onClick={toggleTheme}
-                        title={isDark ? '切换到浅色主题' : '切换到深色主题'}
+                        title={isDark ? t('theme.switchToLight') : t('theme.switchToDark')}
                     >
                         {isDark ? '☀️' : '🌙'}
                     </button>
@@ -1522,12 +1525,12 @@ function DetailPage() {
                         gap: '8px'
                     }}
                 >
-                    <span>📤</span> 导出
+                    <span>📤</span> {t('details.export')}
                 </button>
                 </div>
             </div>
             <div style={{ marginBottom: '2rem', color: 'var(--foreground-secondary)' }}>
-                框架: <strong style={{ color: 'var(--foreground)' }}>{framework || 'All'}</strong> | 任务 ID: <strong style={{ color: 'var(--foreground)' }}>{taskId}</strong>
+                {t('details.frameworkLabel')}: <strong style={{ color: 'var(--foreground)' }}>{framework || 'All'}</strong> | {t('details.taskIdLabel')}: <strong style={{ color: 'var(--foreground)' }}>{taskId}</strong>
             </div>
 
             {/* 本次执行记录详情 */}
@@ -1548,7 +1551,7 @@ function DetailPage() {
                         alignItems: 'center',
                         gap: '8px'
                     }}>
-                        📋 本次执行记录详情
+                        📋 {t('details.thisExecutionRecord')}
                         <span style={{
                             fontSize: '0.85rem',
                             background: 'var(--primary)',
@@ -1568,7 +1571,7 @@ function DetailPage() {
                             display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem'
                         }}
                     >
-                        {isDetailsExpanded ? '▼ 折叠' : '▶ 展开'}
+                        {isDetailsExpanded ? `▼ ${t('details.collapse')}` : `▶ ${t('details.expand')}`}
                     </button>
                 </div>
 
@@ -1589,7 +1592,7 @@ function DetailPage() {
                                 borderBottom: '1px solid var(--border)',
                                 paddingBottom: '0.5rem'
                             }}>
-                                📊 原始采集数据
+                                {t('details.rawCollectedData')}
                             </h3>
 
                             {/* 使用 Grid 布局：左列 (Query/Skills/Metrics) 和 右列 (Final Result) */}
@@ -1600,7 +1603,7 @@ function DetailPage() {
 
                                     {/* 1. Query */}
                                     <div>
-                                        <h4 style={sectionHeader}>用户输入</h4>
+                                        <h4 style={sectionHeader}>{t('details.userInput')}</h4>
                                         {editingQueryFor === taskId ? (
                                             <div>
                                                 <textarea
@@ -1618,7 +1621,7 @@ function DetailPage() {
                                                         fontSize: '0.9rem',
                                                         resize: 'vertical'
                                                     }}
-                                                    placeholder="输入 query"
+                                                    placeholder={t('details.queryPlaceholder')}
                                                 />
                                                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', alignItems: 'center' }}>
                                                     <button
@@ -1634,7 +1637,7 @@ function DetailPage() {
                                                             fontWeight: 'bold'
                                                         }}
                                                     >
-                                                        {querySaveStatus?.id === taskId && querySaveStatus?.status === 'saving' ? '保存中...' : '保存'}
+                                                        {querySaveStatus?.id === taskId && querySaveStatus?.status === 'saving' ? t('details.saving') : t('details.saveButton')}
                                                     </button>
                                                     <button
                                                         onClick={cancelEditQuery}
@@ -1647,7 +1650,7 @@ function DetailPage() {
                                                             cursor: 'pointer'
                                                         }}
                                                     >
-                                                        取消
+                                                        {t('details.cancel')}
                                                     </button>
                                                     {querySaveStatus?.id === taskId && querySaveStatus?.status === 'ok' && (
                                                         <span style={{ color: 'var(--success)', fontSize: '0.9rem' }}>{querySaveStatus.msg}</span>
@@ -1659,7 +1662,7 @@ function DetailPage() {
                                             </div>
                                         ) : (
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                                <div style={codeBlock}>{currentRecord.query || '(空)'}</div>
+                                                <div style={codeBlock}>{currentRecord.query || t('details.emptyContent')}</div>
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); startEditQuery(taskId, currentRecord.query || ''); }}
                                                     style={{
@@ -1677,7 +1680,7 @@ function DetailPage() {
                                                         alignSelf: 'flex-start'
                                                     }}
                                                 >
-                                                    ✏️ 编辑
+                                                    ✏️ {t('details.editButton')}
                                                 </button>
                                             </div>
                                         )}
@@ -1685,7 +1688,7 @@ function DetailPage() {
 
                                     {/* 2. Skills Used */}
                                     <div>
-                                        <h4 style={sectionHeader}>使用 Skills</h4>
+                                        <h4 style={sectionHeader}>{t('details.skillsUsed')}</h4>
                                         <div style={{ ...codeBlock, padding: '0.5rem' }}>
                                             <SkillLinks
                                                 skills={currentRecord.skills}
@@ -1699,7 +1702,7 @@ function DetailPage() {
                                     {/* 3. Runtime Metrics */}
                                     {(currentRecord.llm_call_count != null || currentRecord.tool_call_count != null || currentRecord.input_tokens != null || currentRecord.output_tokens != null || currentRecord.tool_call_error_count != null) && (
                                         <div>
-                                            <h4 style={sectionHeader}>运行时指标</h4>
+                                            <h4 style={sectionHeader}>{t('details.runtimeMetrics')}</h4>
                                             <div style={{
                                                 display: 'grid',
                                                 gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
@@ -1707,17 +1710,17 @@ function DetailPage() {
                                                 marginTop: '0.5rem'
                                             }}>
                                                 {[
-                                                    { label: '大模型调用次数', value: currentRecord.llm_call_count, color: 'var(--primary)' },
-                                                    { label: '工具调用次数', value: currentRecord.tool_call_count, color: 'var(--primary)' },
-                                                    { label: '工具报错次数', value: currentRecord.tool_call_error_count ?? 0, color: currentRecord.tool_call_error_count ? 'var(--error)' : 'var(--success)' },
-                                                    { label: '输入 Tokens', value: currentRecord.input_tokens, color: 'var(--primary)' },
-                                                    { label: '输出 Tokens', value: currentRecord.output_tokens, color: 'var(--primary)',
+                                                    { label: t('details.llmCallCount'), value: currentRecord.llm_call_count, color: 'var(--primary)' },
+                                                    { label: t('details.toolCallCount'), value: currentRecord.tool_call_count, color: 'var(--primary)' },
+                                                    { label: t('details.toolErrorCount'), value: currentRecord.tool_call_error_count ?? 0, color: currentRecord.tool_call_error_count ? 'var(--error)' : 'var(--success)' },
+                                                    { label: t('details.inputTokens'), value: currentRecord.input_tokens, color: 'var(--primary)' },
+                                                    { label: t('details.outputTokens'), value: currentRecord.output_tokens, color: 'var(--primary)',
                                                         tooltip: currentRecord.reasoning_tokens
                                                             ? `Reasoning: ${currentRecord.reasoning_tokens.toLocaleString()}, Response: ${((currentRecord.output_tokens || 0) - currentRecord.reasoning_tokens).toLocaleString()}`
                                                             : undefined
                                                     },
                                                     {
-                                                        label: '上下文窗口 %',
+                                                        label: t('details.contextWindowPct'),
                                                         value: currentRecord.context_window_pct,
                                                         color: currentRecord.context_window_pct != null ? (currentRecord.context_window_pct > 90 ? 'var(--error)' : 'var(--success)') : 'var(--primary)',
                                                         format: (v: number) => `${v.toFixed(1)}%`,
@@ -1725,11 +1728,11 @@ function DetailPage() {
                                                         tooltip: currentRecord.context_window_pct != null
                                                             ? `max_single_call_tokens (${currentRecord.max_single_call_tokens?.toLocaleString()}) / context_window_limit (${currentRecord.context_window_limit?.toLocaleString()}) × 100` + (currentRecord.model ? ` (${currentRecord.model})` : '') + `. Source: ${currentRecord.context_window_source || 'default'}.`
                                                             : currentRecord.model
-                                                                ? `此模型未配置: ${currentRecord.model}.`
+                                                                ? `${t('details.modelNotConfigured')}: ${currentRecord.model}.`
                                                                 : 'Model unknown. Context window % cannot be calculated.'
                                                     },
                                                     {
-                                                        label: '预估成本',
+                                                        label: t('details.estimatedCost'),
                                                         value: currentRecord.cost,
                                                         color: 'var(--primary)',
                                                         format: (v: number) => `$${v === 0 ? '0.00' : v < 0.01 ? v.toFixed(4) : v < 1 ? v.toFixed(3) : v.toFixed(2)}`,
@@ -1776,7 +1779,7 @@ function DetailPage() {
                                 {/* 右侧单列：Final Result (高度跟随左侧，最少 400px，内部产生滚动) */}
                                 <div style={{ position: 'relative' }}>
                                     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-                                        <h4 style={{ ...sectionHeader, marginBottom: '0.5rem' }}>最终结果</h4>
+                                        <h4 style={{ ...sectionHeader, marginBottom: '0.5rem' }}>{t('details.finalResult')}</h4>
 
                                         {editingResultFor === taskId ? (
                                             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -1796,7 +1799,7 @@ function DetailPage() {
                                                         resize: 'none', // 禁用缩放，因为高度已固定
                                                         marginBottom: '0.5rem'
                                                     }}
-                                                    placeholder="输入或上传 最终结果"
+                                                    placeholder={t('details.resultPlaceholder')}
                                                 />
                                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexShrink: 0 }}>
                                                     <button
@@ -1812,7 +1815,7 @@ function DetailPage() {
                                                             fontWeight: 'bold'
                                                         }}
                                                     >
-                                                        {resultSaveStatus?.id === taskId && resultSaveStatus?.status === 'saving' ? '保存中...' : '保存并重评'}
+                                                        {resultSaveStatus?.id === taskId && resultSaveStatus?.status === 'saving' ? t('details.saving') : t('details.saveAndRejudge')}
                                                     </button>
                                                     <button
                                                         onClick={cancelEditResult}
@@ -1825,7 +1828,7 @@ function DetailPage() {
                                                             cursor: 'pointer'
                                                         }}
                                                     >
-                                                        取消
+                                                        {t('details.cancel')}
                                                     </button>
                                                     <label style={{
                                                         padding: '6px 14px',
@@ -1839,7 +1842,7 @@ function DetailPage() {
                                                         gap: '4px',
                                                         fontSize: '0.85rem'
                                                     }}>
-                                                        📄 上传报告
+                                                        📄 {t('details.uploadReport')}
                                                         <input
                                                             type="file"
                                                             accept=".md,.txt,.pdf,.markdown"
@@ -1882,7 +1885,7 @@ function DetailPage() {
                                                             fontSize: '0.8rem'
                                                         }}
                                                     >
-                                                        ✏️ 编辑 / 替换结果
+                                                        ✏️ {t('details.editReplaceResult')}
                                                     </button>
                                                 </div>
                                             </div>
@@ -1914,7 +1917,7 @@ function DetailPage() {
                                                 >
                                                     {isSessionJsonExpanded ? '▼' : '▶'}
                                                 </button>
-                                                <h4 style={sectionHeader}>会话数据（原始JSON）</h4>
+                                                <h4 style={sectionHeader}>{t('details.sessionDataRawJson')}</h4>
                                             </div>
                                             {isSessionJsonExpanded && (
                                                 <div style={{ background: 'var(--code-block-bg)', padding: '1rem', borderRadius: '8px', overflowY: 'auto', maxHeight: '600px', border: '1px solid var(--border)' }}>
@@ -1966,7 +1969,7 @@ function DetailPage() {
                                     </div>
                                 )
                             ) : (
-                                <div style={{ color: 'var(--primary)' }}>Loading session log...</div>
+                                <div style={{ color: 'var(--primary)' }}>{t('details.loadingSessionLog')}</div>
                             )}
                         </div>
 
@@ -1980,7 +1983,7 @@ function DetailPage() {
                         }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isAnalysisExpanded ? '1rem' : '0', borderBottom: isAnalysisExpanded ? '1px solid var(--border)' : 'none', paddingBottom: isAnalysisExpanded ? '0.5rem' : '0' }}>
                                 <h3 style={{ fontSize: '1.2rem', margin: 0, color: 'var(--secondary)' }}>
-                                    🔍 分析结果
+                                    {t('details.analysisResult')}
                                 </h3>
                                 <button
                                     onClick={() => setIsAnalysisExpanded(!isAnalysisExpanded)}
@@ -1990,7 +1993,7 @@ function DetailPage() {
                                         display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.9rem'
                                     }}
                                 >
-                                    {isAnalysisExpanded ? '▼ 折叠' : '▶ 展开'}
+                                    {isAnalysisExpanded ? `▼ ${t('details.collapse')}` : `▶ ${t('details.expand')}`}
                                 </button>
                             </div>
 
@@ -1999,7 +2002,7 @@ function DetailPage() {
 
                                     {/* 1. 评分详情与分析 (原 Judgment Reason 与 Skill Analysis 合并) */}
                                     <div>
-                                        <h4 style={{ ...sectionHeader, marginBottom: '1rem' }}>评分详情与分析</h4>
+                                        <h4 style={{ ...sectionHeader, marginBottom: '1rem' }}>{t('details.scoringDetailsAnalysis')}</h4>
                                         {(() => {
                                             const evalItems = parseEvaluationItemsFromReason(currentRecord.judgment_reason || '');
                                             if (evalItems.length === 0) {
@@ -2011,7 +2014,7 @@ function DetailPage() {
                                                         borderRadius: '6px',
                                                         border: '1px solid var(--border)'
                                                     }}>
-                                                        {currentRecord.judgment_reason || '-'}
+                                                        {currentRecord.judgment_reason === '未找到匹配的评测配置' ? t('details.noMatchConfig') : (currentRecord.judgment_reason || '-')}
                                                     </div>
                                                 );
                                             }
@@ -2021,14 +2024,14 @@ function DetailPage() {
                                                         <thead>
                                                             <tr style={{ background: 'var(--background-secondary)' }}>
                                                                 <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '60px', whiteSpace: 'nowrap' }}>ID</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '180px' }}>评分标准</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '60px', whiteSpace: 'nowrap' }}>得分</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '50px', whiteSpace: 'nowrap' }}>权重</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '60px', whiteSpace: 'nowrap' }}>扣分</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '50px', whiteSpace: 'nowrap' }}>关联<CustomTooltip content="表示扣分来源。若与skill相关，则体现在“分析依据”和“改进建议”" /></th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '150px' }}>扣分原因</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '150px' }}>分析依据</th>
-                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '150px' }}>改进建议</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '180px' }}>{t('details.evalTable.criteria')}</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '60px', whiteSpace: 'nowrap' }}>{t('details.evalTable.score')}</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '50px', whiteSpace: 'nowrap' }}>{t('details.evalTable.weight')}</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '60px', whiteSpace: 'nowrap' }}>{t('details.evalTable.deduction')}</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '50px', whiteSpace: 'nowrap' }}>{t('details.evalTable.related')}<CustomTooltip content={t('details.relatedTooltip')} /></th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '150px' }}>{t('details.evalTable.deductionReason')}</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '150px' }}>{t('details.evalTable.analysisBasis')}</th>
+                                                                <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', minWidth: '150px' }}>{t('details.evalTable.improvementSuggestion')}</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -2156,7 +2159,7 @@ function DetailPage() {
                                     {currentRecord.failures && currentRecord.failures.length > 0 ? (
                                         <div>
                                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                                                <h4 style={{ ...sectionHeader, color: c.error, borderLeft: '3px solid #f87171', paddingLeft: '8px', borderBottom: 'none', margin: 0 }}> 执行异常 </h4>
+                                                <h4 style={{ ...sectionHeader, color: c.error, borderLeft: '3px solid #f87171', paddingLeft: '8px', borderBottom: 'none', margin: 0 }}> {t('details.executionAnomaly')} </h4>
                                                 <div style={{ display: 'flex', gap: '8px' }}>
                                                     <select
                                                         value={failureFilter}
@@ -2170,9 +2173,9 @@ function DetailPage() {
                                                             fontSize: '0.8rem'
                                                         }}
                                                     >
-                                                        <option value="all">全部</option>
-                                                        <option value="failure">失败</option>
-                                                        <option value="anomaly">异常</option>
+                                                        <option value="all">{t('details.failureFilter.all')}</option>
+                                                        <option value="failure">{t('details.failureFilter.failure')}</option>
+                                                        <option value="anomaly">{t('details.failureFilter.anomaly')}</option>
                                                     </select>
                                                 </div>
                                             </div>
@@ -2180,9 +2183,9 @@ function DetailPage() {
                                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                                                     <thead>
                                                         <tr style={{ background: 'var(--background-secondary)' }}>
-                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '100px' }}>类型</th>
-                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: 'auto' }}>描述</th>
-                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '500px' }}>恢复措施</th>
+                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '100px' }}>{t('details.failuresTable.type')}</th>
+                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: 'auto' }}>{t('details.failuresTable.description')}</th>
+                                                            <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--foreground-secondary)', borderBottom: '1px solid var(--border)', width: '500px' }}>{t('details.failuresTable.recovery')}</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -2277,7 +2280,7 @@ function DetailPage() {
                 ))}
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', marginLeft: '1rem', borderLeft: '1px solid #334155', paddingLeft: '1rem' }}>
-                    <span style={{ color: c.fgMuted, fontSize: '0.9rem' }}>比较维度:</span>
+                    <span style={{ color: c.fgMuted, fontSize: '0.9rem' }}>{t('details.compareDimension')}</span>
                     <div style={{ display: 'flex', background: c.bgSecondary, padding: '2px', borderRadius: '6px', border: `1px solid ${c.border}` }}>
                         <button
                             onClick={() => setComparisonDim('label')}
@@ -2287,7 +2290,7 @@ function DetailPage() {
                                 color: comparisonDim === 'label' ? '#18181b' : '#a1a1aa',
                                 border: 'none', cursor: 'pointer', transition: 'all 0.2s', fontWeight: comparisonDim === 'label' ? 'bold' : 'normal'
                             }}
-                        >标签</button>
+                        >{t('details.label')}</button>
                         <button
                             onClick={() => setComparisonDim('model')}
                             style={{
@@ -2296,7 +2299,7 @@ function DetailPage() {
                                 color: comparisonDim === 'model' ? '#18181b' : '#a1a1aa',
                                 border: 'none', cursor: 'pointer', transition: 'all 0.2s', fontWeight: comparisonDim === 'model' ? 'bold' : 'normal'
                             }}
-                        >模型</button>
+                        >{t('details.model')}</button>
                     </div>
                 </div>
 
@@ -2323,7 +2326,7 @@ function DetailPage() {
                                     justifyContent: 'space-between'
                                 }}
                             >
-                                <span id="label-trigger-text">{selectedLabels.size === 0 ? '全部筛选' : `已选 ${selectedLabels.size} 个`}</span>
+                                <span id="label-trigger-text">{selectedLabels.size === 0 ? t('details.allFilters') : t('details.selectedFilters', { count: String(selectedLabels.size) })}</span>
                                 <span style={{ fontSize: '0.7rem' }}>▼</span>
                             </button>
 
@@ -2353,7 +2356,7 @@ function DetailPage() {
                                     onClick={() => { setSelectedLabels(new Set()); setIsLabelMenuOpen(false); }}
                                     style={{ cursor: 'pointer', padding: '4px 8px', fontSize: '0.9rem', color: selectedLabels.size === 0 ? '#38bdf8' : '#a1a1aa', borderBottom: `1px solid ${c.border}`, marginBottom: '4px' }}
                                 >
-                                    Show All (Clear Filter)
+                                    {t('details.clearFilter')}
                                 </div>
                                 {uniqueLabels.map(label => {
                                     const isSelected = selectedLabels.has(label as string);
@@ -2414,7 +2417,7 @@ function DetailPage() {
                                     justifyContent: 'space-between'
                                 }}
                             >
-                                <span>{selectedModels.size === 0 ? '所有模型' : `已选 ${selectedModels.size} 个`}</span>
+                                <span>{selectedModels.size === 0 ? t('details.allModels') : t('details.selectedModels', { count: String(selectedModels.size) })}</span>
                                 <span style={{ fontSize: '0.7rem' }}>▼</span>
                             </button>
 
@@ -2442,7 +2445,7 @@ function DetailPage() {
                                     onClick={() => { setSelectedModels(new Set()); setIsModelMenuOpen(false); }}
                                     style={{ cursor: 'pointer', padding: '4px 8px', fontSize: '0.9rem', color: selectedModels.size === 0 ? '#38bdf8' : '#a1a1aa', borderBottom: `1px solid ${c.border}`, marginBottom: '4px' }}
                                 >
-                                    Show All (Clear Filter)
+                                    {t('details.clearFilter')}
                                 </div>
                                 {uniqueModels.map(model => {
                                     const isSelected = selectedModels.has(model as string);
@@ -2499,13 +2502,13 @@ function DetailPage() {
                         }}
                     >
                         <span style={{ fontSize: '0.7rem' }}>{showContextWindowChart ? '▲' : '▼'}</span>
-                        上下文窗口利用率趋势 (%)
+                        {t('details.contextWindowTrend')}
                     </button>
                     {showContextWindowChart && (
                         <div className="card" style={cardStyle}>
                             <h3 style={chartTitleStyle}>
-                                上下文窗口利用率趋势 (%)
-                                <CustomTooltip content="单次 LLM 调用中最大 token 数 / 模型上下文窗口限制 × 100。超过 90% 时推理质量可能下降。" />
+                                {t('details.contextWindowTrend')}
+                                <CustomTooltip content={t('details.contextWindowTooltip')} />
                             </h3>
                             <ResponsiveContainer width="100%" height={200}>
                                 <LineChart data={filteredData.filter(d => d.context_window_pct != null)}>
@@ -2520,7 +2523,7 @@ function DetailPage() {
                                             stroke="var(--warning)"
                                             strokeDasharray="5 5"
                                             strokeWidth={2}
-                                            label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
+                                            label={{ value: t('details.thisRun'), fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                         />
                                     )}
                                     <Line type="monotone" dataKey="context_window_pct" stroke="#a78bfa" dot={true} strokeWidth={2} />
@@ -2535,8 +2538,8 @@ function DetailPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
                 <div className="card" style={cardStyle}>
                     <h3 style={chartTitleStyle}>
-                        时延趋势 (秒)
-                        <CustomTooltip content="从请求发出到收到最终完整回复的总耗时" />
+                        {t('details.latencyTrend')}
+                        <CustomTooltip content={t('details.totalLatencyTooltip')} />
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={filteredData}>
@@ -2550,7 +2553,7 @@ function DetailPage() {
                                     stroke="var(--warning)"
                                     strokeDasharray="5 5"
                                     strokeWidth={2}
-                                    label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
+                                    label={{ value: t('details.thisRun'), fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                 />
                             )}
                             <Line type="monotone" dataKey="latency" stroke="#38bdf8" dot={true} strokeWidth={2} />
@@ -2559,8 +2562,8 @@ function DetailPage() {
                 </div>
                 <div className="card" style={cardStyle}>
                     <h3 style={chartTitleStyle}>
-                        令牌消耗趋势
-                        <CustomTooltip content="输入 Prompt 与输出 Completion 的 Token 总和" />
+                        {t('details.tokenTrend')}
+                        <CustomTooltip content={t('details.totalTokensTooltip')} />
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={filteredData}>
@@ -2574,7 +2577,7 @@ function DetailPage() {
                                     stroke="var(--warning)"
                                     strokeDasharray="5 5"
                                     strokeWidth={2}
-                                    label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
+                                    label={{ value: t('details.thisRun'), fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                 />
                             )}
                             <Line type="monotone" dataKey="tokens" stroke="#f472b6" dot={true} strokeWidth={2} />
@@ -2583,8 +2586,8 @@ function DetailPage() {
                 </div>
                 <div className="card" style={cardStyle}>
                     <h3 style={chartTitleStyle}>
-                        准确率趋势 (0-1)
-                        <CustomTooltip content="基于 AI 裁判对执行结果的自动评分 （1.0=通过, 0.0=失败）" />
+                        {t('details.accuracyTrend')}
+                        <CustomTooltip content={t('details.accuracyTooltip')} />
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={filteredData}>
@@ -2598,7 +2601,7 @@ function DetailPage() {
                                     stroke="var(--warning)"
                                     strokeDasharray="5 5"
                                     strokeWidth={2}
-                                    label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
+                                    label={{ value: t('details.thisRun'), fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                 />
                             )}
                             <Line type="monotone" dataKey="answer_score" stroke="#4ade80" dot={true} strokeWidth={2} />
@@ -2607,8 +2610,8 @@ function DetailPage() {
                 </div>
                 <div className="card" style={cardStyle}>
                     <h3 style={chartTitleStyle}>
-                            技能召回率趋势
-                        <CustomTooltip content="基于执行结果是否使用了预期技能计算出的值 (0-1)，表示正确调用技能的比例" />
+                            {t('details.skillRecallTrend')}
+                        <CustomTooltip content={t('details.skillRecallTooltip')} />
                     </h3>
                     <ResponsiveContainer width="100%" height={200}>
                         <LineChart data={filteredData}>
@@ -2622,7 +2625,7 @@ function DetailPage() {
                                     stroke="var(--warning)"
                                     strokeDasharray="5 5"
                                     strokeWidth={2}
-                                    label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
+                                    label={{ value: t('details.thisRun'), fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                 />
                             )}
                             <Line type="monotone" dataKey="skill_recall_rate" stroke="#f472b6" dot={true} strokeWidth={2} />
@@ -2632,8 +2635,8 @@ function DetailPage() {
                 {cpsrTrendData.length > 0 && (
                   <div className="card" style={cardStyle}>
                       <h3 style={chartTitleStyle}>
-                          CPSR 趋势
-                          <CustomTooltip content={"Cost Per Successful Resolution: Average cost per successful task resolution.\nFormula: (total cost) / (number of runs with successful resolutions)"} />
+                          {t('details.cpsrTrend')}
+                          <CustomTooltip content={t('details.cpsrTooltip')} />
                       </h3>
                       <ResponsiveContainer width="100%" height={200}>
                           <LineChart data={cpsrTrendData}>
@@ -2653,7 +2656,7 @@ function DetailPage() {
                                       stroke="var(--warning)"
                                       strokeDasharray="5 5"
                                       strokeWidth={2}
-                                      label={{ value: '本次', fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
+                                      label={{ value: t('details.thisRun'), fill: 'var(--warning)', fontSize: 11, position: 'insideTopLeft' }}
                                   />
                               )}
                               <Line type="monotone" dataKey="cpsr" name="CPSR" stroke="#a78bfa" strokeWidth={2} dot={true} />
@@ -2667,13 +2670,13 @@ function DetailPage() {
             {(compareDimData.latency.length > 0) && (
                 <div style={{ marginBottom: '2rem' }}>
                     <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>
-                        按 {comparisonDim === 'label' ? '标签' : '模型'} 对比（平均值）
+                        {t('details.compareBy', { dimension: comparisonDim === 'label' ? t('details.label') : t('details.model') })}
                     </h2>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
                         <div className="card" style={cardStyle}>
                             <h3 style={chartTitleStyle}>
-                                平均时延 - {comparisonDim === 'label' ? '标签' : '模型'}
-                                <CustomTooltip content="平均延迟时间" />
+                                {t('details.avgLatencyBy', { dimension: comparisonDim === 'label' ? t('details.label') : t('details.model') })}
+                                <CustomTooltip content={t('details.avgLatencyTooltip')} />
                             </h3>
                             <ResponsiveContainer width="100%" height={200}>
                                 <LineChart data={compareDimData.latency}>
@@ -2687,8 +2690,8 @@ function DetailPage() {
                         </div>
                         <div className="card" style={cardStyle}>
                             <h3 style={chartTitleStyle}>
-                                平均 Token - {comparisonDim === 'label' ? '标签' : '模型'}
-                                <CustomTooltip content="平均 Token 使用量" />
+                                {t('details.avgTokenBy', { dimension: comparisonDim === 'label' ? t('details.label') : t('details.model') })}
+                                <CustomTooltip content={t('details.avgTokensTooltip')} />
                             </h3>
                             <ResponsiveContainer width="100%" height={200}>
                                 <LineChart data={compareDimData.tokens}>
@@ -2702,8 +2705,8 @@ function DetailPage() {
                         </div>
                         <div className="card" style={cardStyle}>
                             <h3 style={chartTitleStyle}>
-                                平均准确率 - {comparisonDim === 'label' ? '标签' : '模型'}
-                                <CustomTooltip content="平均准确率 (0-1)" />
+                                {t('details.avgAccuracyBy', { dimension: comparisonDim === 'label' ? t('details.label') : t('details.model') })}
+                                <CustomTooltip content={t('details.avgAccuracyTooltip')} />
                             </h3>
                             <ResponsiveContainer width="100%" height={200}>
                                 <LineChart data={compareDimData.accuracy}>
@@ -2717,8 +2720,8 @@ function DetailPage() {
                         </div>
                         <div className="card" style={cardStyle}>
                             <h3 style={chartTitleStyle}>
-                                技能召回率 - {comparisonDim === 'label' ? '标签' : '模型'}
-                                <CustomTooltip content="基于执行结果是否使用了预期技能计算出的值 (0-1)，表示正确调用技能的比例" />
+                                {t('details.skillRecallBy', { dimension: comparisonDim === 'label' ? t('details.label') : t('details.model') })}
+                                <CustomTooltip content={t('details.skillRecallTooltip')} />
                             </h3>
                             <ResponsiveContainer width="100%" height={200}>
                                 <LineChart data={compareDimData.skillRecallRate}>
@@ -2737,18 +2740,18 @@ function DetailPage() {
             {/* 同问题执行记录 */}
             <div style={{ marginTop: '2rem', background: c.cardBg, border: `1px solid ${c.cardBorder}`, borderRadius: '8px', overflow: 'hidden' }}>
                 <div style={{ marginBottom: '1rem', padding: '1rem 1rem 0' }}>
-                    <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: c.fg }}>同问题执行记录</h2>
-                    <p style={{ fontSize: '0.9rem', color: c.fgMuted }}>点击记录可查看详细信息</p>
+                    <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: c.fg }}>{t('details.sameQueryRecords')}</h2>
+                    <p style={{ fontSize: '0.9rem', color: c.fgMuted }}>{t('details.clickToViewDetails')}</p>
                 </div>
                 {/* Headers */}
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 1fr', padding: '1rem', borderBottom: `1px solid ${c.border}`, color: c.fgMuted, fontSize: '0.9rem', background: c.bgSecondary, fontWeight: 500 }}>
-                    <div>时间 / ID</div>
-                    <div>标签</div>
-                    <div>时延</div>
-                    <div>消耗</div>
-                    <div>技能召回率</div>
-                    <div>窗口%</div>
-                    <div>评分</div>
+                    <div>{t('details.recordTable.timeOrId')}</div>
+                    <div>{t('details.recordTable.label')}</div>
+                    <div>{t('details.recordTable.latency')}</div>
+                    <div>{t('details.recordTable.consumption')}</div>
+                    <div>{t('details.recordTable.skillRecallRate')}</div>
+                    <div>{t('details.recordTable.contextWindowPercent')}</div>
+                    <div>{t('details.recordTable.score')}</div>
                 </div>
 
                 {filteredData.slice().reverse().map(item => {
@@ -2801,7 +2804,7 @@ function DetailPage() {
                                                 fontSize: '0.7rem',
                                                 fontWeight: 'bold'
                                             }}>
-                                                当前
+                                                {t('details.currentRecord')}
                                             </span>
                                         )}
                                     </div>

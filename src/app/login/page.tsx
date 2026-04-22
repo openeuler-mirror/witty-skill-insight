@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { useTheme } from '@/lib/theme-context';
+import { useLocale } from '@/lib/locale-context';
 import { apiFetch } from '@/lib/api';
 
 export default function LoginPage() {
@@ -14,6 +15,7 @@ export default function LoginPage() {
   const { login } = useAuth();
   const router = useRouter();
   const { isDark } = useTheme();
+  const { t } = useLocale();
 
   useEffect(() => {
     apiFetch('/api/config/status?check_org=true')
@@ -65,7 +67,7 @@ export default function LoginPage() {
     setError('');
     
     if (!username.trim()) {
-      setError('请输入邮箱地址');
+      setError(t('login.emailRequired'));
       return;
     }
     
@@ -81,11 +83,11 @@ export default function LoginPage() {
         if (res.ok) {
             login(data.username, data.apiKey);
         } else {
-            setError(data.error || '登录失败，请重试');
+            setError(data.error || t('login.loginFailed'));
         }
     } catch (err) {
         console.error(err);
-        setError('网络错误，请检查连接');
+        setError(t('login.networkError'));
     }
   };
 
@@ -113,7 +115,7 @@ export default function LoginPage() {
     return (
       <div className="login-container">
         <div className="login-box">
-          <p style={{ color: colors.fgMuted, textAlign: 'center' }}>正在跳转到企业登录页...</p>
+          <p style={{ color: colors.fgMuted, textAlign: 'center' }}>{t('login.redirecting')}</p>
         </div>
       </div>
     );
@@ -137,14 +139,14 @@ export default function LoginPage() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <h1 style={{ fontSize: '2.25rem', fontWeight: 700, color: colors.fg, margin: 0, lineHeight: 1, letterSpacing: '-0.025em' }}>Insight</h1>
-                <span style={{ fontSize: '0.8125rem', color: colors.fgMuted, letterSpacing: '0.04em', textTransform: 'uppercase', marginTop: '0.25rem' }}>智能体技能评估、分析与优化</span>
+                <span style={{ fontSize: '0.8125rem', color: colors.fgMuted, letterSpacing: '0.04em', textTransform: 'uppercase', marginTop: '0.25rem' }}>{t('login.subtitle')}</span>
             </div>
         </div>
 
         <form className="login-form">
           <div style={{ marginBottom: '0.875rem' }}>
             <label className="login-label" htmlFor="username">
-              邮箱地址
+              {t('login.emailLabel')}
             </label>
             <input
               className="login-input"
@@ -175,7 +177,7 @@ export default function LoginPage() {
               type="button"
               onClick={handleLogin}
             >
-              Sign In
+              {t('login.signIn')}
             </button>
           </div>
         </form>
