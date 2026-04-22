@@ -63,17 +63,25 @@ async function getLlmClient(user?: string | null) {
 }
 
 function getJudgmentTimeoutMs() {
-  const raw = Number(process.env.JUDGMENT_TIMEOUT_MS || 15000);
-  if (!Number.isFinite(raw) || raw <= 0) return 15000;
+  const raw = Number(process.env.JUDGMENT_TIMEOUT_MS || 300000);
+  if (!Number.isFinite(raw) || raw <= 0) return 300000;
   return raw;
 }
 
-async function withTimeout<T>(p: Promise<T>, label: string): Promise<T> {
+async function withTimeout<T>(fn: (options: { signal: AbortSignal; timeout: number }) => Promise<T>, label: string): Promise<T> {
   const ms = getJudgmentTimeoutMs();
-  return await Promise.race([
-    p,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)),
-  ]);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fn({ signal: controller.signal, timeout: ms });
+  } catch (e: any) {
+    if (controller.signal.aborted) {
+      throw new Error(`${label} timeout after ${ms}ms`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export interface JudgmentResult {
@@ -116,10 +124,13 @@ export async function judgeAnswer(
     if (rcList.length > 0) {
         const rcPrompt = generateJudgePrompt(userQuery, actualAnswer, rcList, [], criteria.skill_definition, 'root_causes');
         const rcResponse = await withTimeout(
-            client.chat.completions.create({
-                messages: [{ role: "user", content: rcPrompt }],
-                model: model,
-            }),
+            (options) => client.chat.completions.create(
+                {
+                    messages: [{ role: "user", content: rcPrompt }],
+                    model: model,
+                },
+                options
+            ),
             'RC Judgment API',
         );
         console.log(`[Judge API Debug] RC Model: ${model}. Received response choices:`, rcResponse?.choices?.length);
@@ -148,10 +159,13 @@ export async function judgeAnswer(
             stepsText ? stepsText : null
         );
         const kaResponse = await withTimeout(
-            client.chat.completions.create({
-                messages: [{ role: "user", content: kaPrompt }],
-                model: model,
-            }),
+            (options) => client.chat.completions.create(
+                {
+                    messages: [{ role: "user", content: kaPrompt }],
+                    model: model,
+                },
+                options
+            ),
             'KA Judgment API',
         );
         console.log(`[Judge API Debug] KA Model: ${model}. Received response choices:`, kaResponse?.choices?.length);
@@ -461,10 +475,13 @@ export async function analyzeEvaluationItems(
             const prompt = generateSkillIssuePrompt(skillDef, item, userQuery, actualAnswer, conversationHistory);
             
             const response = await withTimeout(
-                client.chat.completions.create({
-                    messages: [{ role: "user", content: prompt }],
-                    model: model,
-                }),
+                (options) => client.chat.completions.create(
+                    {
+                        messages: [{ role: "user", content: prompt }],
+                        model: model,
+                    },
+                    options
+                ),
                 'Skill issue analysis API',
             );
             
@@ -565,10 +582,13 @@ export async function analyzeFailures(
         const prompt = generateFailureAnalysisPrompt(history);
 
         const response = await withTimeout(
-            client.chat.completions.create({
-                messages: [{ role: "user", content: prompt }],
-                model: model,
-            }),
+            (options) => client.chat.completions.create(
+                {
+                    messages: [{ role: "user", content: prompt }],
+                    model: model,
+                },
+                options
+            ),
             'Failure analysis API',
         );
 
@@ -1036,11 +1056,14 @@ export async function analyzeSession(input: any[], user?: string | null): Promis
              const prompt = generateExtractionPrompt(history);
 
              const response = await withTimeout(
-                 client.chat.completions.create({
-                     messages: [{ role: "user", content: prompt }],
-                     model: model,
-                     temperature: 0.1 // Low temperature for extraction
-                 }),
+                 (options) => client.chat.completions.create(
+                     {
+                         messages: [{ role: "user", content: prompt }],
+                         model: model,
+                         temperature: 0.1
+                     },
+                     options
+                 ),
                  'Session extraction API',
              );
 
