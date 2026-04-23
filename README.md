@@ -1,181 +1,149 @@
-# Skill-insight
-
-Skill-insight 是一个开源的 **Agent Skill 生成、优化、观测与分析平台**，帮助开发者量化评估 Skills 在 Agent 上的实际运行效果。通过自动采集执行轨迹、智能评分、深度归因分析，让 Skill 的每一次迭代都有据可依。
+<p align="center">
+  <a href="https://gitcode.com/openeuler/witty-skill-insight">
+    <strong style="font-size: 2em;">Skill-insight</strong>
+  </a>
+</p>
+<p align="center">让 Agent 的 Skill 从"能用"到"好用"——基于执行过程数据，实现 Skill 生成、评测与优化的全生命周期闭环</p>
+<p align="center">
+  <a href="https://www.npmjs.com/package/@witty-ai/skill-insight"><img alt="npm" src="https://img.shields.io/npm/v/@witty-ai/skill-insight?style=flat-square" /></a>
+  <a href="https://gitcode.com/openeuler/witty-skill-insight/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/npm/l/@witty-ai/skill-insight?style=flat-square" /></a>
+</p>
 
 <p align="center">
-  <img src="docs/images/dashboard_main.png" width="48%" />
-  <img src="docs/images/dashboard_list.png" width="44%" />
+  <a href="README.md">简体中文</a> |
+  <a href="README_en.md">English</a>
 </p>
-<p align="center"><em>主界面：全景指标概览与执行历史列表</em></p>
+
+[![Skill-insight Dashboard](docs/images/dashboard_main.png)](https://gitcode.com/openeuler/witty-skill-insight)
 
 ---
 
-## 🎯 我们在解决什么问题
+## 为什么需要 Skill-insight
 
-在 AI 时代，Agent 正在成为新的生产力载体，而 Skill 作为 Agent 执行能力的最小可复用单元，正在快速膨胀。然而，随着Skill 数量增多，不同 Skill 间存在重复与相似内容，执行过程黑盒、评测结果不可追溯，导致 Skill 效果无法量化感知，难以持续优化。
+Skill 正在成为 Agent 落地的关键载体，但实际使用中普遍面临三个问题：
 
-### 核心挑战
+- **Skill 越多越不好用**：相似文档生成大量冗余 Skill，研究表明 Skill 超过 40-50 个后召回率从 95% 骤降至 30% 以下
+- **执行过程看不见**：评测只看"任务是否完成"，即使结果正确也可能跳过了关键步骤，埋下隐患
+- **优化靠猜测**：没有执行数据支撑，只能基于结果反复试错，无法定位具体瓶颈
 
-| 挑战 | 描述 |
-| :--- | :--- |
-| **1. Skill 数量爆炸，召回率下降与 Token 成本飙升** | 基于大量文档生成的 Skill 往往语义高度相似，导致召回率从 95% 急剧下降至 30% 以下，Token 成本显著增加。 |
-| **2. 评测维度不全面，缺乏可解释与可追溯能力** | 当前评测大多停留在"成功或失败"的结果导向，缺乏 ROI、执行路径偏差等过程级评测，无法定位问题根因。 |
-| **3. Skill 优化缺乏执行过程数据输入** | 优化主要依赖"最终结果是否正确"这一单一信号，缺乏分步骤数据，无法判断瓶颈来源，影响优化效果。 |
+Skill-insight 正是为了解决这些问题而生。
 
----
+## 核心能力
 
-## ✨ 三大核心能力
+### 🔨 Skill 生成 — 一句话生成，批量去重
 
-### 🤖 1. 基于语义聚合的模式抽取
+- 支持一句话快速生成 Skill
+- 批量生成时自动去冗余、合相似、抽模式，减少 Skill 膨胀
+- 支持从 Markdown、PDF、目录、URL 等多种数据源输入
 
-**核心思路**：去冗余、合相似、抽模式
+### 📊 多维评测与执行追溯
 
-- **去冗余**：从海量案例文档中剔除重复描述、无关上下文与噪声信息
-- **合相似**：基于文本聚类相似度算法结合大模型语义理解，合并语义高度相近的 Skill
-- **抽模式**：提炼通用问题模式与标准解决路径，生成可复用的模式化 Skill
+- 覆盖效果（准确率、Skill 召回率、Skill 提升率）、效率（时延、调用次数）、成本（Token、模型费用、CPSR）等多维指标
+- 自动生成执行流程图，与 Skill 预期流程逐步对比，标识偏离、冗余与跳过
+- 支持从 Skill、框架、模型、任务四个维度交叉对比分析
+- 更多指标详见 [指标详解](docs/metrics.md)
 
-**效果**：将 Skill 数量降低至少一个数量级，提升召回率的同时有效降低 Token 消耗成本。
+### 🔄 数据驱动的 Skill 自优化
 
-👉 *[了解详情：Skill 自动生成技术解析](https://gitcode.com/openeuler/witty-skill-insight/wiki/%E5%85%B3%E9%94%AE%E6%8A%80%E6%9C%AF%E8%A7%A3%E6%9E%90)*
+- 基于评测归因结果，自动定位 Skill 缺陷并针对性修补
+- 区分 Skill 设计问题与模型能力问题，避免"改错方向"
+- 形成 **评测 → 归因 → 优化 → 再评测** 的持续改进闭环
 
-### 📊 2. 多维评测与过程级可追溯
+## 支持框架
 
-**核心思路**：构建多维评测体系 + 引入标准数据集 + 提供过程级可追溯能力
+| Agent 框架 | 采集方式 |
+|:----------|:--------|
+| OpenCode  | 原生插件 |
+| Claude Code | 日志旁路 |
+| OpenClaw  | 日志旁路 |
 
-- **多维评测指标体系**：包括准确率、时延、Token 成本、ROI 等多维度评测方法
-- **内置标准评测数据集**：集成 SkillsBench 等行业标准数据集，支持自定义扩展
-- **执行过程可追溯**：实时生成动态执行流程图，清晰标识未按预期执行的步骤
-- **偏差定位与原因分析**：逐步回溯执行路径，区分模型推理问题还是 Skill 定义不合理
-
-**效果**：将评测从结果层提升到结果+过程的多维度评测，实现评测结果的全面客观分析。
-
-👉 *[了解详情：多维观测与分析技术解析](https://gitcode.com/openeuler/witty-skill-insight/wiki/%E5%85%B3%E9%94%AE%E6%8A%80%E6%9C%AF%E8%A7%A3%E6%9E%90)*
-
-### 🔄 3. 全链路数据驱动优化
-
-**核心思路**：收集结果与执行过程的全链路数据，形成自动化反馈闭环
-
-- **执行链路全追踪**：每一步操作、模型推理与工具调用都被记录，识别关键瓶颈
-- **数据驱动优化闭环**：执行数据被结构化并反馈至 Skill 优化环节，支持问题定位和持续改进
-
-**效果**：使 Skill 优化不再停留在"调文本、改结果"的浅层，而是基于执行数据的深度优化，数据驱动 Agent 自进化。
-
-👉 *[了解详情：Skill 自优化技术解析](https://gitcode.com/openeuler/witty-skill-insight/wiki/%E5%85%B3%E9%94%AE%E6%8A%80%E6%9C%AF%E8%A7%A3%E6%9E%90)*
-
----
-
-## 🎨 功能展示
-
-### 执行详情钻取
-
-<p align="center">
-  <img src="docs/images/execution_detail.png" width="45%" />
-  <img src="docs/images/skill_visualization.png" width="40%" />
-</p>
-<p align="center"><em>执行详情：skill有效性分析 + Skill执行可视化</em></p>
-
-### 耗时 & Token 分析
-
-<p align="center">
-  <img src="docs/images/execution_steps.png" width="80%" />
-</p>
-<p align="center"><em>逐步拆解 LLM & Tool token和耗时，并支持 Top5 高亮 / 排序与数据详情联动跳转</em></p>
-
-### 多维度指标对比
-
-<p align="center">
-  <img src="docs/images/metrics_comparison.png" width="80%" />
-</p>
-<p align="center"><em>指标对比：横向对比不同模型、版本的准确率 / 时延 / Token 消耗</em></p>
-
----
-
-## 🚀 快速开始
-
-### 前置要求
-
-- **Node.js** >= 18
-- **npm** >= 9
-
-### 一键安装
+## 安装
 
 ```bash
+# 一键安装
 npx @witty-ai/skill-insight install
+
+# 包管理器
+npm i -g @witty-ai/skill-insight
 ```
 
-### 快速体验
+> [!TIP]
+> 安装完成后在 `http://localhost:3000` 访问看板，默认账号 `admin`。
 
-安装完成后，即可开始第一次观测（以OpenCode为例）：
+### 源码安装
 
-1. **打开 OpenCode** 终端
-2. **执行一个简单任务**：
-   ```
-   你好，请介绍一下你自己
-   ```
-3. **打开浏览器** 访问 `http://localhost:3000`，并登陆初始账号`admin`，在主页面可以看到刚才执行的记录
+```bash
+git clone https://gitcode.com/openeuler/witty-skill-insight.git
+cd witty-skill-insight
+npm install
 
-🎉 恭喜！您已完成第一次数据采集与观测。
+# 开发模式
+bash scripts/restart_dev.sh
 
-*更多功能，请参考[用户手册](https://gitcode.com/openeuler/witty-skill-insight/wiki/%E7%94%A8%E6%88%B7%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C)*
+# 生产模式
+bash scripts/restart.sh
 
----
-
-## 📂 项目结构
-
-```
-.
-├── src/                          # 看板前端 + 后端 API
-│   ├── app/api/                  # API 路由
-│   │   ├── setup/                # 一键配置脚本生成
-│   │   ├── skills/               # Skill CRUD、版本管理、上传下载
-│   │   ├── sync/                 # Skill 同步与 Manifest
-│   │   ├── upload/               # 执行数据上报
-│   │   ├── auth/                 # API Key 用户认证
-│   │   └── ...                   # 评估、配置、设置等
-│   ├── components/               # React UI 组件
-│   └── lib/                      # 核心逻辑
-│       ├── auth.ts               # 通用认证模块
-│       ├── judge.ts              # LLM 自动判题引擎
-│       ├── data-service.ts       # 数据读写服务
-│       └── prisma.ts             # 数据库客户端
-├── prisma/schema.prisma          # 数据库模型定义
-├── scripts/                      # 核心采集脚本
-│   └── opencode_plugin.ts        # OpenCode 原生插件
-├── public/sync_skills.ts         # 客户端 Skill 同步工具
-├── skill/                        # 预置 Skill 示例库
-├── docs/                         # 文档与架构图
-└── .env.example                  # 环境变量模板
+# 配置数据上报路径
+curl -sSf http://<IP>:<PORT>/api/setup | bash
 ```
 
+## 快速上手
+
+以下以 OpenCode 为例，演示完整的生成 → 评测 → 优化流程。
+
+**前置条件**：已完成 Skill-insight 平台安装和 OpenCode 安装。
+
+### 第一步：安装 Skill 工具包
+
+```bash
+npx skills add https://gitcode.com/openeuler/witty-skill-insight.git
+```
+
+### 第二步：生成 Skill
+
+在 OpenCode 终端输入：
+
+```
+根据案例文档 Docker应用卡顿故障案例.pdf 生成一个 Skill
+```
+
+### 第三步：执行任务
+
+将生成的 Skill 放在 OpenCode 的 Skill 目录下，执行任务：
+
+```
+我在本机部署的docker应用有时会卡顿，使用相关技能帮我分析下原因，并给出分析报告
+```
+
+### 第四步：查看观测结果
+
+任务执行完毕后，点击 OpenCode 终端页面右上角 Skill Insight 卡片中的**查看详情**，跳转到平台查看执行详情。
+
+### 第五步：深度评测（可选）
+
+如需使用准确率、Skill 召回率、失败归因等深度评测能力：
+
+1. 在平台主页面点击左上角 **⚙️ Eval Config**，添加评测模型配置（支持 DeepSeek / OpenAI / Anthropic / 自定义）
+2. 点击右上角 **数据集管理**，配置用户问题、预期答案、预期使用的 Skill
+
+### 第六步：优化 Skill
+
+在 OpenCode 终端输入：
+
+```
+/si-optimizer <待优化的Skill路径>
+```
+
+优化完成后，Skill 会自动加载到 OpenCode 的 Skill 目录下。重启 OpenCode 后再次执行同一任务，即可在平台对比优化前后的效果差异。
+
+## 文档
+
+详细使用指南见 [docs/guide](docs/guide/) 目录。
+
+## 贡献
+
+贡献代码前，请先签署 [CLA](https://clasign.osinfra.cn/sign/6983225bdcbb19710248ccf0)，再参考 [代码贡献指引](https://www.openeuler.org/zh/community/contribution/detail#_4-2-代码类贡献) 提交代码。
+
 ---
 
-## 🗺️ Roadmap
-
-### 当前已实现 ✅
-
-- [x] **无感采集与接入**：OpenCode, Claude Code, OpenClaw 无侵入数据采集
-- [x] **多维指标监测与对比**：跨模型/框架维度的 Latency, Token, Accuracy 对比
-- [x] **LLM 自动评分与深度归因**：基于标准的判题机制，精准区分模型能力缺失与 Skill 缺陷
-- [x] **Skill 版本管理与同步**：版本隔离、跨框架代码分发
-- [x] **数据集管理** — 统一管理和分享标准评测数据集
-- [x] **Skill 自动生成**：基于案例文档自动提取 Skill 并执行文本聚类合并相似项
-- [x] **Skill 自优化**：基于动静态评估反思机制，驱动 Agent 自动演化为高质量 Skill
-- [x] **用户管理**：多用户隔离与 API Key 认证机制
-- [x] **Skill 可视化** — 独立展示 Skill 的执行流程与控制流结构
-
-### 计划中 🚧
-- [ ] **团队协作** — 团队资源共享、权限隔离与防并发冲突机制
-- [ ] **成本控制优化** — 细粒度 Token 消耗分布分析与改进建议
-- [ ] **多Skill关联分析** — 分析 Skill 之间的依赖关系，优化执行效率
-
----
-
-## 📄 License
-
-[MIT](LICENSE)
-
----
-
-<p align="center">
-  <strong>Skills-Insight</strong> — 让每一次 Skill 迭代都有据可依
-</p>
+**加入社区** [Issue](https://atomgit.com/openeuler/witty-skill-insight/issues) | <intelligence@openeuler.org>
