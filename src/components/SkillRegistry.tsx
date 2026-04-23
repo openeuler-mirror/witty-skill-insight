@@ -109,7 +109,7 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
           <div style={{ color: c.error }}>{t('skill.failedCount')}: {syncResult.failedCount}</div>
           {syncResult.failedCount > 0 && (
             <details style={{ marginTop: '0.5rem' }}>
-              <summary style={{ cursor: 'pointer', color: c.fgSecondary }}>查看失败详情</summary>
+              <summary style={{ cursor: 'pointer', color: c.fgSecondary }}>{t('common.seeDetails')}</summary>
               <ul style={{ marginTop: '0.5rem', paddingLeft: '1.5rem' }}>
                 {syncResult.results.filter((r: any) => !r.success).map((r: any, i: number) => (
                   <li key={i} style={{ color: c.error }}>
@@ -340,21 +340,21 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                 </div>
 
                 <div>
-                    <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>变更历史</h4>
+                    <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{t('skill.versions.changeLog')}</h4>
                     <div style={{ background: c.bgSecondary, padding: '1rem', borderRadius: '6px', color: c.fg, whiteSpace: 'pre-wrap', border: `1px solid ${c.border}`, fontSize: '0.9rem', lineHeight: 1.6 }}>
-                        {detail.changeLog || <span style={{ color: c.fgMuted, fontStyle: 'italic' }}>无变更历史</span>}
+                        {detail.changeLog || <span style={{ color: c.fgMuted, fontStyle: 'italic' }}>{t('skill.versions.noChangeHistory')}</span>}
                     </div>
                 </div>
 
                 <div>
-                     <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill Content (SKILL.md)</h4>
-                     <pre style={{
-                         background: c.bgSecondary,
-                         padding: '1rem',
-                         borderRadius: '6px',
-                         color: c.fg,
-                         overflowX: 'auto',
-                         fontFamily: 'monospace',
+                     <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{t('skill.versions.skillContent')}</h4>
+                     <pre style={{ 
+                         background: c.bgSecondary, 
+                         padding: '1rem', 
+                         borderRadius: '6px', 
+                         color: c.fg, 
+                         overflowX: 'auto', 
+                         fontFamily: 'monospace', 
                          fontSize: '0.85rem',
                          border: `1px solid ${c.border}`,
                          maxHeight: '300px',
@@ -385,7 +385,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
               </div>
 
               <div style={{ flex: '1 1 50%', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>预期执行流程</h4>
+                <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{t('skill.versions.expectedFlow')}</h4>
                 {parsedFlow ? (
                   <div style={{
                     background: c.bgSecondary,
@@ -397,7 +397,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                     flexDirection: 'column'
                   }}>
                     <div style={{ marginBottom: '0.5rem', fontSize: '0.8rem', color: c.fgMuted, flexShrink: 0 }}>
-                      解析时间: {new Date(parsedFlow.parsedAt).toLocaleString()}
+                      {t('skill.versions.parsedAt')}: {new Date(parsedFlow.parsedAt).toLocaleString()}
                     </div>
                     <div style={{ flex: 1, overflow: 'auto' }}>
                       <MermaidFlowChart code={parsedFlow.mermaidCode} />
@@ -431,7 +431,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                     justifyContent: 'center',
                     color: c.fgMuted
                   }}>
-                    点击「解析流程」按钮生成预期执行流程图
+                    {t('skill.versions.clickParse')}
                   </div>
                 )}
               </div>
@@ -492,6 +492,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
   const { isDark } = useTheme();
   const c = useThemeColors();
   const { user } = useAuth();
+  const { t } = useLocale();
   const [versions, setVersions] = useState<SkillVersion[]>([]);
   const [currentActiveVersion, setCurrentActiveVersion] = useState(skill.activeVersion);
   const [hasUpdated, setHasUpdated] = useState(false);
@@ -552,9 +553,9 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
     const versionDisplay = semanticVersion || version;
 
     const confirmMsg = isEnterpriseMode
-      ? `确定要删除版本 ${versionDisplay} 吗？此操作将同时删除企业中的对应skill（如果存在），无法撤销。`
-      : `Are you sure you want to delete version ${versionDisplay}? This action cannot be undone.`;
-
+      ? t('skill.versions.deleteConfirmOrg', { version: String(versionDisplay) })
+      : t('skill.versions.deleteConfirm', { version: String(versionDisplay) });
+    
     if (!confirm(confirmMsg)) return;
 
     try {
@@ -628,7 +629,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
           <div>
             <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: c.fg }}>{skill.name}</h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', fontSize: '0.875rem', color: c.fgSecondary }}>
-              <span>当前使用：</span>
+              <span>{t('skill.versions.currentUsing')}</span>
               <span style={{ color: c.success, fontFamily: 'monospace', fontWeight: 'bold', background: c.successSubtle, padding: '0 6px', borderRadius: '4px' }}>
                 v{versions.find(v => v.version === currentActiveVersion)?.semanticVersion || currentActiveVersion}
               </span>
@@ -640,7 +641,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
               style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
               onClick={() => versionFileInputRef.current?.click()}
             >
-              <span>📤 上传新版本</span>
+              <span>{t('skill.versions.uploadNewVersion')}</span>
             </button>
             <button
               onClick={handleClose}
@@ -666,8 +667,8 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
           <table className="version-table w-full text-left order-collapse">
             <thead>
               <tr>
-                <th style={{ width: '120px' }}>版本</th>
-                <th>变更历史</th>
+                <th style={{ width: '120px' }}>{t('skill.versions.version')}</th>
+                <th>{t('skill.versions.changeLog')}</th>
                 <th style={{ textAlign: 'right', width: '220px' }}>Action</th>
               </tr>
             </thead>
@@ -699,7 +700,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                     </td>
                     <td>
                       <p style={{ margin: 0, color: c.fg, whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.9rem' }}>
-                        {v.changeLog || <span style={{ color: c.fgMuted, fontStyle: 'italic' }}>无变更历史</span>}
+                        {v.changeLog || <span style={{ color: c.fgMuted, fontStyle: 'italic' }}>{t('skill.versions.noChangeHistory')}</span>}
                       </p>
                     </td>
                     <td style={{ textAlign: 'right', minWidth: '280px' }}>
@@ -717,7 +718,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                               minWidth: '60px'
                             }}
                           >
-                            查看
+                            {t('skill.versions.view')}
                           </button>
 
                           {!isActive ? (
@@ -735,7 +736,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                                   minWidth: '85px'
                                 }}
                               >
-                                激活
+                                {t('common.activate')}
                               </button>
                               <button
                                 onClick={() => handleDeleteVersion(v.version)}
@@ -750,7 +751,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                                   minWidth: '65px'
                                 }}
                               >
-                                Delete
+                                {t('common.delete')}
                               </button>
                             </>
                           ) : (
@@ -765,7 +766,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                               whiteSpace: 'nowrap'
                             }}>
                               <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: c.success }}></span>
-                              当前
+                              {t('common.active')}
                             </span>
                           )}
                       </div>
@@ -780,7 +781,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
           {versions.length === 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: c.fgMuted }}>
               <div style={{ fontSize: '2rem', marginBottom: '1rem', opacity: 0.5 }}>📂</div>
-              <p>没有历史版本</p>
+              <p>{t('skill.versions.noVersions')}</p>
             </div>
           )}
         </div>
@@ -843,9 +844,9 @@ function SkillCatalog({ refresh }: { refresh: number }) {
 
   const handleDelete = async (id: string) => {
     const confirmMsg = isEnterpriseMode
-      ? '确定要删除这个skill吗？此操作将同时删除企业中的对应skill，无法撤销。'
-      : 'Are you sure you want to delete this skill? This action cannot be undone.';
-
+      ? t('skill.enterprise.deleteConfirm')
+      : t('skill.versions.deleteSkillConfirm');
+    
     if (!confirm(confirmMsg)) return;
 
     try {
