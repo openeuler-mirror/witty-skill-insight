@@ -978,7 +978,6 @@ function SkillCatalog({ refresh }: { refresh: number }) {
                 onClick={() => setSelectedSkill(skill)}
                 className="btn-manage"
               >
-                <span>⚙️</span>
                 <span>{t('skill.catalog.manage')}</span>
               </button>
               <button
