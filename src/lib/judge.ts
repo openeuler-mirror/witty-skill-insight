@@ -197,7 +197,7 @@ export async function judgeAnswer(
         reasonLines.push(`1. **Root Cause** [${rc.content.replace(/\n/g, ' ')}]: ${(match * 100).toFixed(0)}% match. ${explanation} (Weight: ${rc.weight})`);
     });
 
-    // Group key actions by groupId for conditional groups
+    // Group key actions by groupId for conditional and loop groups
     const keyActionsByGroup = new Map<string, typeof kaList>();
     const ungroupedActions: typeof kaList = [];
 
@@ -205,7 +205,7 @@ export async function judgeAnswer(
         const groupId = (ka as any).groupId;
         const cfType = (ka as any).controlFlowType || 'required';
         
-        if (cfType === 'conditional' && groupId) {
+        if ((cfType === 'conditional' || cfType === 'loop') && groupId) {
             if (!keyActionsByGroup.has(groupId)) {
                 keyActionsByGroup.set(groupId, []);
             }
@@ -217,46 +217,81 @@ export async function judgeAnswer(
 
     // Process conditional groups first (grouped by groupId)
     for (const [groupId, groupActions] of keyActionsByGroup) {
-        // Find all evaluations for this group
-        const groupEvaluations = groupActions.map(ka => {
-            const ev = evaluations.find((e: any) => e.id === ka.id);
-            const match = ev ? Math.max(0, Math.min(1, Number(ev.match_score))) : 0;
-            const explanation = ev?.explanation || '未找到评分结果';
-            return { ka, ev, match, explanation };
-        });
+        const firstAction = groupActions[0];
+        const cfType = (firstAction as any).controlFlowType || 'required';
+        
+        if (cfType === 'conditional') {
+            // Find all evaluations for this group
+            const groupEvaluations = groupActions.map(ka => {
+                const ev = evaluations.find((e: any) => e.id === ka.id);
+                const match = ev ? Math.max(0, Math.min(1, Number(ev.match_score))) : 0;
+                const explanation = ev?.explanation || '未找到评分结果';
+                return { ka, ev, match, explanation };
+            });
 
-        // Check if any branch has a match score > 0 or is triggered
-        const triggeredBranch = groupEvaluations.find(ge => ge.match > 0 || !ge.explanation.includes('此分支未触发'));
+            // Check if any branch has a match score > 0 or is triggered
+            const triggeredBranch = groupEvaluations.find(ge => ge.match > 0 || !ge.explanation.includes('此分支未触发'));
 
-        if (triggeredBranch) {
-            // Only count the triggered branch
-            const { ka, ev, match, explanation } = triggeredBranch;
-            const branchLabel = (ka as any).branchLabel || '';
-            
-            totalWeightedScore += match * ka.weight;
-            totalWeight += ka.weight;
-            reasonLines.push(`2. **Key Action** [${ka.content.replace(/\n/g, ' ')}] (条件分支${branchLabel ? ' - ' + branchLabel : ''}): ${(match * 100).toFixed(0)}% match. ${explanation} (Weight: ${ka.weight})`);
+            if (triggeredBranch) {
+                // Only count the triggered branch
+                const { ka, ev, match, explanation } = triggeredBranch;
+                const branchLabel = (ka as any).branchLabel || '';
+                
+                totalWeightedScore += match * ka.weight;
+                totalWeight += ka.weight;
+                reasonLines.push(`2. **Key Action** [${ka.content.replace(/\n/g, ' ')}] (条件分支${branchLabel ? ' - ' + branchLabel : ''}): ${(match * 100).toFixed(0)}% match. ${explanation} (Weight: ${ka.weight})`);
 
-            // Log other branches as skipped
-            for (const ge of groupEvaluations) {
-                if (ge.ka.id !== triggeredBranch.ka.id) {
+                // Log other branches as skipped
+                for (const ge of groupEvaluations) {
+                    if (ge.ka.id !== triggeredBranch.ka.id) {
+                        reasonLines.push(`2. **Key Action** [${ge.ka.content.replace(/\n/g, ' ')}] (条件分支${(ge.ka as any).branchLabel ? ' - ' + (ge.ka as any).branchLabel : ''}): ${(ge.match * 100).toFixed(0)}% match. ${ge.explanation} (该分支未触发，不计入总分)`);
+                    }
+                }
+            } else {
+                // No branch triggered - count the first branch as 0
+                const firstBranch = groupEvaluations[0];
+                const { ka, ev, match, explanation } = firstBranch;
+                const branchLabel = (ka as any).branchLabel || '';
+                
+                totalWeightedScore += 0 * ka.weight; 
+                totalWeight += ka.weight;
+                reasonLines.push(`2. **Key Action** [${ka.content.replace(/\n/g, ' ')}] (条件分支${branchLabel ? ' - ' + branchLabel : ''}): ${(match * 100).toFixed(0)}% match. ${explanation} (所有分支均未触发，Weight: ${ka.weight})`);
+
+                // Log other branches as skipped
+                for (let i = 1; i < groupEvaluations.length; i++) {
+                    const ge = groupEvaluations[i];
                     reasonLines.push(`2. **Key Action** [${ge.ka.content.replace(/\n/g, ' ')}] (条件分支${(ge.ka as any).branchLabel ? ' - ' + (ge.ka as any).branchLabel : ''}): ${(ge.match * 100).toFixed(0)}% match. ${ge.explanation} (该分支未触发，不计入总分)`);
                 }
             }
-        } else {
-            // No branch triggered - count the first branch as 0
-            const firstBranch = groupEvaluations[0];
-            const { ka, ev, match, explanation } = firstBranch;
-            const branchLabel = (ka as any).branchLabel || '';
-            
-            totalWeightedScore += 0 * ka.weight; 
-            totalWeight += ka.weight;
-            reasonLines.push(`2. **Key Action** [${ka.content.replace(/\n/g, ' ')}] (条件分支${branchLabel ? ' - ' + branchLabel : ''}): ${(match * 100).toFixed(0)}% match. ${explanation} (所有分支均未触发，Weight: ${ka.weight})`);
+        } else if (cfType === 'loop') {
+            // Process loop group - evaluate as a whole based on goal achievement
+            const groupEvaluations = groupActions.map(ka => {
+                const ev = evaluations.find((e: any) => e.id === ka.id);
+                const match = ev ? Math.max(0, Math.min(1, Number(ev.match_score))) : 0;
+                const explanation = ev?.explanation || '未找到评分结果';
+                return { ka, ev, match, explanation };
+            });
 
-            // Log other branches as skipped
-            for (let i = 1; i < groupEvaluations.length; i++) {
-                const ge = groupEvaluations[i];
-                reasonLines.push(`2. **Key Action** [${ge.ka.content.replace(/\n/g, ' ')}] (条件分支${(ge.ka as any).branchLabel ? ' - ' + (ge.ka as any).branchLabel : ''}): ${(ge.match * 100).toFixed(0)}% match. ${ge.explanation} (该分支未触发，不计入总分)`);
+            const loopCondition = (firstAction as any).loopCondition || '';
+            const minCount = (firstAction as any).expectedMinCount;
+            const maxCount = (firstAction as any).expectedMaxCount;
+            
+            // Calculate overall loop achievement score
+            // Use average match score of all actions in the loop
+            const avgMatch = groupEvaluations.reduce((sum, ge) => sum + ge.match, 0) / groupEvaluations.length;
+            
+            // Use the weight of the first action (loop group counts as one unit)
+            const loopWeight = firstAction.weight;
+            
+            totalWeightedScore += avgMatch * loopWeight;
+            totalWeight += loopWeight;
+            
+            // Log the loop group evaluation
+            reasonLines.push(`2. **Key Action** [循环组: ${loopCondition || '未命名'}]: ${(avgMatch * 100).toFixed(0)}% match. (Weight: ${loopWeight}, 包含 ${groupActions.length} 个动作)`);
+            
+            // Log individual actions in the loop
+            for (const ge of groupEvaluations) {
+                reasonLines.push(`   - [${ge.ka.content.replace(/\n/g, ' ')}]: ${(ge.match * 100).toFixed(0)}% match. ${ge.explanation}`);
             }
         }
     }
@@ -280,13 +315,13 @@ export async function judgeAnswer(
             return;
         }
 
+        // Loop types should be grouped, but handle ungrouped loops for backward compatibility
         if (cfType === 'loop') {
             const loopCondition = (ka as any).loopCondition || '';
-            const minCount = (ka as any).expectedMinCount;
-            const maxCount = (ka as any).expectedMaxCount;
+            console.warn(`[Judge] Loop action without groupId found: ${ka.content}, treating as single action`);
             totalWeightedScore += match * ka.weight;
             totalWeight += ka.weight;
-            reasonLines.push(`2. **Key Action** [${ka.content.replace(/\n/g, ' ')}] (循环${loopCondition ? ' - ' + loopCondition : ''}): ${(match * 100).toFixed(0)}% match. ${explanation} (Weight: ${ka.weight}, 预期次数: ${minCount ?? '?'}~${maxCount ?? '?'})`);
+            reasonLines.push(`2. **Key Action** [${ka.content.replace(/\n/g, ' ')}] (循环${loopCondition ? ' - ' + loopCondition : ''}): ${(match * 100).toFixed(0)}% match. ${explanation} (Weight: ${ka.weight}, 警告: 未分组)`);
             return;
         }
 
@@ -418,8 +453,13 @@ function parseEvaluationItemsFromReason(judgmentReason: string): Array<{
             continue;
         }
         
-        // 匹配 Key Action 行
-        const kaMatch = line.match(/\*\*Key Action\*\*\s*\[(.*?)\]\s*.*?:\s*(\d+)%\s*match\.\s*(.+?)\s*\(Weight:\s*([\d.]+)\)/);
+        // 匹配 Key Action 行（包括循环、条件分支、可选等类型）
+        // 格式1: "**Key Action** [内容...]: 50% match. 解释... (Weight: 0.5)"
+        // 格式2: "**Key Action** [内容...] (循环 - 条件): 50% match. 解释... (Weight: 1, 预期次数: ?~?)"
+        // 格式3: "**Key Action** [内容...] (条件分支 - 标签): 50% match. 解释... (Weight: 1)"
+        // 格式4: "**Key Action** [内容...] (可选): 50% match. 解释... (Weight: 0, 不扣分)"
+        // 格式5: "**Key Action** [内容...] (衔接): 50% match. 解释... (Weight: 1)"
+        const kaMatch = line.match(/\*\*Key Action\*\*\s*\[(.*?)\](?:\s*\(.*?\))?\s*:\s*(\d+)%\s*match\.\s*(.+?)\s*\(Weight:\s*([\d.]+)/);
         if (kaMatch) {
             items.push({
                 id: `KA-${itemIndex.ka++}`,
