@@ -100,6 +100,11 @@ interface EvaluationItem {
     match_score: number;
     explanation: string;
     weight: number;
+    isLoopGroup?: boolean;
+    actionCount?: number;
+    isLoopSubAction?: boolean;
+    isLoopGroupHeader?: boolean;
+    isLoopAction?: boolean;
 }
 
 function parseEvaluationItemsFromReason(judgmentReason: string): EvaluationItem[] {
@@ -123,8 +128,67 @@ function parseEvaluationItemsFromReason(judgmentReason: string): EvaluationItem[
             continue;
         }
         
-        // 匹配有 Weight 的 Key Action
-        const kaMatchWithWeight = line.match(/\*\*Key Action\*\*\s*\[(.*?)\]\s*.*?:\s*(\d+)%\s*match\.\s*(.+?)\s*\(Weight:\s*([\d.]+)\)/);
+        // 匹配循环组标题（新格式）- 跳过不显示
+        const loopGroupHeaderMatch = line.match(/\*\*Key Action\*\*\s*\[循环组:\s*(.*?)\]\s*\(包含\s*(\d+)\s*个动作\):$/);
+        if (loopGroupHeaderMatch) {
+            // 跳过循环组标题，不添加到items中
+            continue;
+        }
+        
+        // 匹配循环组内的动作（缩进的行，新格式）
+        const loopActionMatch = line.match(/^\s+-\s*\*\*Key Action\*\*\s*\[(.*?)\]\s*\(循环\):\s*(\d+)%\s*match\.\s*(.+?)\s*\(Weight:\s*([\d.]+)\)/);
+        if (loopActionMatch) {
+            items.push({
+                id: `KA-${itemIndex.ka++}`,
+                type: 'key_action',
+                content: loopActionMatch[1].replace(/\.{3}$/, ''),
+                match_score: parseInt(loopActionMatch[2]) / 100,
+                explanation: loopActionMatch[3].trim(),
+                weight: parseFloat(loopActionMatch[4]),
+                isLoopAction: true
+            });
+            continue;
+        }
+        
+        // 匹配旧的循环组格式（向后兼容）
+        const loopGroupMatch = line.match(/\*\*Key Action\*\*\s*\[循环组:\s*(.*?)\]\s*:\s*(\d+)%\s*match\.\s*(.+?)\s*\(Weight:\s*([\d.]+),\s*包含\s*(\d+)\s*个动作\)/);
+        if (loopGroupMatch) {
+            const loopCondition = loopGroupMatch[1];
+            const matchScore = parseInt(loopGroupMatch[2]) / 100;
+            const explanation = loopGroupMatch[3].trim();
+            const weight = parseFloat(loopGroupMatch[4]);
+            const actionCount = parseInt(loopGroupMatch[5]);
+            
+            items.push({
+                id: `KA-${itemIndex.ka++}`,
+                type: 'key_action',
+                content: `[循环组: ${loopCondition}]`,
+                match_score: matchScore,
+                explanation: explanation,
+                weight: weight,
+                isLoopGroup: true,
+                actionCount: actionCount
+            });
+            continue;
+        }
+        
+        // 匹配旧的循环组内的子动作（向后兼容）
+        const loopSubActionMatch = line.match(/^\s+-\s*\[(.*?)\]:\s*(\d+)%\s*match\.\s*(.+)/);
+        if (loopSubActionMatch) {
+            items.push({
+                id: `KA-${itemIndex.ka++}`,
+                type: 'key_action',
+                content: loopSubActionMatch[1].replace(/\.{3}$/, ''),
+                match_score: parseInt(loopSubActionMatch[2]) / 100,
+                explanation: loopSubActionMatch[3].trim(),
+                weight: 0,  // 子动作不计入总分
+                isLoopSubAction: true
+            });
+            continue;
+        }
+        
+        // 匹配有 Weight 的 Key Action（包括可选、衔接等类型）
+        const kaMatchWithWeight = line.match(/\*\*Key Action\*\*\s*\[(.*?)\](?:\s*\(.*?\))?\s*:\s*(\d+)%\s*match\.\s*(.+?)\s*\(Weight:\s*([\d.]+)/);
         if (kaMatchWithWeight) {
             items.push({
                 id: `KA-${itemIndex.ka++}`,
@@ -138,7 +202,7 @@ function parseEvaluationItemsFromReason(judgmentReason: string): EvaluationItem[
         }
         
         // 匹配不计入总分的 Key Action（没有 Weight）
-        const kaMatchSkipped = line.match(/\*\*Key Action\*\*\s*\[(.*?)\]\s*.*?:\s*(\d+)%\s*match\.\s*(.+?)\s*\(该分支未触发，不计入总分\)/);
+        const kaMatchSkipped = line.match(/\*\*Key Action\*\*\s*\[(.*?)\](?:\s*\(.*?\))?\s*:\s*(\d+)%\s*match\.\s*(.+?)\s*\(该分支未触发，不计入总分\)/);
         if (kaMatchSkipped) {
             items.push({
                 id: `KA-${itemIndex.ka++}`,

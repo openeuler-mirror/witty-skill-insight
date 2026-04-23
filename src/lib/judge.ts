@@ -264,7 +264,7 @@ export async function judgeAnswer(
                 }
             }
         } else if (cfType === 'loop') {
-            // Process loop group - evaluate as a whole based on goal achievement
+            // Process loop group - each action is scored separately
             const groupEvaluations = groupActions.map(ka => {
                 const ev = evaluations.find((e: any) => e.id === ka.id);
                 const match = ev ? Math.max(0, Math.min(1, Number(ev.match_score))) : 0;
@@ -273,25 +273,16 @@ export async function judgeAnswer(
             });
 
             const loopCondition = (firstAction as any).loopCondition || '';
-            const minCount = (firstAction as any).expectedMinCount;
-            const maxCount = (firstAction as any).expectedMaxCount;
             
-            // Calculate overall loop achievement score
-            // Use average match score of all actions in the loop
-            const avgMatch = groupEvaluations.reduce((sum, ge) => sum + ge.match, 0) / groupEvaluations.length;
+            // Log the loop group header
+            reasonLines.push(`2. **Key Action** [循环组: ${loopCondition || '未命名'}] (包含 ${groupActions.length} 个动作):`);
             
-            // Use the weight of the first action (loop group counts as one unit)
-            const loopWeight = firstAction.weight;
-            
-            totalWeightedScore += avgMatch * loopWeight;
-            totalWeight += loopWeight;
-            
-            // Log the loop group evaluation
-            reasonLines.push(`2. **Key Action** [循环组: ${loopCondition || '未命名'}]: ${(avgMatch * 100).toFixed(0)}% match. (Weight: ${loopWeight}, 包含 ${groupActions.length} 个动作)`);
-            
-            // Log individual actions in the loop
+            // Process each action in the loop separately
             for (const ge of groupEvaluations) {
-                reasonLines.push(`   - [${ge.ka.content.replace(/\n/g, ' ')}]: ${(ge.match * 100).toFixed(0)}% match. ${ge.explanation}`);
+                totalWeightedScore += ge.match * ge.ka.weight;
+                totalWeight += ge.ka.weight;
+                
+                reasonLines.push(`   - **Key Action** [${ge.ka.content.replace(/\n/g, ' ')}] (循环): ${(ge.match * 100).toFixed(0)}% match. ${ge.explanation} (Weight: ${ge.ka.weight})`);
             }
         }
     }
