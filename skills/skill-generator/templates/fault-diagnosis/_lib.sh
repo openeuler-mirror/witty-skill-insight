@@ -1,7 +1,13 @@
 #!/bin/bash
-# _lib.sh — 排查型 Skill 通用诊断函数库
-# 所有 check_*.sh 和 collect.sh 脚本 source 此文件
-# 用法: source "$(dirname "$0")/_lib.sh"
+# _lib.sh — 排查型 Skill 辅助函数目录
+# 本文件不会被复制到生成的 Skill 中，而是作为函数目录供生成器参考。
+# 生成脚本时，按需选取下列函数内联到每个脚本头部（仅内联实际调用的函数）。
+#
+# 常见内联组合：
+#   collect.sh:     record + dump_json
+#   check_*.sh:     run_cmd + record + hit + miss + dump_json
+#   需要时间线时追加: timeline
+#   需要命令检测时追加: has_cmd
 
 set -uo pipefail
 

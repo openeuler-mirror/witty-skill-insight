@@ -6,7 +6,7 @@ description: >
   - 说"生成一个 [主题] 的 skill"、"帮我做个 skill"
   - 提供故障模式/失效模型/故障案例，想生成诊断类 skill
   - 提供文档（PDF/MD/TXT）或 URL，想从中提取生成 skill
-  - 说"把这些场景做成 skill"、"从文档创建技能"
+  - 说"把这些场景做成技能"、"从文档创建技能"
 ---
 
 # Skill Generator
@@ -34,33 +34,47 @@ skill-name/
 
 ## 核心指令
 
-### Step 1：场景识别
+### Step 1：文档预处理（仅在用户提供了文档时执行）
 
-根据用户输入判断场景：
+若用户提供了文档（PDF/MD/TXT/URL），在场景识别之前先提取文本内容：
+
+```bash
+uv run python scripts/parse_doc.py <文件路径或URL> -o /tmp/extracted_doc.md
+```
+
+依赖缺失时引导用户执行 `uv pip install -r scripts/requirements.txt`。
+
+读取提取结果后，进入 Step 2 进行场景识别。后续场景模块将基于提取后的文本内容工作，无需再处理原始文档。
+
+### Step 2：场景识别
+
+综合用户的文本输入、提取的文档内容（如有）以及明确表达的意图，判断应进入的场景：
 
 | 输入信号 | 场景 | 加载模块 |
 |---|---|---|
-| 故障/排查/异常/告警/故障模式 | 故障诊断 | `references/scenarios/fault-diagnosis.md` |
+| 故障/排查/异常/告警/OOM/宕机/失效模型/故障模式，或用户指定了一个领域要做排查类 Skill | 故障诊断 | `references/scenarios/fault-diagnosis.md` |
 | 其他（指定主题/通用需求/直接描述 Skill 内容） | 通用 | `references/scenarios/general.md` |
 
-**关于文档输入的判断**：用户提供文档（PDF/MD/TXT）或 URL 链接时，根据内容和意图判断：
-- 文档内容是故障案例、排障记录、告警分析 → 故障诊断场景
-- 文档内容是其他（部署指南、API 文档、操作手册等）→ 通用场景
+**文档输入的场景判断**：当用户提供了文档时，根据文档内容和用户意图综合判断：
+- 文档内容为故障案例、排障记录、告警分析、故障模式清单 → 故障诊断场景
+- 文档内容为部署指南、API 文档、操作手册等 → 通用场景
+- 文档包含多种类型内容 → 根据用户的主要意图判断场景
+- 无法从文档内容和用户描述中明确判断 → 向用户确认："这份文档的内容是故障排查相关的，还是其他类型的？"
 
-如果单从用户描述实在无法判断，询问用户："需要生成故障排查相关的 skill，还是通用类型的？"不要默认走故障诊断。
-
-### Step 2：加载规范和场景模块
+### Step 3：加载规范和场景模块
 
 按以下顺序读取：
 
 1. **先读取** `references/skill-template.md` — 标准输出规范（frontmatter 格式、章节结构、约束条件）
 2. **再读取**对应的场景模块文件 — 该场景的完整工作流
 
-### Step 3：执行场景工作流
+将文档提取内容（如有）连同用户的其他输入一并传递给场景模块。
 
-按已加载的场景模块中的步骤执行。**不要跳步，不要提前开始生成。**
+### Step 4：执行场景工作流
 
-### Step 4：验证输出
+按已加载的场景模块中的步骤执行。**禁止跳步，禁止提前开始生成。**
+
+### Step 5：验证输出
 
 生成完成后，运行验证脚本：
 
@@ -75,11 +89,11 @@ bash scripts/validate_skill.sh <生成的skill目录路径>
 ## 参考文件说明
 
 - `scripts/validate_skill.sh`：Skill 输出合规验证器
-- `scripts/parse_doc.py`：文档解析脚本（PDF/MD/TXT 文本提取，故障诊断场景路径 B 使用）
+- `scripts/parse_doc.py`：文档解析脚本（PDF/MD/TXT 文本提取）
 - `references/skill-template.md`：所有场景共用的标准输出规范
 - `references/scenarios/fault-diagnosis.md`：故障诊断场景工作流
 - `references/scenarios/general.md`：通用场景工作流
-- `templates/fault-diagnosis/_lib.sh`：排查脚本通用函数库（hit/miss/timeline 等）
+- `templates/fault-diagnosis/_lib.sh`：排查脚本辅助函数目录（生成时按需内联到各脚本中，不复制到产出目录）
 - `templates/fault-diagnosis/triage_prompt.md`：排查决策树生成的 Prompt 参考
 - `templates/fault-diagnosis/output_structure.md`：排查型 Skill 的产出目录结构规范
 - `templates/fault-diagnosis/quality_scan.md`：故障模式质量扫描详细规则
