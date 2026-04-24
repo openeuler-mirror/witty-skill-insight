@@ -122,6 +122,17 @@ async function callAutoSetup(port, apiKey) {
 }
 
 async function run(options = {}) {
+  const nodeVersion = process.version.replace(/^v/, '')
+  const nodeMajor = parseInt(nodeVersion.split('.')[0], 10)
+  if (isNaN(nodeMajor) || nodeMajor < 20) {
+    console.log('\n')
+    console.log('❌ Error: Node.js version ' + nodeVersion + ' is not supported.')
+    console.log('   Skill-insight requires Node.js 20 or higher.')
+    console.log('   Please upgrade your Node.js version: https://nodejs.org/')
+    console.log('\n')
+    process.exit(1)
+  }
+
   let port = options.port || 3000
   const errors = []
 

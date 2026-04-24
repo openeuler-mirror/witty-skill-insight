@@ -58,6 +58,24 @@ SKILL_INSIGHT_API_KEY="${apiKey}"
 
 echo "🚀 Fetching Skill-insight telemetry components from $SKILL_INSIGHT_BASE_URL..."
 
+# 0. Check Node.js version
+if ! command -v node &> /dev/null; then
+    echo "❌ Error: Node.js is not installed."
+    echo "   Skill-insight requires Node.js 20 or higher."
+    echo "   Please install Node.js: https://nodejs.org/"
+    exit 1
+fi
+
+NODE_VERSION=$(node -v 2>/dev/null | sed "s/v//")
+NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
+if [ "$NODE_MAJOR" -lt 20 ]; then
+    echo "❌ Error: Node.js version $NODE_VERSION is not supported."
+    echo "   Skill-insight requires Node.js 20 or higher."
+    echo "   Please upgrade your Node.js version: https://nodejs.org/"
+    exit 1
+fi
+echo "✅ Node.js version: $NODE_VERSION"
+
 # 1. Setup Directories
 mkdir -p "$HOME/.skill-insight"
 mkdir -p "$HOME/.skill-insight/logs"
@@ -439,6 +457,25 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         '$SKILL_INSIGHT_API_KEY = "' + apiKey + '"',
         '',
         'Write-Host "🚀 Fetching Skill-insight telemetry components from $SKILL_INSIGHT_BASE_URL..."',
+        '',
+        '# 0. Check Node.js version',
+        '$nodeCmd = Get-Command node -ErrorAction SilentlyContinue',
+        'if (-not $nodeCmd) {',
+        '    Write-Host "❌ Error: Node.js is not installed." -ForegroundColor Red',
+        '    Write-Host "   Skill-insight requires Node.js 20 or higher."',
+        '    Write-Host "   Please install Node.js: https://nodejs.org/"',
+        '    exit 1',
+        '}',
+        '',
+        '$nodeVersion = (node -v 2>$null) -replace "^v", ""',
+        '$nodeMajor = $nodeVersion.Split(".")[0]',
+        'if ([int]$nodeMajor -lt 20) {',
+        '    Write-Host "❌ Error: Node.js version $nodeVersion is not supported." -ForegroundColor Red',
+        '    Write-Host "   Skill-insight requires Node.js 20 or higher."',
+        '    Write-Host "   Please upgrade your Node.js version: https://nodejs.org/"',
+        '    exit 1',
+        '}',
+        'Write-Host "✅ Node.js version: $nodeVersion"',
         '',
         '# 1. Setup Directories',
         '$skillInsightDir = Join-Path $env:USERPROFILE ".skill-insight"',
