@@ -33,12 +33,15 @@ export async function DELETE(request: Request) {
         let deleteCount = 0;
 
         if (target.upload_id) {
+            console.warn(`[Data-API] delete requested: upload_id=${target.upload_id}`);
             const success = await db.deleteExecution(target.upload_id);
             deleteCount = success ? 1 : 0;
         } else if (target.task_id) {
+             console.warn(`[Data-API] delete requested: task_id=${target.task_id}`);
              deleteCount = await db.deleteExecutions({ taskId: target.task_id });
         } else {
              if (target.timestamp && target.framework && target.query) {
+                 console.warn(`[Data-API] delete requested: timestamp=${target.timestamp} framework=${target.framework} query_len=${String(target.query).length}`);
                  deleteCount = await db.deleteExecutions({
                      timestamp: new Date(target.timestamp),
                      framework: target.framework,

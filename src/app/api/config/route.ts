@@ -5,6 +5,7 @@ import { db, prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
+const AUDIT_CONFIG_MUTATIONS = process.env.AUDIT_CONFIG_MUTATIONS === '1' || process.env.AUDIT_CONFIG_MUTATIONS === 'true';
 
 function normalizeOutcomeKeyActions(configs: any[]) {
   const grouped = new Map<string, any[]>();
@@ -51,6 +52,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const { configs: incomingConfig, user } = await request.json();
+    const referer = request.headers.get('referer') || 'unknown';
+    const userAgent = request.headers.get('user-agent') || 'unknown';
     
     if (!Array.isArray(incomingConfig)) {
        return NextResponse.json({ error: 'Invalid config format, expected array' }, { status: 400 });
@@ -69,10 +72,16 @@ export async function POST(request: Request) {
         
         await pgClient.query('BEGIN');
         try {
+            if (AUDIT_CONFIG_MUTATIONS) {
+                console.warn(`[Config-Audit] POST /api/config start user=${user} incoming_count=${newConfig.length} referer=${referer} ua=${userAgent}`);
+            }
             await pgClient.query(
                 `DELETE FROM "Config" WHERE "user" = $1 OR "user" IS NULL`,
                 [user]
             );
+            if (AUDIT_CONFIG_MUTATIONS) {
+                console.warn(`[Config-Audit] deleted scoped configs for user=${user} (including user IS NULL)`);
+            }
             
             for (const item of newConfig) {
                 const id = require('uuid').v4();
@@ -99,12 +108,18 @@ export async function POST(request: Request) {
             }
             
             await pgClient.query('COMMIT');
+            if (AUDIT_CONFIG_MUTATIONS) {
+                console.warn(`[Config-Audit] POST /api/config committed user=${user} inserted_count=${newConfig.length}`);
+            }
         } catch (e) {
             await pgClient.query('ROLLBACK');
             throw e;
         }
     } else {
         await (prisma as any).$transaction(async (tx: any) => {
+            if (AUDIT_CONFIG_MUTATIONS) {
+                console.warn(`[Config-Audit] POST /api/config start user=${user} incoming_count=${newConfig.length} referer=${referer} ua=${userAgent}`);
+            }
             await tx.config.deleteMany({ 
                 where: { 
                     OR: [
@@ -113,6 +128,9 @@ export async function POST(request: Request) {
                     ]
                 }
             });
+            if (AUDIT_CONFIG_MUTATIONS) {
+                console.warn(`[Config-Audit] deleted scoped configs for user=${user} (including user IS NULL)`);
+            }
             
             for (const item of newConfig) {
                  const datasetType = normalizeConfigDatasetType(item.dataset_type || item.datasetType);
@@ -131,6 +149,9 @@ export async function POST(request: Request) {
                      parseStatus: item.parse_status || 'completed'
                  };
                  await tx.config.create({ data });
+            }
+            if (AUDIT_CONFIG_MUTATIONS) {
+                console.warn(`[Config-Audit] POST /api/config committed user=${user} inserted_count=${newConfig.length}`);
             }
         });
     }

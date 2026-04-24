@@ -25,6 +25,8 @@ let lastDeltaByPartField = new Map();
 let sessionParentById = new Map();
 let sessionAgentById = new Map();
 let subagentTypeBySessionId = new Map();
+let eagerFlushMsgIds = new Set();
+let lastEagerFlushAtBySessionId = new Map();
 
 const STORE_PATH = path.join(os.homedir(), '.opencode', 'witty_plugin_session_store.json');
 
@@ -495,9 +497,15 @@ export default async function WittySkillInsightPlugin(input) {
                      }
                  }
 
-                  if (entry.info?.role === 'assistant' && (entry.info.finish || entry.info.time?.completed != null)) {
-                      eagerFlush = true;
-                  }
+                 if (entry.info?.role === 'assistant' && (entry.info.finish || entry.info.time?.completed != null)) {
+                     if (!eagerFlushMsgIds.has(msgId)) {
+                         eagerFlushMsgIds.add(msgId);
+                         if (eagerFlushMsgIds.size > 5000) {
+                             eagerFlushMsgIds = new Set(Array.from(eagerFlushMsgIds).slice(-4000));
+                         }
+                         eagerFlush = true;
+                     }
+                 }
              }
           }
 
@@ -696,6 +704,21 @@ export default async function WittySkillInsightPlugin(input) {
            // 3. Upload on Session Idle
            if (event.type === "session.idle" || eagerFlush) {
                if (!sessionId || !sessionId.startsWith("ses")) return;
+
+               const isIdleTrigger = event.type === "session.idle";
+               if (!isIdleTrigger) {
+                   const THROTTLE_MS = Number(process.env.WITTY_EAGER_FLUSH_THROTTLE_MS || 2000);
+                   const throttleMs = Number.isFinite(THROTTLE_MS) && THROTTLE_MS > 0 ? THROTTLE_MS : 0;
+                   if (throttleMs > 0) {
+                       const now = Date.now();
+                       const last = lastEagerFlushAtBySessionId.get(sessionId) || 0;
+                       if (now - last < throttleMs) {
+                           logDebug(`Skipping eagerFlush upload for ${sessionId}: throttled (${now - last}ms < ${throttleMs}ms)`);
+                           return;
+                       }
+                       lastEagerFlushAtBySessionId.set(sessionId, now);
+                   }
+               }
 
                // Reload store from disk to pick up any data written by
                // concurrent child processes (e.g. opencode run executed
