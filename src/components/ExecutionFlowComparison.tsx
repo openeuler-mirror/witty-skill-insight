@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/api'
 import { useTheme, useThemeColors } from '@/lib/theme-context';
 import { useLocale } from '@/lib/locale-context';
+import { useAuth } from '@/lib/auth-context';
 
 interface ExecutionFlowComparisonProps {
   executionId: string;
@@ -51,6 +52,7 @@ export default function ExecutionFlowComparison({
   user,
   onStepClick
 }: ExecutionFlowComparisonProps) {
+  const { user: currentUser } = useAuth();
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMode, setAnalyzeMode] = useState<'dynamic' | 'compare'>('compare');
   const [matchData, setMatchData] = useState<MatchData | null>(null);
@@ -105,7 +107,7 @@ export default function ExecutionFlowComparison({
       const res = await apiFetch(`/api/executions/${executionId}/analyze-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user, mode: 'dynamic' })
+        body: JSON.stringify({ user: currentUser, mode: 'dynamic' })
       });
       
       const result = await res.json();
@@ -143,7 +145,7 @@ export default function ExecutionFlowComparison({
       const res = await apiFetch(`/api/executions/${executionId}/analyze-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user, mode: 'compare' })
+        body: JSON.stringify({ user: currentUser, mode: 'compare' })
       });
       
       const result = await res.json();
