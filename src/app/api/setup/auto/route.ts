@@ -92,11 +92,11 @@ echo ""
 SELECTOR_SCRIPT="$HOME/.skill-insight/framework_selector.mjs"
 SELECTOR_RESULT="$HOME/.skill-insight/.selector_result"
 
-# Install inquirer if not already installed
+# Install inquirer and tsx if not already installed
 cd "$HOME/.skill-insight"
-if [ ! -d "node_modules/inquirer" ]; then
-    echo "📦 Installing inquirer for interactive selection..."
-    npm install inquirer --save 2>/dev/null
+if [ ! -d "node_modules/inquirer" ] || [ ! -d "node_modules/tsx" ]; then
+    echo "📦 Installing dependencies for interactive selection..."
+    npm install inquirer tsx --save 2>/dev/null
 fi
 
 cat > "$SELECTOR_SCRIPT" << 'SELECTOR_EOF'
@@ -161,7 +161,7 @@ SELECTOR_EOF
 # Run the selector interactively from /dev/tty
 # Export the result file path so the selector knows where to write
 export SELECTOR_RESULT_FILE="$SELECTOR_RESULT"
-cd "$HOME/.skill-insight" && npx -y tsx "$SELECTOR_SCRIPT" < /dev/tty
+cd "$HOME/.skill-insight" && ./node_modules/.bin/tsx "$SELECTOR_SCRIPT" < /dev/tty
 
 # Read the selection result from file
 if [ -f "$SELECTOR_RESULT" ]; then
@@ -500,11 +500,11 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         '$SELECTOR_SCRIPT = Join-Path $skillInsightDir "framework_selector.mjs"',
         '$SELECTOR_RESULT = Join-Path $skillInsightDir ".selector_result"',
         '',
-        '# Install inquirer if not already installed',
+        '# Install inquirer and tsx if not already installed',
         'Set-Location $skillInsightDir',
-        'if (-not (Test-Path "node_modules\\inquirer")) {',
-        '    Write-Host "📦 Installing inquirer for interactive selection..."',
-        '    npm install inquirer --save 2>$null',
+        'if (-not (Test-Path "node_modules\\inquirer") -or -not (Test-Path "node_modules\\tsx")) {',
+        '    Write-Host "📦 Installing dependencies for interactive selection..."',
+        '    npm install inquirer tsx --save 2>$null',
         '}',
         '',
         '$selectorLines = @(',
@@ -571,7 +571,7 @@ function generatePowerShellScript(baseUrl: string, hostParam: string, apiKey: st
         '# Run the selector interactively',
         '$env:SELECTOR_RESULT_FILE = $SELECTOR_RESULT',
         'Set-Location $skillInsightDir',
-        'npx -y tsx $SELECTOR_SCRIPT',
+        './node_modules/.bin/tsx $SELECTOR_SCRIPT',
         '',
         '# Read the selection result from file',
         'if (Test-Path $SELECTOR_RESULT) {',
