@@ -1,20 +1,109 @@
-
 import { db } from '@/lib/prisma';
 import { getProxyConfig } from '@/lib/proxy-config';
 import { getActiveConfig } from '@/lib/server-config';
-import { generateAnswerExtractionPrompt, generateConfigExtractionPrompt } from '@/prompts/config-extraction-prompt';
+import {
+    generateAnswerExtractionPrompt,
+    generateRootCauseExtractionPrompt,
+} from '@/prompts/config-extraction-prompt';
+import { configSupportsDatasetType, normalizeConfigDatasetType, type ConfigDatasetType } from '@/lib/config-dataset';
+import { getConfigSubjectLabel, normalizeConfigQuery, normalizeConfigSkillName, normalizeOptionalSkillVersion } from '@/lib/config-target';
+import { deriveRoutingSignature } from '@/lib/routing-signature';
 import { extractKeyActionsFromFlow, mergeKeyActionsFromMultipleSkills, type ExtractedKeyAction, type ParsedFlowResult } from '@/lib/flow-parser';
 import { NextResponse } from 'next/server';
 import { OpenAI } from "openai";
 
 export const dynamic = 'force-dynamic';
 
+function parseJsonPayload<T>(raw: string): T {
+    let jsonStr = raw.trim();
+    const fenced = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenced) {
+        jsonStr = fenced[1];
+    } else {
+        const first = jsonStr.indexOf('{');
+        const last = jsonStr.lastIndexOf('}');
+        if (first !== -1 && last !== -1 && last >= first) {
+            jsonStr = jsonStr.substring(first, last + 1);
+        }
+    }
+    return JSON.parse(jsonStr) as T;
+}
+
+function parseStoredKeyActions(raw?: string | null) {
+    if (!raw) return [];
+
+    try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+
+        return parsed
+            .filter(item => typeof item?.content === 'string' && item.content.trim())
+            .map(item => ({
+                content: item.content.trim(),
+                weight: typeof item?.weight === 'number' ? item.weight : 1,
+                ...(typeof item?.controlFlowType === 'string' ? { controlFlowType: item.controlFlowType } : {}),
+                ...(typeof item?.condition === 'string' && item.condition.trim() ? { condition: item.condition.trim() } : {}),
+                ...(typeof item?.branchLabel === 'string' && item.branchLabel.trim() ? { branchLabel: item.branchLabel.trim() } : {}),
+                ...(typeof item?.loopCondition === 'string' && item.loopCondition.trim() ? { loopCondition: item.loopCondition.trim() } : {}),
+                ...(typeof item?.expectedMinCount === 'number' ? { expectedMinCount: item.expectedMinCount } : {}),
+                ...(typeof item?.expectedMaxCount === 'number' ? { expectedMaxCount: item.expectedMaxCount } : {}),
+                ...(typeof item?.groupId === 'string' && item.groupId.trim() ? { groupId: item.groupId.trim() } : {}),
+            }));
+    } catch {
+        return [];
+    }
+}
+
+function buildStoredKeyActions(actions: ExtractedKeyAction[]) {
+    return actions.map(action => ({
+        content: action.content,
+        weight: action.weight,
+        ...(action.controlFlowType !== 'required' ? { controlFlowType: action.controlFlowType } : {}),
+        ...(action.condition ? { condition: action.condition } : {}),
+        ...(action.branchLabel ? { branchLabel: action.branchLabel } : {}),
+        ...(action.loopCondition ? { loopCondition: action.loopCondition } : {}),
+        ...(action.expectedMinCount !== undefined ? { expectedMinCount: action.expectedMinCount } : {}),
+        ...(action.expectedMaxCount !== undefined ? { expectedMaxCount: action.expectedMaxCount } : {}),
+        ...(action.groupId ? { groupId: action.groupId } : {}),
+    }));
+}
+
+function normalizeFlowTargets(
+    skill: string | null,
+    skillVersion: number | null,
+    expectedSkills: { skill: string; version: number | null }[] | null,
+) {
+    const targets = new Map<string, { skill: string; version: number | null }>();
+
+    const addTarget = (rawSkill: string | null | undefined, rawVersion: number | null | undefined) => {
+        const normalizedSkill = normalizeConfigSkillName(rawSkill);
+        if (!normalizedSkill) return;
+
+        const version = normalizeOptionalSkillVersion(rawVersion);
+        targets.set(`${normalizedSkill}::${version ?? 'any'}`, {
+            skill: normalizedSkill,
+            version,
+        });
+    };
+
+    addTarget(skill, skillVersion);
+    for (const item of expectedSkills || []) {
+        addTarget(item?.skill, item?.version ?? null);
+    }
+
+    return Array.from(targets.values());
+}
+
 async function processConfigAsync(
     configId: string, 
-    query: string, 
+    query: string | null,
     standardAnswer: string, 
     documentContent: string | null,
+    datasetType: ConfigDatasetType,
+    skill: string | null,
+    skillVersion: number | null,
     expectedSkills: { skill: string; version: number | null }[] | null,
+    existingKeyActionsRaw: string | null,
     user?: string | null
 ) {
     try {
@@ -32,10 +121,11 @@ async function processConfigAsync(
             fetch: customFetch,
         });
         const modelName = settings.model || 'deepseek-chat';
+        const taskContext = getConfigSubjectLabel({ query, skill, skillVersion });
 
         if (documentContent && !standardAnswer) {
             try {
-                const prompt = generateAnswerExtractionPrompt(query, documentContent);
+                const prompt = generateAnswerExtractionPrompt(taskContext, documentContent);
                 const response = await openaiClient.chat.completions.create({
                     messages: [{ role: "user", content: prompt }],
                     model: modelName,
@@ -74,104 +164,103 @@ async function processConfigAsync(
             }
         }
 
-        const prompt = generateConfigExtractionPrompt(query, standardAnswer);
+        const updates: Record<string, unknown> = {};
 
-        const response = await openaiClient.chat.completions.create({
-            messages: [{ role: "user", content: prompt }],
-            model: modelName,
-        });
-
-        const content = response.choices[0].message.content;
-        if (!content) {
-            throw new Error('No content returned from LLM');
-        }
-
-        let jsonStr = content.trim();
-        const matchParse = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-        if (matchParse) {
-            jsonStr = matchParse[1];
-        } else {
-            const first = jsonStr.indexOf('{');
-            const last = jsonStr.lastIndexOf('}');
-            if (first !== -1 && last !== -1 && last >= first) {
-                jsonStr = jsonStr.substring(first, last + 1);
+        if (configSupportsDatasetType(datasetType, 'routing')) {
+            const normalizedQuery = normalizeConfigQuery(query);
+            if (!normalizedQuery) {
+                throw new Error('Routing dataset requires a non-empty query for reparse');
             }
-        }
-        const extractedData = JSON.parse(jsonStr);
-        const rootCauses = extractedData.root_causes || [];
-        const keyActionsFromAnswer = extractedData.key_actions || [];
 
-        let finalKeyActions = keyActionsFromAnswer;
+            const routingSignature = await deriveRoutingSignature(normalizedQuery, user);
+            if (!routingSignature) {
+                throw new Error('Failed to derive routing semantic signature');
+            }
+
+            updates.routingIntent = routingSignature.intent;
+            updates.routingAnchors = JSON.stringify(routingSignature.anchors);
+        }
+
+        let rootCauses: { content: string; weight: number }[] = [];
+        let finalKeyActions = parseStoredKeyActions(existingKeyActionsRaw);
         let extractedKeyActionsData: ExtractedKeyAction[] | null = null;
 
-        const skillNamesToExtract = expectedSkills && expectedSkills.length > 0
-            ? expectedSkills.map(e => e.skill.trim()).filter(Boolean)
-            : [];
+        if (configSupportsDatasetType(datasetType, 'outcome')) {
+            if (standardAnswer.trim()) {
+                const prompt = generateRootCauseExtractionPrompt(
+                    normalizeConfigQuery(query) || normalizeConfigSkillName(skill) || 'Skill benchmark',
+                    standardAnswer,
+                );
 
-        if (skillNamesToExtract.length > 0) {
+                const response = await openaiClient.chat.completions.create({
+                    messages: [{ role: "user", content: prompt }],
+                    model: modelName,
+                });
+
+                const content = response.choices[0].message.content;
+                if (!content) {
+                    throw new Error('No content returned from LLM');
+                }
+
+                const extractedData = parseJsonPayload<{ root_causes?: { content: string; weight: number }[] }>(content);
+                rootCauses = Array.isArray(extractedData.root_causes) ? extractedData.root_causes : [];
+            }
+
+            const skillTargets = normalizeFlowTargets(skill, skillVersion, expectedSkills);
             try {
                 const allActions: { name: string; actions: ExtractedKeyAction[] }[] = [];
 
-                for (const skillName of skillNamesToExtract) {
-                    const skill = await db.findSkill(skillName, user || null);
-                    if (!skill) {
-                        console.warn(`[ConfigReparse] Skill "${skillName}" not found, skipping extraction`);
+                for (const target of skillTargets) {
+                    const skillRecord = await db.findSkill(target.skill, user || null);
+                    if (!skillRecord) {
+                        console.warn(`[ConfigReparse] Skill "${target.skill}" not found, skipping extraction`);
                         continue;
                     }
 
-                    const targetVersion = skill.activeVersion || 0;
-                    const sv = skill.versions?.find((v: any) => v.version === targetVersion) || skill.versions?.[0];
-                    if (!sv?.content) continue;
+                    const resolvedVersion = target.version
+                        ?? skillRecord.activeVersion
+                        ?? skillRecord.versions?.[0]?.version
+                        ?? null;
+                    if (resolvedVersion == null) continue;
 
-                    const parsedFlow = await db.findParsedFlow(skill.id, sv.version, user || null);
-                    if (parsedFlow) {
+                    const parsedFlow = await db.findParsedFlow(skillRecord.id, resolvedVersion, user || null);
+                    if (parsedFlow?.flowJson) {
                         const flow: ParsedFlowResult = JSON.parse(parsedFlow.flowJson);
-                        const actions = extractKeyActionsFromFlow(flow);
-                        allActions.push({ name: skillName, actions });
+                        const actions = extractKeyActionsFromFlow(flow).map(action => ({
+                            ...action,
+                            skillSource: action.skillSource || target.skill,
+                        }));
+                        if (actions.length > 0) {
+                            allActions.push({ name: target.skill, actions });
+                        }
                     } else {
-                        console.warn(`[ConfigReparse] No parsed flow for skill "${skillName}" v${sv.version}, skipping`);
+                        console.warn(`[ConfigReparse] No parsed flow for skill "${target.skill}" v${resolvedVersion}, skipping`);
                     }
                 }
 
                 if (allActions.length > 0) {
-                    let extractedActions: ExtractedKeyAction[];
-                    if (allActions.length === 1) {
-                        extractedActions = allActions[0].actions;
-                    } else {
-                        extractedActions = mergeKeyActionsFromMultipleSkills(allActions);
-                    }
+                    const extractedActions = allActions.length === 1
+                        ? allActions[0].actions
+                        : mergeKeyActionsFromMultipleSkills(allActions);
 
-                    finalKeyActions = extractedActions.map(a => ({
-                        content: a.content,
-                        weight: a.weight,
-                        ...(a.controlFlowType !== 'required' ? { controlFlowType: a.controlFlowType } : {}),
-                        ...(a.condition ? { condition: a.condition } : {}),
-                        ...(a.branchLabel ? { branchLabel: a.branchLabel } : {}),
-                        ...(a.loopCondition ? { loopCondition: a.loopCondition } : {}),
-                        ...(a.expectedMinCount !== undefined ? { expectedMinCount: a.expectedMinCount } : {}),
-                        ...(a.expectedMaxCount !== undefined ? { expectedMaxCount: a.expectedMaxCount } : {}),
-                        ...(a.groupId ? { groupId: a.groupId } : {}),
-                    }));
+                    finalKeyActions = buildStoredKeyActions(extractedActions);
                     extractedKeyActionsData = extractedActions;
 
-                    console.log(`[ConfigReparse] Extracted ${extractedActions.length} key actions from Skill(s): ${skillNamesToExtract.join(', ')}`);
+                    console.log(`[ConfigReparse] Extracted ${extractedActions.length} key actions from Skill targets`);
                 }
             } catch (err) {
                 console.error('[ConfigReparse] Error extracting key actions from Skill:', err);
             }
+
+            updates.rootCauses = JSON.stringify(rootCauses);
+            updates.keyActions = JSON.stringify(finalKeyActions);
+            if (extractedKeyActionsData) {
+                updates.extractedKeyActions = JSON.stringify(extractedKeyActionsData);
+            }
         }
 
-        const updateData: any = {
-            rootCauses: JSON.stringify(rootCauses),
-            keyActions: JSON.stringify(finalKeyActions),
-            parseStatus: 'completed'
-        };
-
-        if (extractedKeyActionsData) {
-            updateData.extractedKeyActions = JSON.stringify(extractedKeyActionsData);
-        }
-
-        await db.updateConfig(configId, updateData);
+        updates.parseStatus = 'completed';
+        await db.updateConfig(configId, updates);
 
         console.log(`[ConfigReparse] Successfully extracted key points for config ${configId}`);
     } catch (error: any) {
@@ -205,12 +294,18 @@ export async function POST(request: Request) {
             }
         }
 
+        const datasetType = normalizeConfigDatasetType(config.datasetType);
+
         processConfigAsync(
             id, 
             config.query, 
-            config.standardAnswer, 
+            config.standardAnswer || '',
             null,
+            datasetType,
+            config.skill || null,
+            normalizeOptionalSkillVersion(config.skillVersion),
             expectedSkills,
+            config.keyActions || null,
             user
         );
 

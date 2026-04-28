@@ -152,7 +152,7 @@ export default function LoginPage() {
               className="login-input"
               id="username"
               type="email"
-              placeholder="your.email@example.com"
+              placeholder="请输入邮箱地址，例如 name@example.com"
               value={username}
               onChange={(e) => { setUsername(e.target.value); setError(''); }}
               style={error ? { borderColor: colors.error } : {}}

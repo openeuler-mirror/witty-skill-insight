@@ -116,4 +116,3 @@ else
     echo "❌ Error: Failed to copy skill-generator"
     exit 1
 fi
-

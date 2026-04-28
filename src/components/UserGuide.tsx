@@ -183,7 +183,7 @@ function GuideBubble({
 
     const getArrowStyle = () => {
         if (step.position === 'center') return null;
-        
+
         const baseStyle: React.CSSProperties = {
             position: 'absolute',
             width: 0,
@@ -259,24 +259,24 @@ function GuideBubble({
                     maxWidth: isCenter ? '480px' : '360px',
                     minWidth: isCenter ? '320px' : '280px',
                     zIndex: 9999,
-                    boxShadow: isCenter 
-                        ? `0 25px 50px ${c.overlayBg}, 0 0 40px ${c.primarySubtleBorder}` 
+                    boxShadow: isCenter
+                        ? `0 25px 50px ${c.overlayBg}, 0 0 40px ${c.primarySubtleBorder}`
                         : `0 20px 40px ${c.overlayBg}, 0 0 20px ${c.primarySubtle}`,
                     animation: 'fadeInScale 0.3s ease-out',
                     textAlign: isCenter ? 'center' : 'left',
                 }}
             >
                 {!isCenter && <div style={getArrowStyle() || {}} />}
-                
+
                 {isCenter && (
                     <div style={{ fontSize: '3rem', marginBottom: '16px' }}>👋</div>
                 )}
-                
+
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                    <h3 style={{ 
-                        margin: 0, 
-                        color: c.primary, 
-                        fontSize: isCenter ? '1.4rem' : '1.1rem', 
+                    <h3 style={{
+                        margin: 0,
+                        color: c.primary,
+                        fontSize: isCenter ? '1.4rem' : '1.1rem',
                         fontWeight: 600,
                         width: '100%',
                     }}>
@@ -332,19 +332,19 @@ function GuideBubble({
 
                 {step.setupCommands && (
                     <div style={{ marginBottom: '16px', textAlign: 'left' }}>
-                        <div style={{ 
-                            color: c.fgMuted, 
-                            fontSize: '0.85rem', 
+                        <div style={{
+                            color: c.fgMuted,
+                            fontSize: '0.85rem',
                             marginBottom: '12px',
                             lineHeight: 1.5
                         }}>
                             {t('guide.setup.description')}
                         </div>
-                        
+
                         <div style={{ marginBottom: '10px' }}>
-                            <div style={{ 
-                                color: c.primary, 
-                                fontSize: '0.85rem', 
+                            <div style={{
+                                color: c.primary,
+                                fontSize: '0.85rem',
                                 fontWeight: 600,
                                 marginBottom: '6px',
                                 display: 'flex',
@@ -354,15 +354,15 @@ function GuideBubble({
                                 <span>🐧</span>
                                 <span>Linux / macOS</span>
                             </div>
-                            <div style={{ 
+                            <div style={{
                                 background: c.bg,
                                 border: `1px solid ${c.border}`,
                                 borderRadius: '6px',
                                 padding: '10px',
                                 position: 'relative'
                             }}>
-                                <code style={{ 
-                                    color: c.fg, 
+                                <code style={{
+                                    color: c.fg,
                                     fontSize: '0.8rem',
                                     fontFamily: 'monospace',
                                     wordBreak: 'break-all',
@@ -402,9 +402,9 @@ function GuideBubble({
                         </div>
 
                         <div>
-                            <div style={{ 
-                                color: c.primary, 
-                                fontSize: '0.85rem', 
+                            <div style={{
+                                color: c.primary,
+                                fontSize: '0.85rem',
                                 fontWeight: 600,
                                 marginBottom: '6px',
                                 display: 'flex',
@@ -414,15 +414,15 @@ function GuideBubble({
                                 <span>🪟</span>
                                 <span>Windows</span>
                             </div>
-                            <div style={{ 
+                            <div style={{
                                 background: c.bg,
                                 border: `1px solid ${c.border}`,
                                 borderRadius: '6px',
                                 padding: '10px',
                                 position: 'relative'
                             }}>
-                                <code style={{ 
-                                    color: c.fg, 
+                                <code style={{
+                                    color: c.fg,
                                     fontSize: '0.8rem',
                                     fontFamily: 'monospace',
                                     wordBreak: 'break-all',
@@ -460,28 +460,28 @@ function GuideBubble({
                                 </button>
                             </div>
                         </div>
-                        
+
                         {step.apiKey && (
-                            <div style={{ 
+                            <div style={{
                                 background: 'rgba(56, 189, 248, 0.1)',
                                 border: '1px solid rgba(56, 189, 248, 0.3)',
                                 borderRadius: '6px',
                                 padding: '10px',
                                 marginTop: '12px'
                             }}>
-                                <div style={{ 
-                                    color: c.primary, 
-                                    fontSize: '0.85rem', 
+                                <div style={{
+                                    color: c.primary,
+                                    fontSize: '0.85rem',
                                     fontWeight: 600,
                                     marginBottom: '6px'
                                 }}>
                                     {t('guide.setup.yourApiKey')}
                                 </div>
-                                <div style={{ 
+                                <div style={{
                                     position: 'relative'
                                 }}>
-                                    <div style={{ 
-                                        color: c.fg, 
+                                    <div style={{
+                                        color: c.fg,
                                         fontSize: '0.8rem',
                                         fontFamily: 'monospace',
                                         wordBreak: 'break-all',
@@ -518,8 +518,8 @@ function GuideBubble({
                                         复制
                                     </button>
                                 </div>
-                                <div style={{ 
-                                    color: c.fgMuted, 
+                                <div style={{
+                                    color: c.fgMuted,
                                     fontSize: '0.75rem',
                                     lineHeight: 1.4
                                 }}>
@@ -565,7 +565,7 @@ function GuideBubble({
                             {t('guide.buttons.prev')}
                         </button>
                     )}
-                    
+
                     {step.action && step.actionLabel && (
                         <button
                             onClick={() => {

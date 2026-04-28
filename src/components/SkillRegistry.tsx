@@ -49,13 +49,13 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
     setSyncing(true);
     setSyncProgress(t('skill.syncingProgress'));
     setSyncResult(null);
-    
+
     try {
       const res = await apiFetch('/api/skills/sync-enterprise', {
         method: 'POST',
         headers: apiKey ? { 'x-witty-api-key': apiKey } : {}
       });
-      
+
       const result = await res.json();
       if (res.ok) {
         setSyncProgress(t('skill.syncComplete'));
@@ -82,32 +82,31 @@ function EnterpriseSync({ onSuccess }: { onSuccess: () => void }) {
       <p style={{ color: c.fgSecondary, marginBottom: '1.5rem', maxWidth: '400px', fontSize: '0.9rem', lineHeight: 1.5 }}>
         {t('skill.syncDescription')}
       </p>
-      
+
       <button
         className="btn-primary"
         onClick={handleSyncFromEnterprise}
         disabled={syncing}
-        style={{ 
+        style={{
           opacity: syncing ? 0.6 : 1,
           cursor: syncing ? 'not-allowed' : 'pointer'
         }}
       >
         {syncing ? t('skill.syncing') : t('skill.syncStart')}
       </button>
-      
+
       {syncProgress && (
         <div style={{ marginTop: '1rem', color: c.fgSecondary, fontSize: '0.9rem' }}>
           {syncProgress}
         </div>
       )}
-      
+
       {syncResult && (
         <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#e4e4e7', borderRadius: '0.5rem' }}>
           <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>{t('skill.syncResult')}</div>
           <div>{t('skill.totalSkillsCount')}: {syncResult.totalSkills}</div>
           <div style={{ color: c.success }}>{t('skill.successCount')}: {syncResult.successCount}</div>
           <div style={{ color: c.error }}>{t('skill.failedCount')}: {syncResult.failedCount}</div>
-          
           {syncResult.failedCount > 0 && (
             <details style={{ marginTop: '0.5rem' }}>
               <summary style={{ cursor: 'pointer', color: c.fgSecondary }}>查看失败详情</summary>
@@ -238,7 +237,6 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
         alert("Failed to load details");
         setLoading(false);
       });
-    
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
     const checkParsedFlow = () => {
@@ -299,7 +297,7 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
   return (
     <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
       <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ width: '1200px', maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
-        
+
         <div className="modal-header-new" style={{ padding: '1rem 1.5rem', background: c.bgSecondary, borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: c.fg }}>Version Details (v{version})</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -319,15 +317,15 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
             >
               {parsing ? t('skill.versions.parsing') : (parsedFlow ? t('skill.versions.reparsing') : t('skill.versions.parseFlow'))}
             </button>
-            <button 
-              onClick={onClose} 
+            <button
+              onClick={onClose}
               style={{ background: 'none', border: 'none', color: c.fgSecondary, fontSize: '1.5rem', cursor: 'pointer', padding: '0 0.5rem', lineHeight: 1 }}
             >
               &times;
             </button>
           </div>
         </div>
-        
+
         <div style={{ flex: 1, display: 'flex', gap: '1.5rem', padding: '1.5rem', minHeight: 0, overflowY: 'auto' }}>
           {loading ? (
              <div style={{ textAlign: 'center', padding: '2rem', color: c.fgSecondary, flex: 1 }}>Loading details...</div>
@@ -350,13 +348,13 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
 
                 <div>
                      <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Skill Content (SKILL.md)</h4>
-                     <pre style={{ 
-                         background: c.bgSecondary, 
-                         padding: '1rem', 
-                         borderRadius: '6px', 
-                         color: c.fg, 
-                         overflowX: 'auto', 
-                         fontFamily: 'monospace', 
+                     <pre style={{
+                         background: c.bgSecondary,
+                         padding: '1rem',
+                         borderRadius: '6px',
+                         color: c.fg,
+                         overflowX: 'auto',
+                         fontFamily: 'monospace',
                          fontSize: '0.85rem',
                          border: `1px solid ${c.border}`,
                          maxHeight: '300px',
@@ -389,11 +387,11 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
               <div style={{ flex: '1 1 50%', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                 <h4 style={{ color: c.fgSecondary, marginBottom: '0.5rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>预期执行流程</h4>
                 {parsedFlow ? (
-                  <div style={{ 
-                    background: c.bgSecondary, 
-                    padding: '1rem', 
-                    borderRadius: '6px', 
-                    border: `1px solid ${c.border}`, 
+                  <div style={{
+                    background: c.bgSecondary,
+                    padding: '1rem',
+                    borderRadius: '6px',
+                    border: `1px solid ${c.border}`,
                     flex: 1,
                     display: 'flex',
                     flexDirection: 'column'
@@ -422,15 +420,15 @@ function SkillVersionDetailModal({ skillId, version, onClose }: { skillId: strin
                     {t('flow.autoParsingSkill')}
                   </div>
                 ) : (
-                  <div style={{ 
-                    background: c.bgSecondary, 
-                    padding: '2rem', 
-                    borderRadius: '6px', 
-                    border: `1px solid ${c.border}`, 
-                    flex: 1, 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
+                  <div style={{
+                    background: c.bgSecondary,
+                    padding: '2rem',
+                    borderRadius: '6px',
+                    border: `1px solid ${c.border}`,
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     color: c.fgMuted
                   }}>
                     点击「解析流程」按钮生成预期执行流程图
@@ -457,8 +455,8 @@ function MermaidFlowChart({ code }: { code: string }) {
     const renderMermaid = async () => {
       try {
         const mermaid = (await import('mermaid')).default;
-        mermaid.initialize({ 
-          startOnLoad: false, 
+        mermaid.initialize({
+          startOnLoad: false,
           theme: 'default',
           flowchart: { useMaxWidth: false }
         });
@@ -478,14 +476,14 @@ function MermaidFlowChart({ code }: { code: string }) {
   }
 
   return (
-    <div 
-      style={{ 
-        width: '100%', 
-        display: 'flex', 
-        justifyContent: 'center', 
+    <div
+      style={{
+        width: '100%',
+        display: 'flex',
+        justifyContent: 'center',
         alignItems: 'flex-start'
       }}
-      dangerouslySetInnerHTML={{ __html: svg }} 
+      dangerouslySetInnerHTML={{ __html: svg }}
     />
   );
 }
@@ -552,13 +550,13 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
     const versionObj = versions.find(v => v.version === version);
     const { semanticVersion } = versionObj || {};
     const versionDisplay = semanticVersion || version;
-    
+
     const confirmMsg = isEnterpriseMode
       ? `确定要删除版本 ${versionDisplay} 吗？此操作将同时删除企业中的对应skill（如果存在），无法撤销。`
       : `Are you sure you want to delete version ${versionDisplay}? This action cannot be undone.`;
-    
+
     if (!confirm(confirmMsg)) return;
-    
+
     try {
       const res = await apiFetch(`/api/skills/${skill.id}/versions/${version}?user=${encodeURIComponent(user || '')}`, {
         method: 'DELETE'
@@ -570,7 +568,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
         const newVersions = await vRes.json();
         setVersions(newVersions);
         setHasUpdated(true);
-        
+
         if (currentActiveVersion === version && newVersions.length > 0) {
           setCurrentActiveVersion(newVersions[0].version);
         }
@@ -597,7 +595,7 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
       formData.append('files', files[i]);
       formData.append('paths', files[i].webkitRelativePath);
     }
- 
+
     try {
       const res = await apiFetch('/api/skills/upload', {
         method: 'POST',
@@ -706,12 +704,12 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                     </td>
                     <td style={{ textAlign: 'right', minWidth: '280px' }}>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', flexWrap: 'nowrap', alignItems: 'center' }}>
-                          <button 
+                          <button
                             onClick={() => setViewingVersion(v.version)}
                             className="btn-sm"
-                            style={{ 
-                              background: c.bgTertiary, 
-                              border: `1px solid ${c.borderDark}`, 
+                            style={{
+                              background: c.bgTertiary,
+                              border: `1px solid ${c.borderDark}`,
                               padding: '6px 12px',
                               color: c.fgSecondary,
                               whiteSpace: 'nowrap',
@@ -721,15 +719,15 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                           >
                             查看
                           </button>
-                          
+
                           {!isActive ? (
                             <>
                               <button
                                 onClick={() => handleActivate(v.version)}
                                 className="btn-sm"
-                                style={{ 
-                                  background: c.primarySubtle, 
-                                  border: `1px solid ${c.primary}`, 
+                                style={{
+                                  background: c.primarySubtle,
+                                  border: `1px solid ${c.primary}`,
                                   padding: '6px 12px',
                                   color: c.primary,
                                   whiteSpace: 'nowrap',
@@ -742,10 +740,10 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                               <button
                                 onClick={() => handleDeleteVersion(v.version)}
                                 className="btn-sm"
-                                style={{ 
-                                  background: c.errorSubtle, 
-                                  border: `1px solid ${c.error}`, 
-                                  padding: '6px 12px', 
+                                style={{
+                                  background: c.errorSubtle,
+                                  border: `1px solid ${c.error}`,
+                                  padding: '6px 12px',
                                   color: c.error,
                                   whiteSpace: 'nowrap',
                                   fontSize: '0.85rem',
@@ -756,13 +754,13 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
                               </button>
                             </>
                           ) : (
-                            <span style={{ 
-                              padding: '6px 12px', 
-                              fontSize: '0.85rem', 
-                              fontFamily: 'monospace', 
-                              color: c.success, 
-                              display: 'flex', 
-                              alignItems: 'center', 
+                            <span style={{
+                              padding: '6px 12px',
+                              fontSize: '0.85rem',
+                              fontFamily: 'monospace',
+                              color: c.success,
+                              display: 'flex',
+                              alignItems: 'center',
                               gap: '6px',
                               whiteSpace: 'nowrap'
                             }}>
@@ -788,10 +786,10 @@ function SkillVersionsModal({ skill, onClose, onUpdate }: { skill: Skill, onClos
         </div>
 
         {viewingVersion !== null && (
-            <SkillVersionDetailModal 
-                skillId={skill.id} 
-                version={viewingVersion} 
-                onClose={() => setViewingVersion(null)} 
+            <SkillVersionDetailModal
+                skillId={skill.id}
+                version={viewingVersion}
+                onClose={() => setViewingVersion(null)}
             />
         )}
       </div>
@@ -847,13 +845,13 @@ function SkillCatalog({ refresh }: { refresh: number }) {
     const confirmMsg = isEnterpriseMode
       ? '确定要删除这个skill吗？此操作将同时删除企业中的对应skill，无法撤销。'
       : 'Are you sure you want to delete this skill? This action cannot be undone.';
-    
+
     if (!confirm(confirmMsg)) return;
-    
+
     try {
       const res = await apiFetch(`/api/skills?id=${id}&user=${encodeURIComponent(user || '')}`, { method: 'DELETE' });
       const data = await res.json();
-      
+
       if (res.ok) {
         fetchSkills();
       } else {

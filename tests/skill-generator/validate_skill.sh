@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # validate_skill.sh (tests wrapper)
-# 
+#
 # 真正的验证逻辑在 skills/skill-generator/scripts/validate_skill.sh
 # 本文件只是一个透传包装，确保两处调用行为一致。
 #

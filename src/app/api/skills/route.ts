@@ -13,11 +13,11 @@ export async function GET(request: NextRequest) {
     const query = searchParams.get('query');
     const category = searchParams.get('category');
     const userParam = searchParams.get('user');
-    
+
     const { username: user } = await resolveUser(request, userParam);
-    
+
     const where: any = {};
-    
+
     if (user) {
         where.OR = [
             { user: user },
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
           where.OR = queryFilter.OR;
       }
     }
-    
+
     if (category && category !== '全部') {
       where.category = category;
     }
@@ -98,40 +98,40 @@ export async function DELETE(request: NextRequest) {
   const id = searchParams.get('id');
   const userParam = searchParams.get('user');
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
-  
+
   try {
     const { username: user } = await resolveUser(request, userParam);
-    
+
     const skill = await db.findSkillById(id);
     if (!skill) return NextResponse.json({ error: 'Skill not found' }, { status: 404 });
-    
+
     if (user && skill.user && skill.user !== user) {
         return NextResponse.json({ error: 'Unauthorized delete' }, { status: 403 });
     }
-    
+
     // 企业模式：先删除对应的企业skill（带版本检查）
     if (process.env.ORGANIZATION_MODE === 'true') {
       try {
         const incomingCookie = request.headers.get('cookie') || undefined;
         console.log('[Delete-Skill] 企业模式，开始删除企业skill');
-        
+
         // 获取所有版本的企业skill id
         const versions = skill.versions || [];
         for (const version of versions) {
           if (version.enterpriseSkillId) {
             console.log('[Delete-Skill] 检查企业skill ID:', version.enterpriseSkillId);
-            
+
             // 查询企业skill的版本号
             const enterpriseVersion = await fetchEnterpriseSkillInfo(
               version.enterpriseSkillId,
               incomingCookie
             );
-            
+
             // 本地skill的版本号
             const localVersion = version.semanticVersion;
-            
+
             console.log('[Delete-Skill] 本地版本:', localVersion, '企业版本:', enterpriseVersion);
-            
+
             // 版本一致性检查
             if (localVersion === enterpriseVersion) {
               console.log('[Delete-Skill] 版本一致，删除企业skill');
@@ -146,15 +146,15 @@ export async function DELETE(request: NextRequest) {
         console.error('[Delete-Skill] 错误信息:', error.message);
       }
     }
- 
+
     const storagePath = path.join(process.cwd(), 'data', 'storage', 'skills', id);
- 
+
     if (fs.existsSync(storagePath)) {
       fs.rmSync(storagePath, { recursive: true, force: true });
     }
- 
+
     await db.deleteSkill(id);
- 
+
     return NextResponse.json({ success: true });
   } catch (e: any) {
     console.error('Delete Skill Error:', e);

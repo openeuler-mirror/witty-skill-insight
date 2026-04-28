@@ -94,19 +94,19 @@ graph TB
         A["目录结构正确？"]
         B["YAML frontmatter 合法？"]
     end
-    
+
     subgraph "L2: 内容质量"
         D["字段值满足约束？"]
         E["脚本语法有效？"]
         F["引用路径存在？"]
     end
-    
+
     subgraph "L3: 功能有效性"
         G["能被 Agent 加载？"]
         H["正确触发激活？"]
         I["执行后产出合理？"]
     end
-    
+
     A & B --> D & E & F --> G & H & I
 ```
 

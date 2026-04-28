@@ -46,9 +46,9 @@ interface MatchData {
   usedSkillVersion?: number;
 }
 
-export default function ExecutionFlowComparison({ 
-  executionId, 
-  skillId, 
+export default function ExecutionFlowComparison({
+  executionId,
+  skillId,
   user,
   onStepClick
 }: ExecutionFlowComparisonProps) {
@@ -102,16 +102,16 @@ export default function ExecutionFlowComparison({
     setAnalyzing(true);
     setError('');
     setAnalyzeMode('dynamic');
-    
+
     try {
       const res = await apiFetch(`/api/executions/${executionId}/analyze-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user: currentUser, mode: 'dynamic' })
       });
-      
+
       const result = await res.json();
-      
+
       if (result.success) {
         setMatchData({
           analyzed: true,
@@ -140,16 +140,16 @@ export default function ExecutionFlowComparison({
     setAnalyzing(true);
     setError('');
     setAnalyzeMode('compare');
-    
+
     try {
       const res = await apiFetch(`/api/executions/${executionId}/analyze-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user: currentUser, mode: 'compare' })
       });
-      
+
       const result = await res.json();
-      
+
       if (result.success) {
         const problemSteps = result.match?.problemSteps || [];
         setMatchData({
@@ -178,16 +178,16 @@ export default function ExecutionFlowComparison({
   };
 
   return (
-    <div style={{ 
-      background: c.bgSecondary, 
-      borderRadius: '8px', 
+    <div style={{
+      background: c.bgSecondary,
+      borderRadius: '8px',
       border: `1px solid ${c.border}`,
       marginBottom: '2rem',
       overflow: 'hidden'
     }}>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
         alignItems: 'center',
         padding: '1rem 1.5rem',
         borderBottom: componentExpanded ? '1px solid #334155' : 'none',
@@ -279,10 +279,10 @@ export default function ExecutionFlowComparison({
           </div>
 
           {error && (
-            <div style={{ 
-              padding: '0.75rem', 
-              background: c.errorSubtle, 
-              borderRadius: '4px', 
+            <div style={{
+              padding: '0.75rem',
+              background: c.errorSubtle,
+              borderRadius: '4px',
               color: c.error,
               marginBottom: '1rem',
               fontSize: '0.9rem'
@@ -298,10 +298,10 @@ export default function ExecutionFlowComparison({
                   <h5 style={{ color: c.fgMuted, margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>
                     {t('flow.executionFlowComparison')} {matchData.usedSkillName && `(${matchData.usedSkillName} v${matchData.usedSkillVersion})`}
                   </h5>
-                  <div style={{ 
-                    background: c.bg, 
-                    padding: '1rem', 
-                    borderRadius: '6px', 
+                  <div style={{
+                    background: c.bg,
+                    padding: '1rem',
+                    borderRadius: '6px',
                     border: `1px solid ${c.border}`,
                     minHeight: '250px',
                     overflowX: 'auto',
@@ -315,10 +315,10 @@ export default function ExecutionFlowComparison({
                   <h5 style={{ color: c.fgMuted, margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>
                     {t('flow.executionTrace')}
                   </h5>
-                  <div style={{ 
-                    background: c.bg, 
-                    padding: '1rem', 
-                    borderRadius: '6px', 
+                  <div style={{
+                    background: c.bg,
+                    padding: '1rem',
+                    borderRadius: '6px',
                     border: `1px solid ${c.border}`,
                     minHeight: '180px',
                     overflowX: 'auto',
@@ -335,14 +335,14 @@ export default function ExecutionFlowComparison({
                   try {
                     summary = JSON.parse(matchData.matchJson)?.summary;
                   } catch {}
-                  
+
                   if (!summary) return null;
-                  
+
                   return (
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '1.5rem', 
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '1.5rem',
                       padding: '0.75rem',
                       background: c.bg,
                       borderRadius: '6px',
@@ -369,10 +369,10 @@ export default function ExecutionFlowComparison({
 
               {matchData.mode === 'compare' && matchData.analysisText && (
                 <div style={{ marginBottom: '1rem' }}>
-                  <div 
-                    style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
                       alignItems: 'center',
                       cursor: 'pointer',
                       marginBottom: '0.5rem'
@@ -403,10 +403,10 @@ export default function ExecutionFlowComparison({
                         problemSteps = JSON.parse(matchData.analysisText);
                       } catch {
                         return (
-                          <div style={{ 
-                            background: c.bg, 
-                            padding: '1rem', 
-                            borderRadius: '6px', 
+                          <div style={{
+                            background: c.bg,
+                            padding: '1rem',
+                            borderRadius: '6px',
                             border: `1px solid ${c.border}`,
                             color: c.fgSecondary,
                             fontSize: '0.9rem'
@@ -415,13 +415,13 @@ export default function ExecutionFlowComparison({
                           </div>
                         );
                       }
-                      
+
                       if (!Array.isArray(problemSteps) || problemSteps.length === 0) {
                         return (
-                          <div style={{ 
-                            background: c.bg, 
-                            padding: '1rem', 
-                            borderRadius: '6px', 
+                          <div style={{
+                            background: c.bg,
+                            padding: '1rem',
+                            borderRadius: '6px',
                             border: `1px solid ${c.border}`,
                             color: c.success,
                             fontSize: '0.9rem'
@@ -430,7 +430,7 @@ export default function ExecutionFlowComparison({
                           </div>
                         );
                       }
-                      
+
                       const statusLabel: Record<string, { text: string; color: string }> = {
                         'partial': { text: t('flow.status.partial'), color: c.warning },
                         'unexpected': { text: t('flow.status.unexpected'), color: c.error },
@@ -456,18 +456,18 @@ export default function ExecutionFlowComparison({
                         } catch {}
                         return null;
                       };
-                      
+
                       return (
-                        <div style={{ 
-                          background: c.bg, 
-                          borderRadius: '6px', 
+                        <div style={{
+                          background: c.bg,
+                          borderRadius: '6px',
                           border: `1px solid ${c.border}`,
                           overflow: 'hidden',
                           maxHeight: '600px',
                           overflowY: 'auto'
                         }}>
-                          <table style={{ 
-                            width: '100%', 
+                          <table style={{
+                            width: '100%',
                             borderCollapse: 'collapse',
                             fontSize: '0.9rem'
                           }}>
@@ -484,10 +484,10 @@ export default function ExecutionFlowComparison({
                             <tbody>
                               {problemSteps.map((step, index) => (
                                 <tr key={index} style={{ background: index % 2 === 0 ? '#18181b' : '#111827' }}>
-                                  <td 
-                                    style={{ 
-                                      padding: '0.75rem', 
-                                      color: onStepClick ? '#38bdf8' : '#e4e4e7', 
+                                  <td
+                                    style={{
+                                      padding: '0.75rem',
+                                      color: onStepClick ? '#38bdf8' : '#e4e4e7',
                                       borderBottom: `1px solid ${c.border}`,
                                       cursor: onStepClick ? 'pointer' : 'default',
                                       textDecoration: onStepClick ? 'underline' : 'none'
@@ -498,9 +498,9 @@ export default function ExecutionFlowComparison({
                                   </td>
                                   <td style={{ padding: '0.75rem', color: c.fg, borderBottom: `1px solid ${c.border}` }}>{step.stepName}</td>
                                   <td style={{ padding: '0.75rem', borderBottom: `1px solid ${c.border}` }}>
-                                    <span style={{ 
-                                      padding: '2px 8px', 
-                                      borderRadius: '4px', 
+                                    <span style={{
+                                      padding: '2px 8px',
+                                      borderRadius: '4px',
                                       background: `${statusLabel[step.status]?.color || '#a1a1aa'}20`,
                                       color: statusLabel[step.status]?.color || '#a1a1aa',
                                       fontSize: '0.8rem'
@@ -540,8 +540,8 @@ export default function ExecutionFlowComparison({
               )}
             </div>
           ) : (
-            <div style={{ 
-              color: c.fgSecondary, 
+            <div style={{
+              color: c.fgSecondary,
               fontSize: '0.9rem',
               textAlign: 'center',
               padding: '2rem'
@@ -571,10 +571,10 @@ function MermaidRenderer({ code }: { code: string }) {
     const renderMermaid = async () => {
       try {
         const mermaid = (await import('mermaid')).default;
-        mermaid.initialize({ 
-          startOnLoad: false, 
+        mermaid.initialize({
+          startOnLoad: false,
           theme: 'dark',
-          flowchart: { 
+          flowchart: {
             useMaxWidth: false,
             curve: 'basis'
           },
@@ -602,15 +602,15 @@ function MermaidRenderer({ code }: { code: string }) {
   }
 
   return (
-    <div 
-      style={{ 
-        width: '100%', 
-        display: 'flex', 
+    <div
+      style={{
+        width: '100%',
+        display: 'flex',
         justifyContent: 'flex-start',
         alignItems: 'flex-start',
         minWidth: 'max-content'
       }}
-      dangerouslySetInnerHTML={{ __html: svg }} 
+      dangerouslySetInnerHTML={{ __html: svg }}
     />
   );
 }
