@@ -6,6 +6,20 @@ import { SkillLinks } from './SkillLink';
 import { useTheme, useThemeColors } from '@/lib/theme-context';
 import { useLocale } from '@/lib/locale-context';
 import { apiFetch, getApiUrl } from '@/lib/api';
+import {
+    configSupportsDatasetType,
+    hasOutcomeExpectations,
+    hasRoutingExpectations,
+    normalizeExpectedSkills,
+    normalizeConfigDatasetType,
+    type ConfigDatasetType,
+} from '@/lib/config-dataset';
+import {
+    formatSkillTargetLabel,
+    normalizeConfigQuery,
+    normalizeConfigSkillName,
+    normalizeOptionalSkillVersion,
+} from '@/lib/config-target';
 import { LanguageSwitch } from './LanguageSwitch';
 
 
@@ -13,6 +27,66 @@ import { LanguageSwitch } from './LanguageSwitch';
 interface InvokedSkill {
     name: string;
     version: number | null;
+}
+
+interface RoutingMatchedSkill {
+    skill: string;
+    expected_version: number | null;
+    invoked_version: number | null;
+}
+
+interface RoutingSkillBreakdown {
+    skill: string;
+    expected: boolean;
+    invoked: boolean;
+    matched: boolean;
+    status: 'matched' | 'missed' | 'unexpected' | 'not_applicable';
+    expected_version: number | null;
+    invoked_version: number | null;
+}
+
+interface RoutingEvaluation {
+    status: 'available' | 'missing';
+    matched_config_id?: string;
+    matched_query?: string;
+    matched_intent?: string;
+    matched_anchors?: string[];
+    expected_skills: { skill: string; version: number | null }[];
+    invoked_skills: InvokedSkill[];
+    matched_skills: RoutingMatchedSkill[];
+    expected_count: number;
+    matched_count: number;
+    is_correct: boolean;
+    recall_rate: number | null;
+    skill_breakdown: RoutingSkillBreakdown[];
+}
+
+interface OutcomeSkillBreakdown {
+    skill: string;
+    version: number | null;
+    role: 'primary' | 'invoked' | 'expected_only' | 'context_only';
+    is_primary: boolean;
+    is_invoked: boolean;
+    is_expected: boolean;
+    routing_status: RoutingSkillBreakdown['status'] | 'missing_dataset';
+    shares_execution_outcome: true;
+    score: number | null;
+    is_correct: boolean | null;
+}
+
+interface OutcomeEvaluation {
+    status: 'available' | 'missing' | 'pending';
+    matched_config_id?: string;
+    matched_query?: string;
+    matched_skill?: string;
+    matched_skill_version?: number | null;
+    is_correct: boolean | null;
+    score: number | null;
+    reason?: string;
+    standard_answer_present: boolean;
+    root_cause_count: number;
+    key_action_count: number;
+    skill_breakdown: OutcomeSkillBreakdown[];
 }
 
 interface Execution {
@@ -28,7 +102,7 @@ interface Execution {
     final_result?: string;
     is_skill_correct?: boolean;
     is_answer_correct?: boolean;
-    answer_score?: number;
+    answer_score?: number | null;
     judgment_reason?: string;
     cost?: number;
     cost_pricing?: { inputTokenPrice: number; outputTokenPrice: number; cacheReadInputTokenPrice?: number; cacheCreationInputTokenPrice?: number; source?: 'default' | 'custom' } | null;
@@ -56,19 +130,47 @@ interface Execution {
     input_tokens?: number;
     output_tokens?: number;
     reasoning_tokens?: number;
+    routing_evaluation?: RoutingEvaluation;
+    outcome_evaluation?: OutcomeEvaluation;
 }
 
 interface ConfigItem {
     id: string;
-    query: string;
+    query?: string | null;
+    dataset_type?: ConfigDatasetType;
     skill: string;
     skillVersion?: number | null;
+    routing_intent?: string | null;
+    routing_anchors?: string[];
     expectedSkills?: { skill: string; version: number | null }[];
     standard_answer: string;
     root_causes?: { content: string; weight: number }[];
     key_actions?: { content: string; weight: number; controlFlowType?: string; condition?: string; branchLabel?: string; loopCondition?: string; expectedMinCount?: number; expectedMaxCount?: number; groupId?: string }[];
     extractedKeyActions?: { id: string; content: string; weight: number; controlFlowType: string; condition?: string; branchLabel?: string; loopCondition?: string; expectedMinCount?: number; expectedMaxCount?: number; skillSource?: string; groupId?: string }[];
     parse_status?: string;
+}
+
+type OutcomeSharedKeyAction = NonNullable<ConfigItem['key_actions']>[number];
+type OutcomeExtractedKeyAction = NonNullable<ConfigItem['extractedKeyActions']>[number];
+
+interface OutcomeKeyActionSummaryItem {
+    key: 'required' | 'conditional' | 'loop' | 'optional' | 'handoff';
+    label: string;
+    count: number;
+    color: string;
+}
+
+interface OutcomeConfigGroup {
+    key: string;
+    skill: string;
+    skillVersion: number | null;
+    configs: ConfigItem[];
+    datasetTypes: ConfigDatasetType[];
+    sharedKeyActions: OutcomeSharedKeyAction[];
+    sharedExtractedKeyActions: OutcomeExtractedKeyAction[];
+    sharedKeyActionSource: 'flow' | 'shared';
+    sharedControlFlowSummary: OutcomeKeyActionSummaryItem[];
+    hasGenericScenario: boolean;
 }
 
 interface SkillOption {
@@ -171,17 +273,222 @@ const formatDiff = (diff: number | null, lowerBetter: boolean, isDark: boolean =
     return <span style={{ fontSize: '0.75rem', color, marginLeft: '4px' }}>{arrow}{Math.abs(diff).toFixed(1)}%</span>;
 };
 
+const formatExpectedSkillList = (skills: { skill: string; version: number | null }[] = []) => {
+    if (skills.length === 0) return '--';
+    return skills
+        .map(item => `${item.skill}${item.version != null ? ` v${item.version}` : ''}`)
+        .join(', ');
+};
+
+const formatInvokedSkillList = (skills: InvokedSkill[] = []) => {
+    if (skills.length === 0) return '--';
+    return skills
+        .map(item => `${item.name}${item.version != null ? ` v${item.version}` : ''}`)
+        .join(', ');
+};
+
+const truncateCardText = (value: string, maxLength = 120) => (
+    value.length > maxLength ? `${value.slice(0, maxLength)}...` : value
+);
+
+const getConfigDisplayTitle = (config: ConfigItem, sectionType: 'routing' | 'outcome') => {
+    if (sectionType === 'routing') {
+        const semanticIntent = config.routing_intent?.trim();
+        if (semanticIntent) {
+            return semanticIntent;
+        }
+        const query = normalizeConfigQuery(config.query);
+        return query ? truncateCardText(query) : '未命名 Skill 召回率基准';
+    }
+    return formatSkillTargetLabel(config.skill, config.skillVersion ?? null) || '未绑定 Skill 执行效果基准';
+};
+
+const getOutcomeTargetMeta = (config: ConfigItem) => {
+    const query = normalizeConfigQuery(config.query);
+    if (!query) return null;
+    return query.length > 90 ? `${query.slice(0, 90)}...` : query;
+};
+
+const getOutcomeScenarioLabel = (config: ConfigItem) => {
+    const query = normalizeConfigQuery(config.query);
+    return query ? truncateCardText(query, 90) : '通用基准';
+};
+
+const getOutcomeGroupKey = (skill: string, skillVersion: number | null | undefined) => (
+    `${normalizeConfigSkillName(skill) || '__unbound_skill__'}::${normalizeOptionalSkillVersion(skillVersion) ?? 'any'}`
+);
+
+const sortOutcomeScenarioConfigs = (items: ConfigItem[]) => [...items].sort((a, b) => {
+    const queryA = normalizeConfigQuery(a.query);
+    const queryB = normalizeConfigQuery(b.query);
+
+    if (!queryA && queryB) return -1;
+    if (queryA && !queryB) return 1;
+    if (!queryA && !queryB) return a.id.localeCompare(b.id);
+    return (queryA || '').localeCompare(queryB || '', 'zh-CN');
+});
+
+const buildOutcomeKeyActionSummary = (items: OutcomeSharedKeyAction[]): OutcomeKeyActionSummaryItem[] => {
+    const meta: Record<OutcomeKeyActionSummaryItem['key'], { label: string; color: string }> = {
+        required: { label: '必选', color: '#38bdf8' },
+        conditional: { label: '条件分支', color: '#fbbf24' },
+        loop: { label: '循环', color: '#a78bfa' },
+        optional: { label: '可选', color: '#94a3b8' },
+        handoff: { label: '衔接', color: '#4ade80' },
+    };
+
+    const counts: Record<OutcomeKeyActionSummaryItem['key'], number> = {
+        required: 0,
+        conditional: 0,
+        loop: 0,
+        optional: 0,
+        handoff: 0,
+    };
+
+    for (const item of items) {
+        const cfType = item.controlFlowType || 'required';
+        const key = (cfType in counts ? cfType : 'required') as OutcomeKeyActionSummaryItem['key'];
+        counts[key] += 1;
+    }
+
+    return (Object.keys(meta) as OutcomeKeyActionSummaryItem['key'][])
+        .map(key => ({
+            key,
+            label: meta[key].label,
+            count: counts[key],
+            color: meta[key].color,
+        }))
+        .filter(item => item.count > 0);
+};
+
+const buildOutcomeConfigGroup = (configs: ConfigItem[]): OutcomeConfigGroup | null => {
+    if (configs.length === 0) return null;
+    const sortedConfigs = sortOutcomeScenarioConfigs(configs);
+    const first = sortedConfigs[0];
+    const sourceConfig = sortedConfigs.find(config => (config.extractedKeyActions || []).length > 0)
+        || sortedConfigs.find(config => (config.key_actions || []).length > 0)
+        || first;
+    const sharedKeyActions = sourceConfig?.key_actions || [];
+    const sharedExtractedKeyActions = sourceConfig?.extractedKeyActions || [];
+
+    return {
+        key: getOutcomeGroupKey(first.skill, first.skillVersion),
+        skill: normalizeConfigSkillName(first.skill),
+        skillVersion: normalizeOptionalSkillVersion(first.skillVersion),
+        configs: sortedConfigs,
+        datasetTypes: Array.from(new Set(sortedConfigs.map(config => normalizeConfigDatasetType(config.dataset_type)))),
+        sharedKeyActions,
+        sharedExtractedKeyActions,
+        sharedKeyActionSource: sharedExtractedKeyActions.length > 0 ? 'flow' : 'shared',
+        sharedControlFlowSummary: buildOutcomeKeyActionSummary(sharedKeyActions),
+        hasGenericScenario: sortedConfigs.some(config => !normalizeConfigQuery(config.query)),
+    };
+};
+
+const getRoutingSourceQueryMeta = (config: ConfigItem) => {
+    const query = normalizeConfigQuery(config.query);
+    if (!query) return null;
+    return truncateCardText(query, 140);
+};
+
+const getRoutingEvaluationMeta = (routing?: RoutingEvaluation) => {
+    if (!routing || routing.status === 'missing') {
+        return {
+            label: '未配置 Skill 召回率数据集',
+            accent: '#94a3b8',
+            background: 'rgba(148, 163, 184, 0.12)',
+            border: 'rgba(148, 163, 184, 0.35)',
+        };
+    }
+
+    if ((routing.recall_rate ?? 0) >= 1) {
+        return {
+            label: '完全命中',
+            accent: '#4ade80',
+            background: 'rgba(74, 222, 128, 0.12)',
+            border: 'rgba(74, 222, 128, 0.35)',
+        };
+    }
+
+    if (routing.is_correct) {
+        return {
+            label: '部分命中',
+            accent: '#fbbf24',
+            background: 'rgba(251, 191, 36, 0.12)',
+            border: 'rgba(251, 191, 36, 0.35)',
+        };
+    }
+
+    return {
+        label: '未命中',
+        accent: '#f87171',
+        background: 'rgba(248, 113, 113, 0.12)',
+        border: 'rgba(248, 113, 113, 0.35)',
+    };
+};
+
+const getOutcomeEvaluationMeta = (outcome?: OutcomeEvaluation) => {
+    if (!outcome || outcome.status === 'missing') {
+        return {
+            label: '未配置 Skill 执行效果数据集',
+            accent: '#94a3b8',
+            background: 'rgba(148, 163, 184, 0.12)',
+            border: 'rgba(148, 163, 184, 0.35)',
+        };
+    }
+
+    if (outcome.status === 'pending') {
+        return {
+            label: '评测中',
+            accent: '#38bdf8',
+            background: 'rgba(56, 189, 248, 0.12)',
+            border: 'rgba(56, 189, 248, 0.35)',
+        };
+    }
+
+    if ((outcome.score ?? 0) > 0.8) {
+        return {
+            label: '达标',
+            accent: '#4ade80',
+            background: 'rgba(74, 222, 128, 0.12)',
+            border: 'rgba(74, 222, 128, 0.35)',
+        };
+    }
+
+    return {
+        label: '待改进',
+        accent: '#f87171',
+        background: 'rgba(248, 113, 113, 0.12)',
+        border: 'rgba(248, 113, 113, 0.35)',
+    };
+};
+
+const getRoutingSkillStatusMeta = (status?: RoutingSkillBreakdown['status'] | 'missing_dataset') => {
+    switch (status) {
+        case 'matched':
+            return { label: '命中', color: '#4ade80', background: 'rgba(74, 222, 128, 0.12)', border: 'rgba(74, 222, 128, 0.35)' };
+        case 'missed':
+            return { label: '漏召回', color: '#f87171', background: 'rgba(248, 113, 113, 0.12)', border: 'rgba(248, 113, 113, 0.35)' };
+        case 'unexpected':
+            return { label: '误召回', color: '#fbbf24', background: 'rgba(251, 191, 36, 0.12)', border: 'rgba(251, 191, 36, 0.35)' };
+        case 'missing_dataset':
+            return { label: '未配置 Skill 召回率数据集', color: '#94a3b8', background: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.35)' };
+        default:
+            return { label: '仅上下文涉及', color: '#94a3b8', background: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.35)' };
+    }
+};
+
 const calculateCPSR = (records: Execution[]): number | null => {
     const recordsWithCost = records.filter(d => d.cost != null);
     if (recordsWithCost.length === 0) return null;
-    
+
     const totalRuns = recordsWithCost.length;
     const successfulRuns = recordsWithCost.filter(d => d.is_answer_correct).length;
     if (successfulRuns === 0) return null;
-    
+
     const successRate = successfulRuns / totalRuns;
     const avgCost = recordsWithCost.reduce((sum, d) => sum + (d.cost || 0), 0) / totalRuns;
-    
+
     return avgCost / successRate;
 };
 
@@ -381,8 +688,6 @@ export default function Dashboard() {
                 guideState.completedSteps,
                 guideState.skippedSteps
             );
-            
-            // Convert configs to GuideSteps with translations
             const stepsWithCommands: GuideStep[] = filteredConfigs.map(config => {
                 const step: GuideStep = {
                     id: config.id,
@@ -395,17 +700,15 @@ export default function Dashboard() {
                     linkUrl: config.linkUrl,
                     linkText: config.linkTextKey ? t(config.linkTextKey) : undefined,
                 };
-                
-                // Generate setup commands for welcome step
                 if (config.id === 'welcome' && apiKey && typeof window !== 'undefined') {
                     const host = window.location.host;
                     const protocol = window.location.protocol;
                     const baseUrl = `${protocol}//${host}`;
                     const setupUrl = getApiUrl('/api/setup');
-                    
+
                     const linuxCommand = `curl -sSf "${baseUrl}${setupUrl}" | bash`;
                     const windowsCommand = `irm "${baseUrl}${setupUrl}" | iex`;
-                    
+
                     return {
                         ...step,
                         setupCommands: {
@@ -417,7 +720,7 @@ export default function Dashboard() {
                 }
                 return step;
             });
-            
+
             setGuideSteps(stepsWithCommands);
         }
     }, [guideState, apiKey, t]);
@@ -460,7 +763,7 @@ export default function Dashboard() {
 
     // Config States
     const [configs, setConfigs] = useState<ConfigItem[]>([]);
-    const [availableSkills, setAvailableSkills] = useState<SkillOption[]>([]); 
+    const [availableSkills, setAvailableSkills] = useState<SkillOption[]>([]);
 
 
     // Rejudge State
@@ -481,7 +784,7 @@ export default function Dashboard() {
     // Drill-down Filters
     const [selectedFramework, setSelectedFramework] = useState<string>('');
     const [selectedQuery, setSelectedQuery] = useState<string>('');
-    const [selectedLabel, setSelectedLabel] = useState<string>(''); 
+    const [selectedLabel, setSelectedLabel] = useState<string>('');
 
     // Comparison Options
     const [comparisonGroupByLabel, setComparisonGroupByLabel] = useState(false);
@@ -493,7 +796,7 @@ export default function Dashboard() {
     const [drillDownGroupByModel, setDrillDownGroupByModel] = useState(false);
     const [selectedDrillDownLabels, setSelectedDrillDownLabels] = useState<string[]>([]);
     const [selectedDrillDownModels, setSelectedDrillDownModels] = useState<string[]>([]);
-    const [bestWorstMetric, setBestWorstMetric] = useState<'latency' | 'accuracy' | 'tokens' | 'cost' | 'recall'>('latency');
+    const [bestWorstMetric, setBestWorstMetric] = useState<BestWorstMetric>('latency');
 
     // User Feedback State
     const [feedbackComment, setFeedbackComment] = useState('');
@@ -588,7 +891,7 @@ export default function Dashboard() {
             if (res.ok) {
                 setAllConfigs(newConfigs);
                 setActiveConfigId(newActiveId);
-                setEditingConfigId(null); 
+                setEditingConfigId(null);
                 setSettingsStatus({ type: 'success', msg: 'Saved!' });
                 setTimeout(() => setSettingsStatus(null), 1500);
             } else {
@@ -684,10 +987,10 @@ export default function Dashboard() {
             // Witty_public special case: if user is 'public', map to 'witty_public'
             // OR if user wants to see public data, maybe we should have a toggle?
             // The prompt says "why I cannot see my date when login as public".
-            // Previously we migrated data to 'witty_public'. 
+            // Previously we migrated data to 'witty_public'.
             // So if user logs in as 'public', they are actually 'public' user, but data is in 'witty_public'.
             // Let's assume the user meant they logged in as 'public' but expected to see the 'witty_public' data.
-            // Or maybe they logged in as 'witty_public'? 
+            // Or maybe they logged in as 'witty_public'?
             // If they logged in as 'witty_public', filtering by 'witty_public' works.
             // If they logged in as 'public', filtering by 'public' returns nothing.
             // Let's aliasing 'public' -> 'witty_public' for view convenience if that was the intention.
@@ -832,7 +1135,7 @@ export default function Dashboard() {
         if (!id) return;
         if (!confirm(t('dashboard.detail.rejudgeConfirm'))) return;
 
-        console.log('Rejudging ID:', id); 
+        console.log('Rejudging ID:', id);
         setRejudgingIds(prev => {
             const next = new Set(prev);
             next.add(id);
@@ -922,6 +1225,9 @@ export default function Dashboard() {
 
     const [editingConfig, setEditingConfig] = useState<Partial<ConfigItem> & { version?: number }>({});
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [configModalPerspective, setConfigModalPerspective] = useState<'routing' | 'outcome' | 'combined' | null>(null);
+    const [activeOutcomeGroupConfigs, setActiveOutcomeGroupConfigs] = useState<ConfigItem[]>([]);
+    const [activeOutcomeScenarioId, setActiveOutcomeScenarioId] = useState<string | null>(null);
     const [isSavingConfig, setIsSavingConfig] = useState(false);
     const [configAnswerMode, setConfigAnswerMode] = useState<'manual' | 'document'>('manual');
     const [configDocumentFile, setConfigDocumentFile] = useState<File | null>(null);
@@ -935,6 +1241,17 @@ export default function Dashboard() {
         };
     }, []);
 
+    const closeConfigModal = () => {
+        setIsEditModalOpen(false);
+        setConfigModalPerspective(null);
+        setActiveOutcomeGroupConfigs([]);
+        setActiveOutcomeScenarioId(null);
+        setConfigDocumentFile(null);
+        setConfigAnswerMode('manual');
+        setEditingConfig({});
+        setIsSavingConfig(false);
+    };
+
     // Poll for parsing status of config items
     const pollConfigStatus = useCallback((configId: string) => {
         const poll = async () => {
@@ -947,6 +1264,8 @@ export default function Dashboard() {
                     // Update the config in state (including standard_answer which may have been extracted from document)
                     setConfigs(prev => prev.map(c => c.id === configId ? {
                         ...c,
+                        routing_intent: data.routing_intent || c.routing_intent,
+                        routing_anchors: data.routing_anchors || c.routing_anchors,
                         standard_answer: data.standard_answer || c.standard_answer,
                         root_causes: data.root_causes,
                         key_actions: data.key_actions,
@@ -981,6 +1300,217 @@ export default function Dashboard() {
             }
         });
     }, [configs, pollConfigStatus]);
+
+    const openCreateConfigModal = (datasetType: 'routing' | 'outcome') => {
+        setActiveOutcomeGroupConfigs([]);
+        setActiveOutcomeScenarioId(null);
+        setConfigModalPerspective(datasetType);
+        setEditingConfig({
+            dataset_type: datasetType,
+            query: datasetType === 'routing' ? '' : null,
+            skill: '',
+            skillVersion: null,
+            expectedSkills: datasetType === 'routing' ? [{ skill: '', version: null }] : [],
+            standard_answer: '',
+            root_causes: [],
+            key_actions: [],
+        });
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+        setIsEditModalOpen(true);
+    };
+
+    const openConfigModal = (config: ConfigItem, sectionType?: 'routing' | 'outcome') => {
+        const configToEdit = {
+            ...config,
+            dataset_type: normalizeConfigDatasetType(config.dataset_type),
+        };
+        if (!configToEdit.expectedSkills && configToEdit.skill) {
+            configToEdit.expectedSkills = [{ skill: configToEdit.skill, version: configToEdit.skillVersion ?? null }];
+        }
+        setActiveOutcomeGroupConfigs([]);
+        setActiveOutcomeScenarioId(config.id);
+        setConfigModalPerspective(sectionType || normalizeConfigDatasetType(config.dataset_type));
+        setEditingConfig(configToEdit);
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+        setIsEditModalOpen(true);
+    };
+
+    const openOutcomeGroupModal = (group: OutcomeConfigGroup, scenarioId?: string | null) => {
+        const sortedConfigs = sortOutcomeScenarioConfigs(group.configs);
+        const initialConfig = sortedConfigs.find(config => config.id === scenarioId) || sortedConfigs[0];
+        if (!initialConfig) return;
+
+        const configToEdit = {
+            ...initialConfig,
+            dataset_type: normalizeConfigDatasetType(initialConfig.dataset_type),
+        };
+
+        setActiveOutcomeGroupConfigs(sortedConfigs);
+        setActiveOutcomeScenarioId(initialConfig.id);
+        setConfigModalPerspective('outcome');
+        setEditingConfig(configToEdit);
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+        setIsEditModalOpen(true);
+    };
+
+    const openCreateOutcomeScenarioModal = (group: OutcomeConfigGroup) => {
+        setActiveOutcomeGroupConfigs(sortOutcomeScenarioConfigs(group.configs));
+        setActiveOutcomeScenarioId(null);
+        setConfigModalPerspective('outcome');
+        setEditingConfig({
+            dataset_type: 'outcome',
+            query: '',
+            skill: group.skill,
+            skillVersion: group.skillVersion,
+            standard_answer: '',
+            root_causes: [],
+            key_actions: [...group.sharedKeyActions],
+        });
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+        setIsEditModalOpen(true);
+    };
+
+    const switchOutcomeScenario = (configId: string) => {
+        const nextConfig = currentOutcomeGroupConfigs.find(config => config.id === configId);
+        if (!nextConfig) return;
+
+        setActiveOutcomeScenarioId(configId);
+        setEditingConfig({
+            ...nextConfig,
+            dataset_type: normalizeConfigDatasetType(nextConfig.dataset_type),
+        });
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+    };
+
+    const deleteOutcomeGroup = async (group: OutcomeConfigGroup) => {
+        const targetLabel = formatSkillTargetLabel(group.skill, group.skillVersion);
+        if (!confirm(`确定删除 ${targetLabel} 的整套执行效果评测集吗？这会删除该 Skill / 版本下的全部业务场景。`)) {
+            return;
+        }
+
+        const groupIds = new Set(group.configs.map(config => config.id));
+        const newConfigs = configs.filter(config => !groupIds.has(config.id));
+        const res = await apiFetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ configs: newConfigs, user })
+        });
+        if (res.ok) {
+            setConfigs(newConfigs);
+            if (currentOutcomeGroup?.key === group.key) {
+                closeConfigModal();
+            }
+        }
+    };
+
+    const duplicateConfigToDataset = (config: ConfigItem, datasetType: 'routing' | 'outcome') => {
+        setActiveOutcomeGroupConfigs([]);
+        setActiveOutcomeScenarioId(null);
+        setConfigModalPerspective(datasetType);
+        const duplicatedSkill = normalizeConfigSkillName(config.skill)
+            || normalizeConfigSkillName(config.expectedSkills?.[0]?.skill)
+            || '';
+        const duplicatedVersion = config.skillVersion
+            ?? config.expectedSkills?.[0]?.version
+            ?? null;
+
+        setEditingConfig({
+            dataset_type: datasetType,
+            query: datasetType === 'routing' ? (config.query ?? '') : null,
+            skill: datasetType === 'outcome' ? duplicatedSkill : '',
+            skillVersion: datasetType === 'outcome' ? duplicatedVersion : null,
+            expectedSkills: datasetType === 'routing'
+                ? (config.expectedSkills ? [...config.expectedSkills] : (config.skill ? [{ skill: config.skill, version: config.skillVersion ?? null }] : []))
+                : [],
+            standard_answer: datasetType === 'outcome' ? config.standard_answer : '',
+            routing_intent: datasetType === 'routing' ? config.routing_intent : null,
+            routing_anchors: datasetType === 'routing' ? [...(config.routing_anchors || [])] : [],
+            root_causes: datasetType === 'outcome' ? [...(config.root_causes || [])] : [],
+            key_actions: datasetType === 'outcome' ? [...(config.key_actions || [])] : [],
+        });
+        setConfigAnswerMode('manual');
+        setConfigDocumentFile(null);
+        setIsEditModalOpen(true);
+    };
+
+    const routingConfigs = useMemo(
+        () => configs.filter(config => configSupportsDatasetType(config.dataset_type, 'routing')),
+        [configs]
+    );
+
+    const outcomeConfigs = useMemo(
+        () => configs.filter(config => configSupportsDatasetType(config.dataset_type, 'outcome')),
+        [configs]
+    );
+
+    const outcomeConfigGroups = useMemo(() => {
+        const groups = new Map<string, ConfigItem[]>();
+
+        for (const config of outcomeConfigs) {
+            const key = getOutcomeGroupKey(config.skill, config.skillVersion);
+            const existing = groups.get(key) || [];
+            existing.push(config);
+            groups.set(key, existing);
+        }
+
+        return Array.from(groups.values())
+            .map(buildOutcomeConfigGroup)
+            .filter((group): group is OutcomeConfigGroup => Boolean(group))
+            .sort((a, b) => {
+                const labelA = formatSkillTargetLabel(a.skill, a.skillVersion) || '';
+                const labelB = formatSkillTargetLabel(b.skill, b.skillVersion) || '';
+                const skillCompare = labelA.localeCompare(
+                    labelB,
+                    'zh-CN'
+                );
+                if (skillCompare !== 0) return skillCompare;
+                const versionA = a.skillVersion ?? -1;
+                const versionB = b.skillVersion ?? -1;
+                return versionA - versionB;
+            });
+    }, [outcomeConfigs]);
+
+    const editingConfigType = normalizeConfigDatasetType(editingConfig.dataset_type);
+    const modalEditingType = configModalPerspective || editingConfigType;
+    const isRoutingEditor = modalEditingType === 'routing' || modalEditingType === 'combined';
+    const isOutcomeEditor = modalEditingType === 'outcome' || modalEditingType === 'combined';
+    const currentOutcomeGroupConfigs = useMemo(() => {
+        if (!isOutcomeEditor) return [];
+        if (activeOutcomeGroupConfigs.length > 0) {
+            return sortOutcomeScenarioConfigs(activeOutcomeGroupConfigs);
+        }
+
+        const skill = normalizeConfigSkillName(editingConfig.skill);
+        if (!skill) return [];
+
+        const version = normalizeOptionalSkillVersion(editingConfig.skillVersion);
+        return sortOutcomeScenarioConfigs(
+            outcomeConfigs.filter(config =>
+                normalizeConfigSkillName(config.skill) === skill &&
+                normalizeOptionalSkillVersion(config.skillVersion) === version
+            )
+        );
+    }, [isOutcomeEditor, activeOutcomeGroupConfigs, editingConfig.skill, editingConfig.skillVersion, outcomeConfigs]);
+    const currentOutcomeGroup = useMemo(
+        () => buildOutcomeConfigGroup(currentOutcomeGroupConfigs),
+        [currentOutcomeGroupConfigs]
+    );
+    const configModalTitle = editingConfig.id
+        ? (modalEditingType === 'routing'
+            ? 'Skill 召回率数据项详情'
+            : modalEditingType === 'outcome'
+                ? (currentOutcomeGroupConfigs.length > 1 ? 'Skill 执行效果评测集详情' : 'Skill 执行效果数据项详情')
+                : '兼容旧数据详情')
+        : (modalEditingType === 'routing'
+            ? '新增 Skill 召回率数据项'
+            : modalEditingType === 'outcome'
+                ? (currentOutcomeGroupConfigs.length > 0 ? '新增 Skill 执行效果场景' : '新增 Skill 执行效果数据项')
+                : '新增数据项');
 
     type ControlFlowType = 'required' | 'conditional' | 'loop' | 'optional' | 'handoff';
 
@@ -1088,37 +1618,74 @@ export default function Dashboard() {
         setEditingConfig({ ...editingConfig, key_actions: newActions });
     };
 
-
     const saveConfig = async () => {
-if (!editingConfig.query?.trim()) return alert(t('config.questionRequired'));
-        
-        const trimmedQuery = editingConfig.query.trim();
-        const isDuplicate = configs.some(c => c.query.trim() === trimmedQuery && c.id !== editingConfig.id);
-        if (isDuplicate) {
-            return alert(t('config.questionDuplicate'));
+        const editingDatasetType = normalizeConfigDatasetType(editingConfig.dataset_type);
+        const trimmedQuery = normalizeConfigQuery(editingConfig.query);
+        const trimmedSkill = normalizeConfigSkillName(editingConfig.skill);
+        const normalizedSkillVersion = normalizeOptionalSkillVersion(editingConfig.skillVersion);
+
+        if (!editingConfig.id) {
+            if ((editingDatasetType === 'routing' || editingDatasetType === 'combined') && !trimmedQuery) {
+                return alert('问题 (Query) 不能为空');
+            }
+            if ((editingDatasetType === 'outcome' || editingDatasetType === 'combined') && !trimmedSkill) {
+                return alert('请绑定目标 skill');
+            }
+
+            const isDuplicate = configs.some(c => {
+                if (normalizeConfigDatasetType(c.dataset_type) !== editingDatasetType) {
+                    return false;
+                }
+
+                if (editingDatasetType === 'routing' || editingDatasetType === 'combined') {
+                    return normalizeConfigQuery(c.query) === trimmedQuery;
+                }
+
+                return normalizeConfigSkillName(c.skill) === trimmedSkill
+                    && normalizeOptionalSkillVersion(c.skillVersion) === normalizedSkillVersion
+                    && normalizeConfigQuery(c.query) === trimmedQuery;
+            });
+            if (isDuplicate) {
+                return alert(editingDatasetType === 'routing'
+                    ? '该问题已存在于当前数据集类型中，请修改后再保存'
+                    : trimmedQuery
+                        ? '该目标 skill 的当前业务场景已存在于效果数据集中，请修改后再保存'
+                        : '该目标 skill 的通用效果数据已存在于当前效果数据集中，请修改后再保存');
+            }
         }
         editingConfig.query = trimmedQuery;
+
+        editingConfig.skill = trimmedSkill;
+        editingConfig.skillVersion = normalizedSkillVersion;
 
         setIsSavingConfig(true);
 
         try {
             if (!editingConfig.id) {
-                // Validate: need standard answer OR document
-                if (configAnswerMode === 'manual' && !editingConfig.standard_answer?.trim()) {
+                if ((editingDatasetType === 'routing' || editingDatasetType === 'combined') && !hasRoutingExpectations(editingConfig)) {
                     setIsSavingConfig(false);
-                    return alert(t('config.standardAnswerRequired'));
+                    return alert('请至少填写一个预期技能');
                 }
-                if (configAnswerMode === 'document' && !configDocumentFile) {
-                    setIsSavingConfig(false);
-                    return alert(t('config.documentUpload'));
+
+                if (editingDatasetType === 'outcome' || editingDatasetType === 'combined') {
+                    if (configAnswerMode === 'manual' && !editingConfig.standard_answer?.trim()) {
+                        setIsSavingConfig(false);
+                        return alert('请填写标准答案');
+                    }
+                    if (configAnswerMode === 'document' && !configDocumentFile) {
+                        setIsSavingConfig(false);
+                        return alert('请上传案例文档');
+                    }
                 }
 
                 let res: Response;
-                if (configAnswerMode === 'document' && configDocumentFile) {
-                    // Use FormData for file upload
+                if ((editingDatasetType === 'outcome' || editingDatasetType === 'combined') && configAnswerMode === 'document' && configDocumentFile) {
                     const formData = new FormData();
-                    formData.append('query', editingConfig.query);
+                    if (trimmedQuery) formData.append('query', trimmedQuery);
+                    if (trimmedSkill) formData.append('skill', trimmedSkill);
+                    if (normalizedSkillVersion != null) formData.append('skillVersion', String(normalizedSkillVersion));
                     formData.append('document', configDocumentFile);
+                    formData.append('datasetType', editingDatasetType);
                     if (user) formData.append('user', user);
                     if (editingConfig.expectedSkills) {
                         formData.append('expectedSkills', JSON.stringify(editingConfig.expectedSkills));
@@ -1129,10 +1696,11 @@ if (!editingConfig.query?.trim()) return alert(t('config.questionRequired'));
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            query: editingConfig.query,
+                            query: trimmedQuery,
                             standardAnswer: editingConfig.standard_answer,
-                            skill: editingConfig.skill,
-                            skillVersion: editingConfig.skillVersion,
+                            datasetType: editingDatasetType,
+                            skill: trimmedSkill,
+                            skillVersion: normalizedSkillVersion,
                             expectedSkills: editingConfig.expectedSkills,
                             user
                         })
@@ -1148,15 +1716,12 @@ if (!editingConfig.query?.trim()) return alert(t('config.questionRequired'));
                             pollConfigStatus(newConfig.id);
                         }
                     }
-                    setIsEditModalOpen(false);
-                    setEditingConfig({});
-                    setConfigDocumentFile(null);
-                    setConfigAnswerMode('manual');
+                    closeConfigModal();
                 } else {
                     const err = await res.json();
-alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
-                    }
-                } else {
+                    alert(`${t('config.saveFailed')}: ${err.error || 'Unknown error'}`);
+                }
+            } else {
                     let newConfigs = [...configs];
                     newConfigs = newConfigs.map(c => c.id === editingConfig.id ? { ...c, ...editingConfig } as ConfigItem : c);
 
@@ -1167,8 +1732,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                     });
                     if (res.ok) {
                         setConfigs(newConfigs);
-                        setIsEditModalOpen(false);
-                        setEditingConfig({});
+                        closeConfigModal();
                     } else {
                         alert(t('config.saveFailed'));
                     }
@@ -1176,7 +1740,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
             } catch (e: any) {
                 console.error(e);
                 alert(t('config.saveError') + ': ' + e.message);
-        } finally {
+            } finally {
             setIsSavingConfig(false);
         }
     };
@@ -1192,6 +1756,433 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
         });
         if (res.ok) setConfigs(newConfigs);
     };
+
+    const renderConfigSection = (
+        sectionType: 'routing' | 'outcome',
+        title: string,
+        description: string,
+        items: ConfigItem[],
+        accent: string,
+        actionLabel: string,
+        emptyText: string
+    ) => (
+        <div
+            className="card"
+            style={{
+                padding: '18px',
+                border: `1px solid ${accent}33`,
+                boxShadow: `inset 0 1px 0 ${accent}14`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px',
+            }}
+        >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                        <h3 style={{ margin: 0, color: '#e2e8f0', fontSize: '1.05rem' }}>{title}</h3>
+                        <span
+                            style={{
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                background: `${accent}22`,
+                                border: `1px solid ${accent}44`,
+                                color: accent,
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                            }}
+                        >
+                            {items.length} 项
+                        </span>
+                    </div>
+                    <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.6 }}>{description}</p>
+                </div>
+                <button
+                    onClick={() => openCreateConfigModal(sectionType)}
+                    className="btn-primary"
+                    style={{ padding: '8px 16px', fontSize: '0.85rem', borderRadius: '8px', whiteSpace: 'nowrap' }}
+                >
+                    {actionLabel}
+                </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {items.length === 0 && (
+                    <div
+                        style={{
+                            border: '1px dashed #334155',
+                            borderRadius: '12px',
+                            padding: '2rem 1rem',
+                            textAlign: 'center',
+                            color: '#64748b',
+                            background: 'rgba(15, 23, 42, 0.35)',
+                        }}
+                    >
+                        {emptyText}
+                    </div>
+                )}
+
+                {items.map(c => {
+                    const datasetType = normalizeConfigDatasetType(c.dataset_type);
+                    const titleText = getConfigDisplayTitle(c, sectionType);
+                    const outcomeTargetMeta = getOutcomeTargetMeta(c);
+                    const routingSourceQuery = getRoutingSourceQueryMeta(c);
+                    const statusColor = c.parse_status === 'parsing'
+                        ? '#fbbf24'
+                        : c.parse_status === 'failed'
+                            ? '#ef4444'
+                            : '#4ade80';
+                    const badgeText = datasetType === 'combined'
+                        ? '兼容旧数据'
+                        : datasetType === 'routing'
+                            ? '仅用于 Skill 召回率'
+                            : '仅用于 Skill 执行效果';
+                    const normalizedExpectedSkills = normalizeExpectedSkills(c.expectedSkills);
+                    const summaryText = sectionType === 'routing'
+                        ? (
+                            hasRoutingExpectations(c)
+                                ? `预期 Skill：${(normalizedExpectedSkills.length > 0
+                                    ? normalizedExpectedSkills
+                                    : (c.skill ? [{ skill: c.skill, version: c.skillVersion ?? null }] : [])
+                                ).map(item => `${item.skill}${item.version !== null && item.version !== undefined ? ` (v${item.version})` : ''}`).join(', ')}`
+                                : '未配置预期 Skill'
+                        )
+                        : (
+                            hasOutcomeExpectations(c)
+                                ? ((c.standard_answer || '').length > 120
+                                    ? `${(c.standard_answer || '').slice(0, 120)}...`
+                                    : (c.standard_answer || '已配置关键观点/关键动作'))
+                                : '未配置标准答案或关键动作'
+                        );
+
+                    return (
+                        <div
+                            key={`${sectionType}-${c.id}`}
+                            style={{
+                                border: '1px solid #1e293b',
+                                borderRadius: '12px',
+                                padding: '14px 16px',
+                                background: 'rgba(15, 23, 42, 0.55)',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '14px',
+                            }}
+                        >
+                            <div
+                                style={{
+                                    flexShrink: 0,
+                                    width: '10px',
+                                    height: '10px',
+                                    borderRadius: '50%',
+                                    marginTop: '6px',
+                                    background: statusColor,
+                                    boxShadow: `0 0 10px ${statusColor}55`,
+                                }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                                    <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.5 }}>{titleText}</div>
+                                    <span
+                                        style={{
+                                            padding: '2px 8px',
+                                            borderRadius: '999px',
+                                            background: datasetType === 'combined' ? 'rgba(148, 163, 184, 0.16)' : `${accent}22`,
+                                            border: `1px solid ${datasetType === 'combined' ? 'rgba(148, 163, 184, 0.28)' : `${accent}44`}`,
+                                            color: datasetType === 'combined' ? '#cbd5e1' : accent,
+                                            fontSize: '0.72rem',
+                                            fontWeight: 600,
+                                        }}
+                                    >
+                                        {badgeText}
+                                    </span>
+                                </div>
+                                <div style={{ color: '#94a3b8', fontSize: '0.83rem', lineHeight: 1.6 }}>
+                                    {summaryText}
+                                </div>
+                                {sectionType === 'routing' && routingSourceQuery && (
+                                    <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
+                                        来源问题：{routingSourceQuery}
+                                    </div>
+                                )}
+                                {sectionType === 'routing' && c.routing_anchors && c.routing_anchors.length > 0 && (
+                                    <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
+                                        语义锚点：{c.routing_anchors.join(', ')}
+                                    </div>
+                                )}
+                                {sectionType === 'outcome' && outcomeTargetMeta && (
+                                    <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
+                                        业务场景：{outcomeTargetMeta}
+                                    </div>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                <button
+                                    onClick={() => openConfigModal(c, sectionType)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#1e3a5f',
+                                        color: '#38bdf8',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    详情
+                                </button>
+                                <button
+                                    onClick={() => duplicateConfigToDataset(c, sectionType)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#2d1b4e',
+                                        color: '#c084fc',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    复制到本区
+                                </button>
+                                <button
+                                    onClick={() => deleteConfig(c.id)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#3b1c1c',
+                                        color: '#ef4444',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    删除
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+
+    const renderOutcomeConfigGroupSection = (
+        title: string,
+        description: string,
+        groups: OutcomeConfigGroup[],
+        accent: string,
+        actionLabel: string,
+        emptyText: string
+    ) => (
+        <div
+            className="card"
+            style={{
+                padding: '18px',
+                border: `1px solid ${accent}33`,
+                boxShadow: `inset 0 1px 0 ${accent}14`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px',
+            }}
+        >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                        <h3 style={{ margin: 0, color: '#e2e8f0', fontSize: '1.05rem' }}>{title}</h3>
+                        <span
+                            style={{
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                background: `${accent}22`,
+                                border: `1px solid ${accent}44`,
+                                color: accent,
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                            }}
+                        >
+                            {groups.length} 套
+                        </span>
+                    </div>
+                    <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.6 }}>{description}</p>
+                </div>
+                <button
+                    onClick={() => openCreateConfigModal('outcome')}
+                    className="btn-primary"
+                    style={{ padding: '8px 16px', fontSize: '0.85rem', borderRadius: '8px', whiteSpace: 'nowrap' }}
+                >
+                    {actionLabel}
+                </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {groups.length === 0 && (
+                    <div
+                        style={{
+                            border: '1px dashed #334155',
+                            borderRadius: '12px',
+                            padding: '2rem 1rem',
+                            textAlign: 'center',
+                            color: '#64748b',
+                            background: 'rgba(15, 23, 42, 0.35)',
+                        }}
+                    >
+                        {emptyText}
+                    </div>
+                )}
+
+                {groups.map(group => {
+                    const titleText = formatSkillTargetLabel(group.skill, group.skillVersion) || '未绑定 Skill 执行效果评测集';
+                    const scenarioCount = group.configs.length;
+                    const scenarioPreview = group.configs.slice(0, 3).map(getOutcomeScenarioLabel);
+                    const hiddenScenarioCount = Math.max(0, scenarioCount - scenarioPreview.length);
+                    const statusColor = group.configs.some(config => config.parse_status === 'parsing')
+                        ? '#fbbf24'
+                        : group.configs.some(config => config.parse_status === 'failed')
+                            ? '#ef4444'
+                            : '#4ade80';
+                    const usesLegacyDataset = group.datasetTypes.includes('combined');
+
+                    return (
+                        <div
+                            key={group.key}
+                            style={{
+                                border: '1px solid #1e293b',
+                                borderRadius: '12px',
+                                padding: '14px 16px',
+                                background: 'rgba(15, 23, 42, 0.55)',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '14px',
+                            }}
+                        >
+                            <div
+                                style={{
+                                    flexShrink: 0,
+                                    width: '10px',
+                                    height: '10px',
+                                    borderRadius: '50%',
+                                    marginTop: '6px',
+                                    background: statusColor,
+                                    boxShadow: `0 0 10px ${statusColor}55`,
+                                }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                                    <div style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.5 }}>{titleText}</div>
+                                    <span
+                                        style={{
+                                            padding: '2px 8px',
+                                            borderRadius: '999px',
+                                            background: `${accent}22`,
+                                            border: `1px solid ${accent}44`,
+                                            color: accent,
+                                            fontSize: '0.72rem',
+                                            fontWeight: 600,
+                                        }}
+                                    >
+                                        {scenarioCount} 个业务场景
+                                    </span>
+                                    {usesLegacyDataset && (
+                                        <span
+                                            style={{
+                                                padding: '2px 8px',
+                                                borderRadius: '999px',
+                                                background: 'rgba(148, 163, 184, 0.16)',
+                                                border: '1px solid rgba(148, 163, 184, 0.28)',
+                                                color: '#cbd5e1',
+                                                fontSize: '0.72rem',
+                                                fontWeight: 600,
+                                            }}
+                                        >
+                                            含兼容旧数据
+                                        </span>
+                                    )}
+                                </div>
+                                <div style={{ color: '#94a3b8', fontSize: '0.83rem', lineHeight: 1.6 }}>
+                                    共享关键动作：{group.sharedKeyActions.length} 项 · {group.sharedKeyActionSource === 'flow' ? '来自 Skill 流程自动抽取' : '来自共享关键动作配置'} · {group.hasGenericScenario ? '包含通用基准' : '暂无通用基准'}
+                                </div>
+                                {group.sharedControlFlowSummary.length > 0 && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                                        {group.sharedControlFlowSummary.map(item => (
+                                            <span
+                                                key={`${group.key}-${item.key}`}
+                                                style={{
+                                                    padding: '2px 8px',
+                                                    borderRadius: '999px',
+                                                    background: `${item.color}20`,
+                                                    border: `1px solid ${item.color}33`,
+                                                    color: item.color,
+                                                    fontSize: '0.72rem',
+                                                    fontWeight: 600,
+                                                }}
+                                            >
+                                                {item.label} {item.count}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                                {scenarioPreview.length > 0 && (
+                                    <div style={{ color: '#64748b', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '6px' }}>
+                                        业务场景：{scenarioPreview.join('、')}{hiddenScenarioCount > 0 ? ` 等 ${scenarioCount} 个场景` : ''}
+                                    </div>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                <button
+                                    onClick={() => openOutcomeGroupModal(group)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#1e3a5f',
+                                        color: '#38bdf8',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    详情
+                                </button>
+                                <button
+                                    onClick={() => openCreateOutcomeScenarioModal(group)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#2d1b4e',
+                                        color: '#c084fc',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    新增场景
+                                </button>
+                                <button
+                                    onClick={() => deleteOutcomeGroup(group)}
+                                    style={{
+                                        padding: '5px 12px',
+                                        background: '#3b1c1c',
+                                        color: '#ef4444',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 500,
+                                    }}
+                                >
+                                    删除整套
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
 
     const reparseConfig = async (id: string) => {
         try {
@@ -1447,35 +2438,36 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
         // First, identify queries that have expected skill info (check both legacy skill and new expectedSkills)
         const queriesWithExpectedSkill = new Set(
             configs
-                .filter(c => 
+                .filter(c =>
                     (c.skill && c.skill.trim() !== '') ||
                     (c.expectedSkills && c.expectedSkills.some((e: any) => e.skill && e.skill.trim() !== ''))
                 )
-                .map(c => c.query.trim())
+                .map(c => normalizeConfigQuery(c.query))
+                .filter((query): query is string => Boolean(query))
         );
-        
+
         // Filter execution records to only include queries with expected skill info
-        const dataWithExpectedSkill = filteredData.filter(d => 
+        const dataWithExpectedSkill = filteredData.filter(d =>
             d.query && queriesWithExpectedSkill.has(d.query.trim())
         );
         // Further filter to only records with skill recall rate calculated
-        const dataWithRecallRate = dataWithExpectedSkill.filter(d => 
+        const dataWithRecallRate = dataWithExpectedSkill.filter(d =>
             d.skill_recall_rate !== null && d.skill_recall_rate !== undefined
         );
-        
-        const globalSkillRecallRate = dataWithRecallRate.length > 0 
-            ? dataWithRecallRate.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / dataWithRecallRate.length * 100 
+
+        const globalSkillRecallRate = dataWithRecallRate.length > 0
+            ? dataWithRecallRate.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / dataWithRecallRate.length * 100
             : 0;
-        
+
         // Calculate query-level skill recall rate (only for records with expected skills)
         const relevantWithExpectedSkill = relevant.filter(d => d.skill_recall_rate !== null && d.skill_recall_rate !== undefined);
-        const querySkillRecallRate = relevantWithExpectedSkill.length > 0 
-            ? relevantWithExpectedSkill.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / relevantWithExpectedSkill.length * 100 
+        const querySkillRecallRate = relevantWithExpectedSkill.length > 0
+            ? relevantWithExpectedSkill.reduce((s, x) => s + (x.skill_recall_rate ?? 0), 0) / relevantWithExpectedSkill.length * 100
             : 0;
-        
+
         const withCost = relevant.filter(d => d.cost != null);
         const avgCost = withCost.length ? withCost.reduce((sum, d) => sum + (d.cost || 0), 0) / withCost.length : null;
-        
+
         // Calculate CPSR
         const cpsr = calculateCPSR(relevant);
 
@@ -1538,9 +2530,8 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
             }
             for (const r of records) {
                 const v = parseInt(r.skill_version || '0');
-                const prevV = v - 1;
-                if (!avgByVersion.has(prevV)) continue;
-                const prev = avgByVersion.get(prevV)!;
+                const prev = avgByVersion.get(v - 1);
+                if (!prev || prev.count === 0) continue;
                 const prevLat = prev.latency / prev.count;
                 const prevTok = prev.tokens / prev.count;
                 const prevAcc = prev.accuracy / prev.count;
@@ -1593,26 +2584,27 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                         <span style={{ fontSize: '0.8rem', color: 'var(--foreground-secondary)', letterSpacing: '1px' }}>{t('app.subtitle')}</span>
                     </div>
 
-                    {/* Main Navigation Tabs */}
-                    <div className="tabs">
-                        <button
-                            className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('dashboard')}
-                        >
-                            {t('nav.dashboard')}
-                        </button>
-                        <button
-                            className={`tab-btn ${activeTab === 'config' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('config')}
-                        >
-                            {t('nav.dataset')}
-                        </button>
-                        <button
-                            className={`tab-btn ${activeTab === 'skill' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('skill')}
-                        >
-                            {t('nav.skill')}
-                        </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <div className="tabs">
+                            <button
+                                className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('dashboard')}
+                            >
+                                {t('nav.dashboard')}
+                            </button>
+                            <button
+                                className={`tab-btn ${activeTab === 'config' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('config')}
+                            >
+                                {t('nav.dataset')}
+                            </button>
+                            <button
+                                className={`tab-btn ${activeTab === 'skill' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('skill')}
+                            >
+                                {t('nav.skill')}
+                            </button>
+                        </div>
                     </div>
                 </div>
                 {activeTab === 'dashboard' && (
@@ -1919,13 +2911,14 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                             // Filter for queries with expected skill info (check both legacy skill and new expectedSkills)
                             const queriesWithExpectedSkill = new Set(
                                 configs
-                                    .filter(c => 
+                                    .filter(c =>
                                         (c.skill && c.skill.trim() !== '') ||
                                         (c.expectedSkills && c.expectedSkills.some((e: any) => e.skill && e.skill.trim() !== ''))
                                     )
-                                    .map(c => c.query.trim())
+                                    .map(c => normalizeConfigQuery(c.query))
+                                    .filter((query): query is string => Boolean(query))
                             );
-                            const fwDataWithExpectedSkill = fwData.filter(d => 
+                            const fwDataWithExpectedSkill = fwData.filter(d =>
                                 d.query && queriesWithExpectedSkill.has(d.query.trim())
                             );
                             const avgLat = fwData.length ? (fwData.reduce((s, x) => s + x.latency, 0) / fwData.length) : 0;
@@ -2257,7 +3250,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                     if (selectedFramework) relevant = relevant.filter(d => d.framework === selectedFramework);
 
                                     if (relevant.length === 0) return null;
-                                    
+
                                     // Calc Stats
                                     const counts = relevant.length;
                                     const avgLat = relevant.reduce((sum, d) => sum + d.latency, 0) / counts;
@@ -2278,7 +3271,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                     })[0] : null;
                                     const groupWithCost = relevant.filter(d => d.cost != null);
                                     const groupAvgCost = groupWithCost.length ? groupWithCost.reduce((sum, d) => sum + (d.cost || 0), 0) / groupWithCost.length : null;
-                                    
+
                                     // Calculate CPSR for grouped view
                                     const groupCpsr = calculateCPSR(relevant);
 
@@ -2299,8 +3292,8 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                                     {drillDownGroupByLabel ? `${t('dashboard.table.label')}: ` : `${t('dashboard.table.model')}: `} {val}
                                                 </h3>
                                             </div>
-                                            <div className="grid"style={{display: 'grid', 
-                                                                        gridTemplateColumns: 'repeat(4, 1fr)', 
+                                            <div className="grid"style={{display: 'grid',
+                                                                        gridTemplateColumns: 'repeat(4, 1fr)',
                                                                         gap: '1rem',
                                                                         }}>
                                                 {/* Stats Card */}
@@ -2378,8 +3371,8 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                                         </div>
                                                         <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
                                                             <div style={{ marginBottom: '0.5rem' }}>
-                                                                <div style={{ 
-                                                                    fontSize: '1.2rem', 
+                                                                <div style={{
+                                                                    fontSize: '1.2rem',
                                                                     fontWeight: 'bold',
                                                                     color: skillLiftMetrics.valuePct == null
                                                                         ? '#a1a1aa'
@@ -2452,39 +3445,41 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                 </div>
                                 {/* Best/Worst */}
                                 {singleQueryStats.best && singleQueryStats.worst ? (
+                                (() => {
+                                    const bestRecord = singleQueryStats.best;
+                                    const worstRecord = singleQueryStats.worst;
+                                    return (
                                 <>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
                                         <div className="card-title text-green-400">{t('metrics.best')}（{isMetricLowerBetter(bestWorstMetric) ? t('dashboard.drillDown.bestRecord') : t('dashboard.drillDown.worstRecord')} {getMetricLabel(bestWorstMetric, t)}）</div>
-                                        <div className="text-2xl font-bold">{getMetricFormattedValue(singleQueryStats.best, bestWorstMetric)}</div>
+                                        <div className="text-2xl font-bold">{getMetricFormattedValue(bestRecord, bestWorstMetric)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
-                                            Token: {formatTokens(singleQueryStats.best.tokens)} | Cost: {formatCost(singleQueryStats.best.cost) || '-'} | Latency: {formatLatency(singleQueryStats.best.latency)} <br />
-                                            Time: {formatDateTime(singleQueryStats.best.timestamp)}
+                                            Token: {formatTokens(bestRecord.tokens)} | Cost: {formatCost(bestRecord.cost) || '-'} | Latency: {formatLatency(bestRecord.latency)} <br />
+                                            Time: {formatDateTime(bestRecord.timestamp)}
                                         </div>
                                     </div>
                                     <div style={{ fontSize: '0.8rem', color: c.primary, cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
-                                        const best = singleQueryStats.best;
-                                        if (!best) return;
-                                        window.open(`${basePath}/details?framework=${encodeURIComponent(best.framework)}&expandTaskId=${best.task_id || best.upload_id}`, '_blank');
+                                        window.open(`${basePath}/details?framework=${encodeURIComponent(bestRecord.framework)}&expandTaskId=${bestRecord.task_id || bestRecord.upload_id}`, '_blank');
                                     }}>{t('common.view')} &gt;</div>
                                 </div>
                                 <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                                     <div>
                                         <div className="card-title text-red-400">{t('metrics.worst')}（{isMetricLowerBetter(bestWorstMetric) ? t('dashboard.drillDown.worstRecord') : t('dashboard.drillDown.bestRecord')} {getMetricLabel(bestWorstMetric, t)}）</div>
-                                        <div className="text-2xl font-bold">{getMetricFormattedValue(singleQueryStats.worst, bestWorstMetric)}</div>
+                                        <div className="text-2xl font-bold">{getMetricFormattedValue(worstRecord, bestWorstMetric)}</div>
                                         <div className="text-sm text-slate-400 mt-2">
-                                            Token: {formatTokens(singleQueryStats.worst.tokens)} | Cost: {formatCost(singleQueryStats.worst.cost) || '-'} | Latency: {formatLatency(singleQueryStats.worst.latency)} <br />
-                                            Time: {formatDateTime(singleQueryStats.worst.timestamp)}
+                                            Token: {formatTokens(worstRecord.tokens)} | Cost: {formatCost(worstRecord.cost) || '-'} | Latency: {formatLatency(worstRecord.latency)} <br />
+                                            Time: {formatDateTime(worstRecord.timestamp)}
                                         </div>
                                     </div>
                                     <div style={{ fontSize: '0.8rem', color: c.primary, cursor: 'pointer', marginTop: '0.5rem', textAlign: 'right' }} onClick={() => {
-                                        const worst = singleQueryStats.worst;
-                                        if (!worst) return;
-                                        const url = `${basePath}/details?framework=${encodeURIComponent(worst.framework)}&expandTaskId=${worst.task_id || worst.upload_id}`;
+                                        const url = `${basePath}/details?framework=${encodeURIComponent(worstRecord.framework)}&expandTaskId=${worstRecord.task_id || worstRecord.upload_id}`;
                                         window.open(url, '_blank');
                                     }}>{t('common.view')} &gt;</div>
                                 </div>
                                 </>
+                                    );
+                                })()
                                 ) : (
                                 <div className="card" style={{ textAlign: 'center', padding: '2rem', color: c.fgMuted }}>
                                     {t('common.noData')}
@@ -2684,9 +3679,9 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                             </button>
                         </div>
                     )}
-                    
+
                     <div style={{ marginTop: '2rem', marginBottom: '0.5rem', height: '1px', background: 'linear-gradient(to right, transparent, rgba(56, 189, 248, 0.5), transparent)' }}></div>
-                    
+
                     {/* Promotion Section */}
                     <div style={{ marginTop: '0.5rem', padding: '0.5rem', textAlign: 'center' }}>
                         <p style={{ margin: 0, fontSize: '0.9rem', color: c.fgMuted, lineHeight: 1.6 }}>
@@ -2701,183 +3696,37 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
             {/* CONFIG TAB */}
             {activeTab === 'config' && (
                 <div className="config-container">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'center' }}>
-                        <h2 className="section-title" style={{ marginBottom: 0 }}>{t('nav.dataset')}</h2>
-                        <button
-                            onClick={() => { setEditingConfig({}); setConfigAnswerMode('manual'); setConfigDocumentFile(null); setIsEditModalOpen(true) }}
-                            className="btn-primary"
-                            style={{ padding: '8px 20px', fontSize: '0.9rem', borderRadius: '6px' }}
-                        >
-                            + {t('config.addQuestion')}
-                        </button>
+                    <div style={{ marginBottom: '1rem' }}>
+                        <h2 className="section-title" style={{ marginBottom: '0.35rem' }}>数据集管理</h2>
+                        <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.9rem', lineHeight: 1.7 }}>
+                            将 Skill 召回率评测与 Skill 执行效果评测拆成两条独立数据链路。新建数据时建议分别维护，历史混合数据会以“兼容旧数据”的形式保留。
+                        </p>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {Array.isArray(configs) && configs.length === 0 && (
-                            <div className="card" style={{ textAlign: 'center', padding: '3rem', color: c.fgSecondary }}>
-                                {t('config.noConfig')}
-                            </div>
+                    <div
+                        style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
+                            gap: '16px',
+                            alignItems: 'start',
+                        }}
+                    >
+                        {renderConfigSection(
+                            'routing',
+                            'Skill 召回率数据集',
+                            '只定义某个问题应该命中哪些 Skill / 版本，用于计算 is_skill_correct 与 skill_recall_rate。',
+                            routingConfigs,
+                            '#38bdf8',
+                            '+ 新增 Skill 召回率数据项',
+                            '暂无 Skill 召回率评测数据，添加后即可开始评估 Skill 是否被正确召回。'
                         )}
-                        {Array.isArray(configs) && configs.map(cfg => (
-                            <div key={cfg.id} className="card" style={{
-                                padding: '14px 18px',
-                                display: 'flex',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: '16px',
-                                transition: 'border-color 0.2s',
-                                borderColor: c.border
-                            }}>
-                                {/* 解析状态指示器 */}
-                                <div style={{
-                                    flexShrink: 0, width: '8px', height: '8px', borderRadius: '50%',
-                                    background: cfg.parse_status === 'parsing' ? '#fbbf24' : cfg.parse_status === 'failed' ? '#ef4444' : '#4ade80',
-                                    boxShadow: `0 0 6px ${cfg.parse_status === 'parsing' ? '#fbbf2444' : cfg.parse_status === 'failed' ? '#ef444444' : '#4ade8044'}`,
-                                    ...(cfg.parse_status === 'parsing' ? { animation: 'pulse-dot 1.5s ease-in-out infinite' } : {})
-                                }} />
-                                {/* 内容区 */}
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{
-                                        fontWeight: 500,
-                                        color: c.fg,
-                                        fontSize: '0.9rem',
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        marginBottom: '4px'
-                                    }}>
-                                        {cfg.query}
-                                    </div>
-                                    <div style={{
-                                        color: c.fgSecondary,
-                                        fontSize: '0.8rem',
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis'
-                                    }}>
-                                        {(cfg.standard_answer || '').length > 100 ? (cfg.standard_answer || '').substring(0, 100) + '...' : (cfg.standard_answer || t('dashboard.config.noStandardAnswer'))}
-                                    </div>
-                                     {(cfg.expectedSkills && cfg.expectedSkills.length > 0) ? (
-                                        <div style={{
-                                            color: c.fgMuted,
-                                            fontSize: '0.75rem',
-                                            marginTop: '2px'
-                                        }}>
-                                            {t('dashboard.config.expectedSkill')}: {cfg.expectedSkills.map(s => `${s.skill}${s.version !== null && s.version !== undefined ? ` (v${s.version})` : ''}`).join(', ')}
-                                        </div>
-                                    ) : cfg.skill && (
-                                        <div style={{
-                                            color: c.fgMuted,
-                                            fontSize: '0.75rem',
-                                            marginTop: '2px'
-                                        }}>
-                                            {t('dashboard.config.expectedSkill')}: {cfg.skill}{cfg.skillVersion !== null && cfg.skillVersion !== undefined ? ` (v${cfg.skillVersion})` : ''}
-                                        </div>
-                                    )}
-                                </div>
-                                {/* 状态标签 */}
-                                <div style={{ flexShrink: 0 }}>
-                                    {cfg.parse_status === 'parsing' ? (
-                                        <span style={{
-                                            display: 'inline-flex', alignItems: 'center', gap: '5px',
-                                            padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
-                                            background: c.warningSubtle, color: c.warning, border: '1px solid rgba(251, 191, 36, 0.25)'
-                                        }}>
-                                            <span style={{ width: '10px', height: '10px', border: '1.5px solid #fbbf24', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite', display: 'inline-block' }}></span>
-                                            {t('dashboard.config.parsing')}
-                                        </span>
-                                    ) : cfg.parse_status === 'failed' ? (
-                                        <span style={{
-                                            padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 500,
-                                            background: c.errorSubtle, color: c.error, border: '1px solid rgba(239, 68, 68, 0.25)'
-                                        }}>✕ {t('dashboard.config.failed')}</span>
-                                    ) : null}
-                                </div>
-                                {/* 操作按钮 */}
-                                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                                    <button
-                                        onClick={() => { 
-                                            const configToEdit = { ...cfg };
-                                            if (!configToEdit.expectedSkills && configToEdit.skill) {
-                                                configToEdit.expectedSkills = [{ skill: configToEdit.skill, version: configToEdit.skillVersion ?? null }];
-                                            }
-                                            setEditingConfig(configToEdit); 
-                                            setIsEditModalOpen(true) 
-                                        }}
-                                        style={{
-                                            padding: '5px 12px',
-                                            background: c.primarySubtle,
-                                            color: c.primary,
-                                            border: 'none',
-                                            borderRadius: '6px',
-                                            cursor: 'pointer',
-                                            fontSize: '0.8rem',
-                                            fontWeight: 500,
-                                            transition: 'background 0.2s'
-                                        }}
-                                    >
-                                        {t('dashboard.table.detail')}
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            setEditingConfig({
-                                                query: cfg.query,
-                                                skill: '',
-                                                expectedSkills: cfg.expectedSkills ? [...cfg.expectedSkills] : (cfg.skill ? [{ skill: cfg.skill, version: cfg.skillVersion ?? null }] : undefined),
-                                                standard_answer: cfg.standard_answer,
-                                            });
-                                            setConfigAnswerMode('manual');
-                                            setConfigDocumentFile(null);
-                                            setIsEditModalOpen(true);
-                                        }}
-                                        style={{
-                                            padding: '5px 12px',
-                                            background: c.primarySubtle,
-                                            color: c.secondary,
-                                            border: 'none',
-                                            borderRadius: '6px',
-                                            cursor: 'pointer',
-                                            fontSize: '0.8rem',
-                                            fontWeight: 500,
-                                            transition: 'background 0.2s'
-                                        }}
-                                    >
-                                        {t('common.copy')}
-                                    </button>
-                                    <button
-                                        onClick={() => deleteConfig(cfg.id)}
-                                        style={{
-                                            padding: '5px 12px',
-                                            background: c.errorSubtle,
-                                            color: c.error,
-                                            border: 'none',
-                                            borderRadius: '6px',
-                                            cursor: 'pointer',
-                                            fontSize: '0.8rem',
-                                            fontWeight: 500,
-                                            transition: 'background 0.2s'
-                                        }}
-                                    >
-                                        {t('common.delete')}
-                                    </button>
-                                    <button
-                                        onClick={() => reparseConfig(cfg.id)}
-                                        style={{
-                                            padding: '5px 12px',
-                                            background: c.warningSubtle,
-                                            color: c.warning,
-                                            border: 'none',
-                                            borderRadius: '6px',
-                                            cursor: 'pointer',
-                                            fontSize: '0.8rem',
-                                            fontWeight: 500,
-                                            transition: 'background 0.2s'
-                                        }}
-                                    >
-                                        {t('dashboard.config.reparse')}
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
+                        {renderOutcomeConfigGroupSection(
+                            'Skill 执行效果数据集',
+                            '按 Skill / 版本聚合管理执行效果评测集。点进单个评测集后，可以切换不同业务场景；关键动作在同一 Skill / 版本下共享，关键观点按场景分别维护。',
+                            outcomeConfigGroups,
+                            '#a78bfa',
+                            '+ 新增 Skill 执行效果数据项',
+                            '暂无 Skill 执行效果数据，添加后即可开始评估该 Skill 的回答质量与执行动作。'
+                        )}
                     </div>
                 </div>
             )}
@@ -2891,61 +3740,316 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
             {/* MODALS */}
             {/* 1. Config Edit Modal */}
             {isEditModalOpen && (
-                <div className="modal-overlay" onClick={() => setIsEditModalOpen(false)}>
+                <div className="modal-overlay" onClick={closeConfigModal}>
                     <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ maxHeight: '90vh', overflowY: 'auto', maxWidth: '900px', width: '66vw', minWidth: '500px', flexDirection: 'column' }}>
-                        <h3>{editingConfig.id ? t('dashboard.config.editTitle') : t('dashboard.config.addTitle')}</h3>
+                        <h3>{configModalTitle}</h3>
 
-                        {/* 问题 - 始终突出显示 */}
-                        <div className="form-group">
-                            <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>{t('dashboard.config.question')}<span style={{ color: c.error }}>*</span></label>
-                            <textarea
-                                value={editingConfig.query || ''}
-                                onChange={e => setEditingConfig({ ...editingConfig, query: e.target.value })}
-                                placeholder={t('dashboard.config.questionPlaceholder')}
-                                style={{ width: '100%', padding: '10px', minHeight: '60px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
-                            />
+                        <div style={{ marginBottom: '1rem', padding: '12px 14px', borderRadius: '10px', background: c.bgTertiary, border: `1px solid ${c.border}`, color: c.fgMuted, fontSize: '0.85rem', lineHeight: 1.7 }}>
+                            {modalEditingType === 'routing' && '该数据项只参与 Skill 召回率评测。这里只看语义意图与预期 Skill，不看标准答案、关键观点或执行动作。'}
+                            {modalEditingType === 'outcome' && '该数据项只参与 Skill 执行效果评测。这里关注命中该 Skill 后的最终回答质量、关键观点与关键动作，不参与 Skill 路由命中判断。'}
+                            {modalEditingType === 'combined' && '这是历史兼容的混合数据项，同时包含 Skill 召回率与执行效果评测信息。后续建议逐步拆成两条独立数据。'}
                         </div>
 
-                        {!editingConfig.id ? (                            <>
-                                {/* 标准答案 - 突出显示 */}
-                                <div className="form-group">
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>{t('dashboard.config.standardAnswer')} <span style={{ color: c.error }}>*</span></label>
-                                    <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
-                                        <button
-                                            onClick={() => { setConfigAnswerMode('manual'); setConfigDocumentFile(null); }}
-                                            style={{
-                                                padding: '6px 16px',
-                                                background: configAnswerMode === 'manual' ? c.primary : c.bgSecondary,
-                                                color: configAnswerMode === 'manual' ? c.bg : c.fgMuted,
-                                                border: `1px solid ${configAnswerMode === 'manual' ? c.primary : c.border}`,
-                                                borderRadius: '6px',
-                                                cursor: 'pointer',
-                                                fontSize: '0.85rem',
-                                                fontWeight: configAnswerMode === 'manual' ? 600 : 400,
-                                                transition: 'all 0.2s'
-                                            }}
-                                        >
-                                            ✏️ {t('config.answerMode.manual')}
-                                        </button>
-                                        <button
-                                            onClick={() => setConfigAnswerMode('document')}
-                                            style={{
-                                                padding: '6px 16px',
-                                                background: configAnswerMode === 'document' ? c.primary : c.bgSecondary,
-                                                color: configAnswerMode === 'document' ? c.bg : c.fgMuted,
-                                                border: `1px solid ${configAnswerMode === 'document' ? c.primary : c.border}`,
-                                                borderRadius: '6px',
-                                                cursor: 'pointer',
-                                                fontSize: '0.85rem',
-                                                fontWeight: configAnswerMode === 'document' ? 600 : 400,
-                                                transition: 'all 0.2s'
-                                            }}
-                                        >
-                                            📄 {t('config.answerMode.document')}
-                                        </button>
-                                    </div>
+                        {isRoutingEditor && !editingConfig.id && (
+                            <div className="form-group">
+                                <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>问题（Query）<span style={{ color: c.error }}>*</span></label>
+                                <textarea
+                                    value={editingConfig.query || ''}
+                                    onChange={e => setEditingConfig({ ...editingConfig, query: e.target.value })}
+                                    placeholder="请输入需要评估 Skill 召回率的问题..."
+                                    style={{ width: '100%', padding: '10px', minHeight: '60px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
+                                />
+                            </div>
+                        )}
 
-                                    {configAnswerMode === 'manual' ? (
+                        {isRoutingEditor && (
+                            <div className="form-group" style={{ marginTop: '1rem' }}>
+                                <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>
+                                    预期 Skill <span style={{ color: c.error }}>*</span>
+                                </label>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {(editingConfig.expectedSkills || []).map((item, index) => (
+                                        <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                            <input
+                                                type="text"
+                                                value={item.skill}
+                                                onChange={e => {
+                                                    const newSkills = [...(editingConfig.expectedSkills || [])];
+                                                    newSkills[index] = { ...newSkills[index], skill: e.target.value };
+                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                }}
+                                                placeholder="Skill 名称"
+                                                style={{ flex: 2, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
+                                            />
+                                            <input
+                                                type="number"
+                                                value={item.version ?? ''}
+                                                onChange={e => {
+                                                    const value = e.target.value;
+                                                    const newSkills = [...(editingConfig.expectedSkills || [])];
+                                                    newSkills[index] = {
+                                                        ...newSkills[index],
+                                                        version: value === '' ? null : Math.max(0, parseInt(value, 10) || 0)
+                                                    };
+                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                }}
+                                                placeholder="版本号（留空表示任意版本）"
+                                                style={{ flex: 1, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const newSkills = (editingConfig.expectedSkills || []).filter((_, i) => i !== index);
+                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                                }}
+                                                style={{ padding: '10px', background: c.errorSubtle, color: c.error, border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const newSkills = [...(editingConfig.expectedSkills || []), { skill: '', version: null }];
+                                            setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
+                                        }}
+                                        style={{ padding: '8px', background: c.primarySubtle, color: c.primary, border: `1px dashed ${c.primary}`, borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
+                                    >
+                                        + 添加预期 Skill
+                                    </button>
+                                </div>
+                                <div style={{ marginTop: '8px', color: c.fgSecondary, fontSize: '0.8rem' }}>
+                                    Skill 版本请填写实际版本号，例如 `0` 表示 `v0`；留空表示任意版本均可命中。
+                                </div>
+                            </div>
+                        )}
+
+                        {isRoutingEditor && editingConfig.id && (
+                            <>
+                                <div style={{ marginTop: '1rem', padding: '12px 16px', background: c.primarySubtle, border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: c.fgMuted, fontSize: '0.85rem', lineHeight: 1.7 }}>
+                                    <div><strong style={{ color: c.fg }}>语义意图：</strong> {editingConfig.routing_intent || '待提取'}</div>
+                                    <div style={{ marginTop: '6px' }}>
+                                        <strong style={{ color: c.fg }}>语义锚点：</strong> {(editingConfig.routing_anchors && editingConfig.routing_anchors.length > 0)
+                                            ? editingConfig.routing_anchors.join(', ')
+                                            : '待提取'}
+                                    </div>
+                                </div>
+
+                                <div className="form-group" style={{ marginTop: '1rem' }}>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>来源问题</label>
+                                    <div
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 12px',
+                                            maxHeight: '120px',
+                                            overflowY: 'auto',
+                                            background: c.bg,
+                                            border: `1px solid ${c.border}`,
+                                            color: c.fgMuted,
+                                            borderRadius: '6px',
+                                            fontSize: '0.88rem',
+                                            lineHeight: 1.65,
+                                        }}
+                                    >
+                                        {editingConfig.query || '--'}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {isOutcomeEditor && (
+                            <>
+                                {currentOutcomeGroup && (
+                                    <div
+                                        style={{
+                                            marginTop: '1rem',
+                                            marginBottom: '0.5rem',
+                                            padding: '12px 14px',
+                                            borderRadius: '10px',
+                                            background: c.bgTertiary,
+                                            border: `1px solid ${c.border}`,
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '10px',
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                            <div>
+                                                <div style={{ color: c.fg, fontWeight: 600, fontSize: '0.92rem' }}>
+                                                    当前 Skill 评测集：{formatSkillTargetLabel(currentOutcomeGroup.skill, currentOutcomeGroup.skillVersion)}
+                                                </div>
+                                                <div style={{ marginTop: '4px', color: c.fgMuted, fontSize: '0.82rem', lineHeight: 1.6 }}>
+                                                    共 {currentOutcomeGroup.configs.length} 个业务场景，关键动作共享 {currentOutcomeGroup.sharedKeyActions.length} 项。
+                                                    {currentOutcomeGroup.sharedKeyActions.length > 0
+                                                        ? ` ${currentOutcomeGroup.sharedKeyActionSource === 'flow' ? '这些动作来自 Skill 流程自动抽取。' : '这些动作来自当前 Skill 版本的共享配置。'}`
+                                                        : ''}
+                                                    {currentOutcomeGroup.hasGenericScenario ? ' 当前包含通用基准场景。' : ' 当前尚未配置通用基准场景。'}
+                                                </div>
+                                                {currentOutcomeGroup.sharedControlFlowSummary.length > 0 && (
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                                                        {currentOutcomeGroup.sharedControlFlowSummary.map(item => (
+                                                            <span
+                                                                key={`modal-${item.key}`}
+                                                                style={{
+                                                                    padding: '2px 8px',
+                                                                    borderRadius: '999px',
+                                                                    background: `${item.color}20`,
+                                                                    border: `1px solid ${item.color}33`,
+                                                                    color: item.color,
+                                                                    fontSize: '0.72rem',
+                                                                    fontWeight: 600,
+                                                                }}
+                                                            >
+                                                                {item.label} {item.count}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {!editingConfig.id && (
+                                                <span
+                                                    style={{
+                                                        padding: '3px 10px',
+                                                        borderRadius: '999px',
+                                                        background: 'rgba(167, 139, 250, 0.16)',
+                                                        border: '1px solid rgba(167, 139, 250, 0.3)',
+                                                        color: '#c4b5fd',
+                                                        fontSize: '0.75rem',
+                                                        fontWeight: 600,
+                                                    }}
+                                                >
+                                                    正在新增业务场景
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                            {currentOutcomeGroup.configs.map(config => {
+                                                const isActive = editingConfig.id === config.id && activeOutcomeScenarioId === config.id;
+                                                return (
+                                                    <button
+                                                        key={config.id}
+                                                        type="button"
+                                                        onClick={() => switchOutcomeScenario(config.id)}
+                                                        style={{
+                                                            padding: '6px 10px',
+                                                            borderRadius: '999px',
+                                                            border: `1px solid ${isActive ? '#38bdf8' : c.border}`,
+                                                            background: isActive ? 'rgba(56, 189, 248, 0.14)' : c.bg,
+                                                            color: isActive ? '#38bdf8' : c.fgSecondary,
+                                                            cursor: 'pointer',
+                                                            fontSize: '0.8rem',
+                                                            maxWidth: '320px',
+                                                            whiteSpace: 'nowrap',
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                        }}
+                                                        title={normalizeConfigQuery(config.query) || '通用基准'}
+                                                    >
+                                                        {getOutcomeScenarioLabel(config)}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        {editingConfig.id && currentOutcomeGroup.configs.length > 1 && (
+                                            <div style={{ color: c.fgSecondary, fontSize: '0.78rem', lineHeight: 1.5 }}>
+                                                可在同一 Skill / 版本下切换不同业务场景；关键动作为共享项，关键观点与标准答案按场景分别查看和维护。
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                <div className="form-group" style={{ marginTop: '1rem' }}>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>
+                                        目标 Skill {!editingConfig.id && <span style={{ color: c.error }}>*</span>}
+                                    </label>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) 160px', gap: '8px' }}>
+                                        <input
+                                            type="text"
+                                            list="outcome-skill-options"
+                                            value={editingConfig.skill || ''}
+                                            onChange={e => setEditingConfig({ ...editingConfig, skill: e.target.value })}
+                                            placeholder="请输入或选择目标 skill"
+                                            style={{ width: '100%', padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
+                                        />
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            value={editingConfig.skillVersion ?? ''}
+                                            onChange={e => setEditingConfig({
+                                                ...editingConfig,
+                                                skillVersion: e.target.value === '' ? null : Math.max(0, parseInt(e.target.value, 10) || 0),
+                                            })}
+                                            placeholder="版本号（留空表示任意版本）"
+                                            style={{ width: '100%', padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
+                                        />
+                                    </div>
+                                    <div style={{ marginTop: '8px', color: c.fgSecondary, fontSize: '0.8rem' }}>
+                                        将执行效果基准绑定到目标 Skill；留空表示适用于任意版本，填写 `0` 则表示只适用于 `v0`。
+                                    </div>
+                                    <datalist id="outcome-skill-options">
+                                        {availableSkills.map(skill => (
+                                            <option key={skill.id} value={skill.name} />
+                                        ))}
+                                    </datalist>
+                                </div>
+
+                                <div className="form-group" style={{ marginTop: '1rem' }}>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>
+                                        业务场景 / 来源问题 <span style={{ color: c.fgSecondary, fontWeight: 400 }}>（可选）</span>
+                                    </label>
+                                    <textarea
+                                        value={editingConfig.query || ''}
+                                        onChange={e => setEditingConfig({ ...editingConfig, query: e.target.value })}
+                                        placeholder="可填写该 Skill 对应的具体业务问题；留空则表示该效果数据为通用基准。"
+                                        style={{ width: '100%', padding: '10px', minHeight: '70px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.9rem' }}
+                                    />
+                                    <div style={{ marginTop: '8px', color: c.fgSecondary, fontSize: '0.8rem' }}>
+                                        业务场景用于区分同一 Skill 在不同问题下的关键观点；不填写时，将作为该 Skill 的通用执行效果基准。
+                                    </div>
+                                </div>
+
+                                <div className="form-group" style={{ marginTop: '1rem' }}>
+                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: '#e2e8f0' }}>
+                                        标准答案 {!editingConfig.id && <span style={{ color: '#ef4444' }}>*</span>}
+                                    </label>
+                                    {!editingConfig.id && (
+                                        <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
+                                            <button
+                                                onClick={() => { setConfigAnswerMode('manual'); setConfigDocumentFile(null); }}
+                                                style={{
+                                                    padding: '6px 16px',
+                                                    background: configAnswerMode === 'manual' ? '#38bdf8' : '#1e293b',
+                                                    color: configAnswerMode === 'manual' ? '#0f172a' : '#94a3b8',
+                                                    border: `1px solid ${configAnswerMode === 'manual' ? '#38bdf8' : '#334155'}`,
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.85rem',
+                                                    fontWeight: configAnswerMode === 'manual' ? 600 : 400,
+                                                }}
+                                            >
+                                                手动填写
+                                            </button>
+                                            <button
+                                                onClick={() => setConfigAnswerMode('document')}
+                                                style={{
+                                                    padding: '6px 16px',
+                                                    background: configAnswerMode === 'document' ? '#38bdf8' : '#1e293b',
+                                                    color: configAnswerMode === 'document' ? '#0f172a' : '#94a3b8',
+                                                    border: `1px solid ${configAnswerMode === 'document' ? '#38bdf8' : '#334155'}`,
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.85rem',
+                                                    fontWeight: configAnswerMode === 'document' ? 600 : 400,
+                                                }}
+                                            >
+                                                上传案例文档
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {editingConfig.id || configAnswerMode === 'manual' ? (
                                         <textarea
                                             value={editingConfig.standard_answer || ''}
                                             onChange={e => setEditingConfig({ ...editingConfig, standard_answer: e.target.value })}
@@ -2994,147 +4098,28 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📁</div>
                                                     <div style={{ color: c.fgMuted }}>{t('dashboard.config.dragUpload')}</div>
                                                     <div style={{ color: c.fgSecondary, fontSize: '0.8rem', marginTop: '4px' }}>
-                                                        {t('config.supportedFormats')}
+                                                        支持 .txt, .md, .pdf 格式
                                                     </div>
                                                 </div>
                                             )}
-                                         </div>
+                                        </div>
                                     )}
                                 </div>
 
-                                {/* Expected Skills (Optional) */}
-                                <div className="form-group" style={{ marginTop: '1rem' }}>
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>{t('dashboard.config.expectedSkillOptional')}</label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {(editingConfig.expectedSkills || []).map((item, index) => (
-                                            <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                <input
-                                                    type="text"
-                                                    value={item.skill}
-                                                    onChange={e => {
-                                                        const newSkills = [...(editingConfig.expectedSkills || [])];
-                                                        newSkills[index] = { ...newSkills[index], skill: e.target.value };
-                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                    }}
-                                                    placeholder={t('config.skillNamePlaceholder')}
-                                                    style={{ flex: 2, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
-                                                />
-                                            <input
-                                                type="number"
-                                                value={item.version ?? 0}
-                                                onChange={e => {
-                                                    const value = e.target.value;
-                                                    const newSkills = [...(editingConfig.expectedSkills || [])];
-                                                    newSkills[index] = { 
-                                                        ...newSkills[index], 
-                                                        version: value === '' ? 0 : Math.max(0, parseInt(value, 10) || 0)
-                                                    };
-                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                }}
-                                                placeholder={t('config.versionPlaceholder')}
-                                                style={{ flex: 1, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    const newSkills = (editingConfig.expectedSkills || []).filter((_, i) => i !== index);
-                                                    setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                }}
-                                                style={{ padding: '10px', background: c.errorSubtle, color: c.error, border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-                                            >
-                                                ✕
-                                            </button>
-                                        </div>
-                                    ))}
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            const newSkills = [...(editingConfig.expectedSkills || []), { skill: '', version: 0 }];
-                                            setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                        }}
-                                        style={{ padding: '8px', background: c.primarySubtle, color: c.primary, border: `1px dashed ${c.primary}`, borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
-                                    >
-                                        {t('dashboard.config.addExpectedSkill')}
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div style={{ marginTop: '1rem', padding: '12px 16px', background: c.primarySubtle, border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: c.fgMuted, fontSize: '0.85rem' }}>
-                                <p style={{ margin: 0 }}>
-                                    💡 {t('dashboard.config.autoExtractHint')}
-                                </p>
-                            </div>
-                        </>
-                    ) : (                            <>
-                                 {/* 标准答案 - 突出显示 */}
-                                <div className="form-group">
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>{t('dashboard.config.standardAnswer')}</label>
-                                    <textarea
-                                        value={editingConfig.standard_answer || ''}
-                                        onChange={e => setEditingConfig({ ...editingConfig, standard_answer: e.target.value })}
-                                        style={{ width: '100%', padding: '10px', minHeight: '120px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.9rem' }}
-                                    />
-                                </div>
-
-                                {/* Expected Skills (Optional) */}
-                                <div className="form-group" style={{ marginTop: '1rem' }}>
-                                    <label style={{ fontWeight: 600, fontSize: '0.95rem', color: c.fg }}>{t('dashboard.config.expectedSkillOptional')}</label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {(editingConfig.expectedSkills || []).map((item, index) => (
-                                            <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                <input
-                                                    type="text"
-                                                    value={item.skill}
-                                                    onChange={e => {
-                                                        const newSkills = [...(editingConfig.expectedSkills || [])];
-                                                        newSkills[index] = { ...newSkills[index], skill: e.target.value };
-                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                    }}
-                                                    placeholder={t('config.skillNamePlaceholder')}
-                                                    style={{ flex: 2, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
-                                                />
-                                                <input
-                                                    type="number"
-                                                    value={item.version ?? 0}
-                                                    onChange={e => {
-                                                        const value = e.target.value;
-                                                        const newSkills = [...(editingConfig.expectedSkills || [])];
-                                                        newSkills[index] = { 
-                                                            ...newSkills[index], 
-                                                            version: value === '' ? 0 : Math.max(0, parseInt(value, 10) || 0)
-                                                        };
-                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                    }}
-                                                    placeholder={t('config.versionPlaceholder')}
-                                                    style={{ flex: 1, padding: '10px', background: c.bg, border: `1px solid ${c.border}`, color: c.fg, borderRadius: '6px', fontSize: '0.95rem' }}
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const newSkills = (editingConfig.expectedSkills || []).filter((_, i) => i !== index);
-                                                        setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                                    }}
-                                                    style={{ padding: '10px', background: c.errorSubtle, color: c.error, border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-                                                >
-                                                    ✕
-                                                </button>
-                                            </div>
-                                        ))}
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const newSkills = [...(editingConfig.expectedSkills || []), { skill: '', version: 0 }];
-                                                setEditingConfig({ ...editingConfig, expectedSkills: newSkills });
-                                            }}
-                                            style={{ padding: '8px', background: c.primarySubtle, color: c.primary, border: `1px dashed ${c.primary}`, borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
-                                        >
-                                            {t('dashboard.config.addExpectedSkill')}
-                                        </button>
+                                {!editingConfig.id && (
+                                    <div style={{ marginTop: '1rem', padding: '12px 16px', background: c.primarySubtle, border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '8px', color: c.fgMuted, fontSize: '0.85rem', lineHeight: 1.7 }}>
+                                        <p style={{ margin: 0 }}>
+                                            保存后，系统会根据用户提供的标准答案或案例文档提取<strong style={{ color: c.fg }}>关键观点</strong>。关键观点与具体业务问题相关，属于可选项。
+                                        </p>
+                                        <p style={{ margin: '8px 0 0 0' }}>
+                                            同时，系统会根据目标 Skill 的流程约束提取并复用<strong style={{ color: c.fg }}>关键动作</strong>。同一 Skill / 版本应共享同一套关键动作，不随业务场景变化。
+                                        </p>
                                     </div>
-                                </div>
+                                )}
 
-                                {/* 关键观点 - 默认折叠 */}
-                                <details style={{ marginBottom: '1rem' }}>
+                                {editingConfig.id && (
+                                    <>
+                                        <details style={{ marginBottom: '1rem' }}>
                                     <summary style={{
                                         cursor: 'pointer',
                                         color: c.fgMuted,
@@ -3151,14 +4136,14 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                         transition: 'background 0.2s'
                                     }}>
                                         <span className="details-arrow" style={{ fontSize: '0.7rem', color: c.fgSecondary, transition: 'transform 0.2s', display: 'inline-block' }}>▶</span>
-                                        <span style={{ fontWeight: 500 }}>{t('dashboard.config.keyPoints')}</span>
+                                        <span style={{ fontWeight: 500 }}>关键观点（可按场景配置）</span>
                                         <span style={{ fontSize: '0.8rem', color: c.fgSecondary, marginLeft: 'auto' }}>
-                                            {t('dashboard.config.itemsCount', { count: String((editingConfig.root_causes || []).length) })} · {t('dashboard.config.clickToExpand')}
+                                            {(editingConfig.root_causes || []).length} 项 · 点击展开
                                         </span>
                                     </summary>
                                     <div style={{ background: c.bg, padding: '10px', borderRadius: '4px', border: `1px solid ${c.border}`, marginTop: '8px' }}>
                                         <div style={{ color: c.fgSecondary, fontSize: '0.8rem', marginBottom: '10px', padding: '6px 8px', background: c.bgTertiary, borderRadius: '4px' }}>
-                                            {t('dashboard.config.keyPointsSource')}
+                                            来源：从用户提供的标准答案或业务材料中提取 · 作用：评估 Agent 回答是否覆盖当前场景的关键信息
                                         </div>
                                         {(editingConfig.root_causes || []).map((item, idx) => (
                                             <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '8px' }}>
@@ -3202,12 +4187,11 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                                 root_causes: [...(editingConfig.root_causes || []), { content: '', weight: 1 }]
                                             })}
                                         >
-                                            + {t('dashboard.config.addKeyPoint')}
+                                            + 添加关键观点
                                         </button>
                                     </div>
                                 </details>
 
-                                {/* 关键动作 - 默认折叠 */}
                                 <details style={{ marginBottom: '1rem' }}>
                                     <summary style={{
                                         cursor: 'pointer',
@@ -3225,9 +4209,9 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                         transition: 'background 0.2s'
                                     }}>
                                         <span className="details-arrow" style={{ fontSize: '0.7rem', color: c.fgSecondary, transition: 'transform 0.2s', display: 'inline-block' }}>▶</span>
-                                        <span style={{ fontWeight: 500 }}>{t('dashboard.config.keyActions')}</span>
+                                        <span style={{ fontWeight: 500 }}>关键动作（同一 Skill 版本共用）</span>
                                         <span style={{ fontSize: '0.8rem', color: c.fgSecondary, marginLeft: 'auto' }}>
-                                            {t('dashboard.config.itemsCount', { count: String((editingConfig.key_actions || []).length) })} · {t('dashboard.config.clickToExpand')}
+                                            {(editingConfig.key_actions || []).length} 项 · 点击展开
                                         </span>
                                     </summary>
                                     <div style={{ background: c.bg, padding: '10px', borderRadius: '4px', border: `1px solid ${c.border}`, marginTop: '8px' }}>
@@ -3290,7 +4274,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                                                     fontWeight: 500
                                                                 }}
                                                             >
-                                                                + {t('dashboard.config.addToGroup')}
+                                                                + 添加到组内
                                                             </button>
                                                         </div>
                                                     );
@@ -3354,7 +4338,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                                 style={{ background: c.bgTertiary, color: c.fgSecondary, border: `1px solid ${c.border}` }}
                                                 onClick={() => setShowAddMenu(!showAddMenu)}
                                             >
-                                                + {t('dashboard.config.addKeyAction')} ▼
+                                                + 添加关键动作 ▼
                                             </button>
                                             {showAddMenu && (
                                                 <>
@@ -3383,11 +4367,11 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                                         overflow: 'hidden'
                                                     }}>
                                                         {[
-                                                            { type: 'required' as ControlFlowType, icon: '➕', label: t('dashboard.config.addRequiredAction') },
-                                                            { type: 'conditional' as ControlFlowType, icon: '⎇', label: t('dashboard.config.addConditionalGroup') },
-                                                            { type: 'loop' as ControlFlowType, icon: '↻', label: t('dashboard.config.addLoopGroup') },
-                                                            { type: 'optional' as ControlFlowType, icon: '○', label: t('dashboard.config.addOptionalAction') },
-                                                            { type: 'handoff' as ControlFlowType, icon: '→', label: t('dashboard.config.addHandoffAction') },
+                                                            { type: 'required' as ControlFlowType, icon: '➕', label: '添加必选动作' },
+                                                            { type: 'conditional' as ControlFlowType, icon: '⎇', label: '添加条件分支组' },
+                                                            { type: 'loop' as ControlFlowType, icon: '↻', label: '添加循环组' },
+                                                            { type: 'optional' as ControlFlowType, icon: '○', label: '添加可选动作' },
+                                                            { type: 'handoff' as ControlFlowType, icon: '→', label: '添加衔接动作' },
                                                         ].map(({ type, icon, label }) => (
                                                             <div
                                                                 key={type}
@@ -3419,12 +4403,14 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                         </div>
                                     </div>
                                 </details>
+                                    </>
+                                )}
                             </>
                         )}
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '1.5rem', paddingTop: '1rem', borderTop: `1px solid ${c.border}` }}>
                             <button
-                                onClick={() => { setIsEditModalOpen(false); setIsSavingConfig(false); }}
+                                onClick={closeConfigModal}
                                 style={{
                                     padding: '8px 24px',
                                     background: c.bgSecondary,
@@ -3439,6 +4425,25 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                             >
                                 {t('common.cancel')}
                             </button>
+                            {editingConfig.id && (
+                                <button
+                                    onClick={() => reparseConfig(editingConfig.id as string)}
+                                    disabled={isSavingConfig}
+                                    style={{
+                                        padding: '8px 24px',
+                                        background: c.warningSubtle,
+                                        color: c.warning,
+                                        border: `1px solid ${c.warning}`,
+                                        borderRadius: '6px',
+                                        cursor: isSavingConfig ? 'not-allowed' : 'pointer',
+                                        fontSize: '0.9rem',
+                                        fontWeight: 500,
+                                        opacity: isSavingConfig ? 0.7 : 1,
+                                    }}
+                                >
+                                    重新解析
+                                </button>
+                            )}
                             <button
                                 onClick={saveConfig}
                                 disabled={isSavingConfig}
@@ -3467,21 +4472,21 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                 <div className="modal-overlay" onClick={() => setSelectedRecord(null)}>
                     <div className="modal-content card" onClick={e => e.stopPropagation()} style={{ width: '800px', maxWidth: '95%', maxHeight: '90vh', overflowY: 'auto', overflowX: 'hidden' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                            <h3>{t('dashboard.config.recordDetail')}</h3>
+                            <h3>记录详情</h3>
                             <button onClick={() => setSelectedRecord(null)} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '1.5rem', cursor: 'pointer' }}>×</button>
                         </div>
 
                         <div className="detail-section">
-                            <h4>{t('dashboard.config.basicInfo')}</h4>
+                            <h4>基本信息</h4>
                             <div className="detail-grid">
-                                <div><strong>Time:</strong> {formatDateTime(selectedRecord.timestamp)}</div>
-                                <div><strong>Framework:</strong> {selectedRecord.framework}</div>
-                                <div><strong>Latency:</strong> {formatLatency(selectedRecord.latency)}{(() => {
+                                <div><strong>时间：</strong> {formatDateTime(selectedRecord.timestamp)}</div>
+                                <div><strong>框架：</strong> {selectedRecord.framework}</div>
+                                <div><strong>时延：</strong> {formatLatency(selectedRecord.latency)}{(() => {
                                     const rid = selectedRecord.upload_id || selectedRecord.task_id || '';
                                     const vd = versionDiffMap.get(rid);
                                     return vd ? formatDiff(vd.latencyDiff, true, isDark) : null;
                                 })()}</div>
-                                <div><strong>Token:</strong> {selectedRecord.tokens}{(() => {
+                                <div><strong>Token：</strong> {selectedRecord.tokens}{(() => {
                                     const rid = selectedRecord.upload_id || selectedRecord.task_id || '';
                                     const vd = versionDiffMap.get(rid);
                                     return vd ? formatDiff(vd.tokenDiff, true, isDark) : null;
@@ -3501,13 +4506,13 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                         </div>
 
                         <div className="detail-section">
-                            <h4>Input / Output</h4>
+                            <h4>{t('dashboard.detail.inputOutput')}</h4>
                             <div className="detail-row">
-                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>Query:</strong>
+                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>{t('dashboard.detail.query')}：</strong>
                                 <div className="code-block">{selectedRecord.query}</div>
                             </div>
                             <div className="detail-row">
-                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>Skills Used:</strong>
+                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>使用的 Skill：</strong>
                                 <div className="code-block">
                                     <SkillLinks
                                         skills={selectedRecord.skills}
@@ -3518,19 +4523,134 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                 </div>
                             </div>
                             <div className="detail-row">
-                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>Final Result:</strong>
-                                <div className="code-block" style={{ maxHeight: '200px', overflowY: 'auto' }}>{selectedRecord.final_result || '(None)'}</div>
+                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>{t('dashboard.detail.finalResult')}：</strong>
+                                <div className="code-block" style={{ maxHeight: '200px', overflowY: 'auto' }}>{selectedRecord.final_result || '（无）'}</div>
                             </div>
                         </div>
 
                         <div className="detail-section">
-                            <h4>评估结果</h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                                <div className={`status-box ${selectedRecord.answer_score === null ? 'warning' : ((selectedRecord.answer_score || 0) > 0.8 ? 'good' : 'bad')}`}
-                                    style={selectedRecord.answer_score === null ? { borderLeft: `4px solid ${c.fgMuted}`, background: c.bgTertiary, color: c.fgMuted } : {}}>
-                                    <strong>回答评分:</strong> {selectedRecord.answer_score === null ? '--' : (selectedRecord.answer_score || 0).toFixed(2)}
-                                </div>
-                            </div>
+                            <h4>{t('dashboard.detail.evaluationResults')}</h4>
+                            {(() => {
+                                const routing = selectedRecord.routing_evaluation;
+                                const routingMeta = getRoutingEvaluationMeta(routing);
+                                const outcome = selectedRecord.outcome_evaluation;
+                                const outcomeMeta = getOutcomeEvaluationMeta(outcome);
+
+                                return (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                                        <div
+                                            style={{
+                                                borderRadius: '10px',
+                                                padding: '1rem',
+                                                background: routingMeta.background,
+                                                border: `1px solid ${routingMeta.border}`,
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                                                <strong style={{ color: '#e2e8f0' }}>Skill 召回率评测</strong>
+                                                <span style={{ color: routingMeta.accent, fontSize: '0.8rem', fontWeight: 700 }}>{routingMeta.label}</span>
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                                <div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>召回率</div>
+                                                    <div style={{ color: '#f8fafc', fontWeight: 700 }}>
+                                                        {routing?.recall_rate != null ? `${(routing.recall_rate * 100).toFixed(0)}%` : '--'}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>命中数</div>
+                                                    <div style={{ color: '#f8fafc', fontWeight: 700 }}>
+                                                        {routing?.status === 'available' ? `${routing.matched_count}/${routing.expected_count}` : '--'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.6 }}>
+                                                <div><strong style={{ color: '#94a3b8' }}>预期 Skill：</strong> {formatExpectedSkillList(routing?.expected_skills)}</div>
+                                                <div><strong style={{ color: '#94a3b8' }}>实际调用：</strong> {formatInvokedSkillList(routing?.invoked_skills)}</div>
+                                                {routing?.matched_intent && <div><strong style={{ color: '#94a3b8' }}>命中语义意图：</strong> {routing.matched_intent}</div>}
+                                                {routing?.matched_anchors?.length ? <div><strong style={{ color: '#94a3b8' }}>命中语义锚点：</strong> {routing.matched_anchors.join(', ')}</div> : null}
+                                            </div>
+                                            {routing?.skill_breakdown?.length ? (
+                                                <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                                                    {routing.skill_breakdown.map(item => {
+                                                        const statusMeta = getRoutingSkillStatusMeta(item.status);
+                                                        return (
+                                                            <div key={`routing-${item.skill}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', padding: '0.45rem 0.6rem', borderRadius: '8px', background: 'rgba(15, 23, 42, 0.42)' }}>
+                                                                <div style={{ minWidth: 0 }}>
+                                                                    <div style={{ color: '#f8fafc', fontSize: '0.82rem', fontWeight: 700 }}>{item.skill}</div>
+                                                                    <div style={{ color: '#94a3b8', fontSize: '0.76rem' }}>
+                                                                        预期版本 {item.expected_version != null ? `v${item.expected_version}` : '任意'} | 实际版本 {item.invoked_version != null ? `v${item.invoked_version}` : '未调用'}
+                                                                    </div>
+                                                                </div>
+                                                                <span style={{ flexShrink: 0, padding: '0.22rem 0.5rem', borderRadius: '999px', fontSize: '0.72rem', color: statusMeta.color, background: statusMeta.background, border: `1px solid ${statusMeta.border}` }}>
+                                                                    {statusMeta.label}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : null}
+                                        </div>
+
+                                        <div
+                                            style={{
+                                                borderRadius: '10px',
+                                                padding: '1rem',
+                                                background: outcomeMeta.background,
+                                                border: `1px solid ${outcomeMeta.border}`,
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                                                <strong style={{ color: '#e2e8f0' }}>Skill 执行效果评测</strong>
+                                                <span style={{ color: outcomeMeta.accent, fontSize: '0.8rem', fontWeight: 700 }}>{outcomeMeta.label}</span>
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                                <div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>评分</div>
+                                                    <div style={{ color: '#f8fafc', fontWeight: 700 }}>
+                                                        {outcome?.score != null ? outcome.score.toFixed(2) : '--'}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.2rem' }}>评测项数</div>
+                                                    <div style={{ color: '#f8fafc', fontWeight: 700 }}>
+                                                        {outcome?.status === 'available' || outcome?.status === 'pending'
+                                                            ? `${outcome.root_cause_count + outcome.key_action_count}`
+                                                            : '--'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div style={{ fontSize: '0.82rem', color: '#cbd5e1', lineHeight: 1.6 }}>
+                                                <div><strong style={{ color: '#94a3b8' }}>匹配 Skill：</strong> {outcome?.matched_skill ? `${outcome.matched_skill}${outcome.matched_skill_version != null ? ` v${outcome.matched_skill_version}` : ''}` : '--'}</div>
+                                                {outcome?.matched_query && <div><strong style={{ color: '#94a3b8' }}>业务场景：</strong> {outcome.matched_query}</div>}
+                                                <div><strong style={{ color: '#94a3b8' }}>效果数据：</strong> {outcome?.standard_answer_present ? '已配置标准答案' : '未配置标准答案'}</div>
+                                            </div>
+                                            {outcome?.skill_breakdown?.length ? (
+                                                <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                                                    {outcome.skill_breakdown.map(item => {
+                                                        const routingStatusMeta = getRoutingSkillStatusMeta(item.routing_status);
+                                                        return (
+                                                            <div key={`outcome-${item.skill}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', padding: '0.45rem 0.6rem', borderRadius: '8px', background: 'rgba(15, 23, 42, 0.42)' }}>
+                                                                <div style={{ minWidth: 0 }}>
+                                                                    <div style={{ color: '#f8fafc', fontSize: '0.82rem', fontWeight: 700 }}>
+                                                                        {item.skill}{item.version != null ? ` v${item.version}` : ''}
+                                                                    </div>
+                                                                    <div style={{ color: '#94a3b8', fontSize: '0.76rem' }}>
+                                                                        角色：{item.role} | 路由：{routingStatusMeta.label}
+                                                                    </div>
+                                                                </div>
+                                                                <span style={{ flexShrink: 0, color: '#cbd5e1', fontSize: '0.76rem' }}>
+                                                                    {item.score != null ? item.score.toFixed(2) : '--'}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             {selectedRecord.failures && selectedRecord.failures.length > 0 && (
                                 <div className="detail-section">
@@ -3590,7 +4710,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
 
 
                             <div className="detail-row" style={{ marginTop: '1rem' }}>
-                                <strong style={{ color: c.fgMuted }}>Reason:</strong>
+                                <strong style={{ color: c.fgMuted }}>{t('dashboard.detail.judgmentReason')}：</strong>
                                 <div style={{ marginTop: '0.2rem', fontSize: '0.9rem', color: c.fg, whiteSpace: 'pre-wrap' }}>{selectedRecord.judgment_reason || '-'}</div>
                             </div>
                         </div >
@@ -3610,7 +4730,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                             transition: 'all 0.2s'
                                         }}
                                     >
-                                        👍 Like
+                                        👍 {t('dashboard.feedback.like')}
                                     </button>
                                     <button
                                         onClick={() => submitFeedback('dislike')}
@@ -3623,7 +4743,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
                                             transition: 'all 0.2s'
                                         }}
                                     >
-                                        👎 Dislike
+                                        👎 {t('dashboard.feedback.dislike')}
                                     </button>
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
@@ -3902,7 +5022,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
         details > summary::-webkit-details-marker { display: none; }
         details > summary::marker { display: none; content: ''; }
         @keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.3); } }
-        
+
         .detail-section { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #334155; }
         .detail-section:last-child { border-bottom: none; }
         .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -3911,7 +5031,7 @@ alert(t('config.saveFailed') + `: ${err.error || 'Unknown error'}`);
         .status-box { padding: 1rem; border-radius: 6px; text-align: center; }
         .status-box.good { background: var(--success-subtle); border: 1px solid var(--success); color: var(--success); }
         .status-box.bad { background: var(--error-subtle); border: 1px solid var(--error); color: var(--error); }
-        
+
         h4 { color: var(--primary); margin-bottom: 1rem; margin-top: 0; }
         .text-sm { font-size: 0.875rem; }
         .text-xl { font-size: 1.25rem; }

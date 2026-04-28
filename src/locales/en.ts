@@ -206,6 +206,7 @@ export const en = {
     },
     detail: {
       title: 'Execution Detail',
+      inputOutput: 'Input / Output',
       query: 'Query',
       framework: 'Framework',
       model: 'Model',
@@ -220,6 +221,8 @@ export const en = {
       skillScore: 'Skill Score',
       skillRecallRate: 'Skill Recall Rate',
       judgmentReason: 'Judgment Reason',
+      evaluationResults: 'Evaluation Results',
+      finalResult: 'Final Result',
       userFeedback: 'User Feedback',
       result: 'Result',
       failures: 'Failures',

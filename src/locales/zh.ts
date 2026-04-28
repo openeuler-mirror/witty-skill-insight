@@ -206,6 +206,7 @@ export const zh = {
     },
     detail: {
       title: '执行详情',
+      inputOutput: '输入与输出',
       query: '问题',
       framework: '框架',
       model: '模型',
@@ -220,6 +221,8 @@ export const zh = {
       skillScore: '技能分',
       skillRecallRate: '技能召回率',
       judgmentReason: '评判原因',
+      evaluationResults: '评估结果',
+      finalResult: '最终结果',
       userFeedback: '用户反馈',
       result: '结果',
       failures: '失败记录',
