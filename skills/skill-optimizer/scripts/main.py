@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import sys
+import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -574,13 +575,14 @@ def run_optimizer(
     input_path: Path,
     project_dir: Path,
     human_feedback: Optional[str] = None,
+    trajectories: Optional[Path] = None,
     open_diff: bool = True,
 ) -> List[Path]:
     """
     Main entry point for function calls.
 
     Args:
-        mode: 'static' or 'dynamic' or 'feedback'
+        mode: 'static' or 'dynamic' or 'feedback' or 'traces'
         input_path: Path to input directory or file
         project_dir: Project root directory for creating the optimized workspace
         human_feedback: Optional human feedback content to guide optimization
@@ -805,6 +807,32 @@ def run_optimizer(
                                 skill_path=skill_file,
                                 report_items=report_items,
                             )
+
+            elif mode == "trace":
+                logger.info("Mode: Trace (Trajectory-Driven Optimization)")
+                if not trajectories:
+                    print("\n" + "=" * 60)
+                    print("⚠️ 轨迹目录未提供，无法进行轨迹优化。")
+                    print("请使用 --trajectories 参数指定轨迹目录。")
+                    print("=" * 60)
+                    continue
+
+                trajectory_path = Path(trajectories)
+                if not trajectory_path.exists():
+                    print("\n" + "=" * 60)
+                    print(f"⚠️ 轨迹目录不存在: {trajectory_path}")
+                    print("=" * 60)
+                    continue
+
+                logger.info(f"📂 轨迹目录: {trajectory_path}")
+                logger.info("⏳ [进度] 正在执行轨迹分析...")
+                logger.info("⏳ [进度] 预计需要 5-10 分钟，请耐心等待...")
+                logger.info("⏳ [进度] LLM 调用中...")
+                optimized_genome, diagnoses = optimizer.optimize_trace(
+                    skill_path=skill_file,
+                    trajectories=trajectory_path,
+                    project_path=workspace_dir,
+                )
 
             # 5. Save Result
             from snapshot_manager import SnapshotManager
@@ -1066,8 +1094,14 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["static", "dynamic", "feedback"],
-        help="Optimization mode: static (cold) or dynamic (trace-based) or feedback (human revision). Required for 'optimize' action.",
+        choices=["static", "dynamic", "feedback", "trace"],
+        help="Optimization mode: static (cold), dynamic (trace-based), feedback (human revision), or trace (Trace2Skill). Required for 'optimize' action.",
+    )
+    parser.add_argument(
+        "--trajectories",
+        "-t",
+        type=str,
+        help="Path to trajectories directory. Required for --mode trace.",
     )
     parser.add_argument(
         "--input",
@@ -1177,6 +1211,8 @@ def main():
 
     if not args.mode:
         parser.error("--mode is required for 'optimize' action")
+        
+    trajectories_path = Path(args.trajectories) if args.trajectories else None
 
     try:
         human_feedback_content = resolve_human_feedback_content(args.mode, args.feedback)
@@ -1190,6 +1226,7 @@ def main():
         input_path,
         project_dir=Path(args.project_dir),
         human_feedback=human_feedback_content,
+        trajectories=trajectories_path,
         open_diff=not args.no_open_diff,
     )
 

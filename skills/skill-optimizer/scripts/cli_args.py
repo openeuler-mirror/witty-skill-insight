@@ -28,3 +28,32 @@ def resolve_human_feedback_content(mode: str, feedback_arg: Optional[str]) -> Op
 
     return content
 
+
+def resolve_trace_mode_args(
+    skill_path: Optional[str],
+    trajectories_path: Optional[str],
+    mode: str,
+) -> tuple[Optional[Path], Optional[Path]]:
+    if mode != "trace":
+        return None, None
+
+    if not skill_path:
+        raise CliArgsError("skill path is required for --mode trace")
+
+    skill_dir = Path(skill_path)
+    if not skill_dir.exists():
+        raise CliArgsError(f"Skill directory not found: {skill_dir}")
+
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        raise CliArgsError(f"SKILL.md not found in: {skill_dir}")
+
+    if not trajectories_path:
+        raise CliArgsError("--trajectories is required for --mode trace")
+
+    trajectories_dir = Path(trajectories_path)
+    if not trajectories_dir.exists():
+        raise CliArgsError(f"Trajectories directory not found: {trajectories_dir}")
+
+    return skill_dir, trajectories_dir
+
