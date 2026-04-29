@@ -4506,9 +4506,9 @@ export default function Dashboard() {
                         </div>
 
                         <div className="detail-section">
-                            <h4>输入与输出</h4>
+                            <h4>{t('dashboard.detail.inputOutput')}</h4>
                             <div className="detail-row">
-                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>用户输入：</strong>
+                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>{t('dashboard.detail.query')}：</strong>
                                 <div className="code-block">{selectedRecord.query}</div>
                             </div>
                             <div className="detail-row">
@@ -4523,13 +4523,13 @@ export default function Dashboard() {
                                 </div>
                             </div>
                             <div className="detail-row">
-                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>最终结果：</strong>
+                                <strong style={{ display: 'block', marginBottom: '0.2rem', color: c.fgMuted }}>{t('dashboard.detail.finalResult')}：</strong>
                                 <div className="code-block" style={{ maxHeight: '200px', overflowY: 'auto' }}>{selectedRecord.final_result || '（无）'}</div>
                             </div>
                         </div>
 
                         <div className="detail-section">
-                            <h4>评估结果</h4>
+                            <h4>{t('dashboard.detail.evaluationResults')}</h4>
                             {(() => {
                                 const routing = selectedRecord.routing_evaluation;
                                 const routingMeta = getRoutingEvaluationMeta(routing);
@@ -4710,7 +4710,7 @@ export default function Dashboard() {
 
 
                             <div className="detail-row" style={{ marginTop: '1rem' }}>
-                                <strong style={{ color: c.fgMuted }}>执行效果判定说明：</strong>
+                                <strong style={{ color: c.fgMuted }}>{t('dashboard.detail.judgmentReason')}：</strong>
                                 <div style={{ marginTop: '0.2rem', fontSize: '0.9rem', color: c.fg, whiteSpace: 'pre-wrap' }}>{selectedRecord.judgment_reason || '-'}</div>
                             </div>
                         </div >
@@ -4730,7 +4730,7 @@ export default function Dashboard() {
                                             transition: 'all 0.2s'
                                         }}
                                     >
-                                        👍 有帮助
+                                        👍 {t('dashboard.feedback.like')}
                                     </button>
                                     <button
                                         onClick={() => submitFeedback('dislike')}
@@ -4743,7 +4743,7 @@ export default function Dashboard() {
                                             transition: 'all 0.2s'
                                         }}
                                     >
-                                        👎 没帮助
+                                        👎 {t('dashboard.feedback.dislike')}
                                     </button>
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
